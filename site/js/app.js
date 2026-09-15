@@ -1,5 +1,5 @@
 /*
- * Music Database frontend.
+ * Music Companion frontend.
  *
  * No build step, no framework -- sql.js (SQLite compiled to WASM) loads
  * site/public/music.sqlite (a slim export built by etl/build_public_db.py,

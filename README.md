@@ -1,4 +1,4 @@
-# Music Database
+# Music Companion
 
 A personal, visual database linking three sides of a music life:
 

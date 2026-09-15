@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Music Database — Maintenance</title>
+<title>Music Companion — Maintenance</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -56,6 +56,13 @@
   section { margin-bottom: 34px; }
   .subtitle { color: var(--text-dim); font-size: 0.9rem; margin: 0 0 16px; }
   a { color: var(--accent); }
+  .link-card h3 {
+    font-family: var(--font-display);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    font-size: 0.92rem;
+    margin: 0 0 8px;
+  }
   .link-card p { margin: 0 0 14px; }
   .btn-link {
     display: inline-block;
@@ -263,18 +270,36 @@
   </section>
 
   <section>
-    <h2>Find Artist MBIDs</h2>
+    <h2>Artists</h2>
+    <p class="subtitle">Resolve MusicBrainz ids and merge duplicate artist records.</p>
+
     <div class="card link-card">
+      <h3>Find Artist MBIDs</h3>
       <p class="subtitle">Fuzzy-search MusicBrainz, enter an id by hand, or merge into an artist you already have -- for artists with no MusicBrainz id yet.</p>
       <a class="btn-link" href="/artists.html">Open →</a>
+    </div>
+
+    <div class="card link-card">
+      <h3>Tidy Duplicates</h3>
+      <p class="subtitle">Merge duplicate artist records -- e.g. "Toots and The Maytals" vs "Toots & The Maytals" -- manually, or via a fuzzy scan that suggests likely pairs.</p>
+      <a class="btn-link" href="/duplicates.html">Open →</a>
     </div>
   </section>
 
   <section>
-    <h2>Tidy Duplicates</h2>
+    <h2>Albums</h2>
+    <p class="subtitle">Same idea, for albums -- unify different releases ("Remastered" vs. "Special Edition" vs. the original pressing) so scrobbles and vinyl holdings count against one record instead of splitting across several.</p>
+
     <div class="card link-card">
-      <p class="subtitle">Merge duplicate artist records -- e.g. "Toots and The Maytals" vs "Toots & The Maytals" -- manually, or via a fuzzy scan that suggests likely pairs.</p>
-      <a class="btn-link" href="/duplicates.html">Open →</a>
+      <h3>Find Album MBIDs</h3>
+      <p class="subtitle">Fuzzy-search MusicBrainz release groups, enter an id by hand, or merge into an album you already have -- for albums with no MusicBrainz id yet.</p>
+      <a class="btn-link" href="/albums.html">Open →</a>
+    </div>
+
+    <div class="card link-card">
+      <h3>Tidy Album Duplicates</h3>
+      <p class="subtitle">Merge duplicate album records -- e.g. different pressings of the same release -- manually, or via a fuzzy scan (scoped to each artist's own discography) that suggests likely pairs.</p>
+      <a class="btn-link" href="/album-duplicates.html">Open →</a>
     </div>
   </section>
 </main>

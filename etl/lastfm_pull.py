@@ -138,7 +138,7 @@ def pull(full: bool, max_pages: int | None) -> None:
             album_id = None
             if raw_album:
                 album_mbid = track.get("album", {}).get("mbid") or None
-                album_id = get_or_create_album(conn, album_cache, [artist_id], raw_album, mbid=album_mbid)
+                album_id = get_or_create_album(conn, album_cache, [artist_id], raw_album, mbid=album_mbid, source="lastfm")
 
             track_mbid = track.get("mbid") or None
             song_id = get_or_create_song(conn, song_cache, artist_id, raw_track, album_id=album_id, mbid=track_mbid)

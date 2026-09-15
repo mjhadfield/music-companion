@@ -13,7 +13,7 @@ import time
 
 import requests
 
-USER_AGENT = "MusicDatabaseMaintenance/1.0 (mikehadfield89@gmail.com)"
+USER_AGENT = "MusicCompanionMaintenance/1.0 (mikehadfield89@gmail.com)"
 BASE_URL = "https://musicbrainz.org/ws/2"
 MIN_INTERVAL_SECONDS = 1.0
 TIMEOUT_SECONDS = 10
@@ -90,6 +90,48 @@ def search_artists(query: str, limit: int = 10) -> list[dict]:
     return candidates
 
 
-# search_release_groups(query, artist_mbid=None, limit=10) and
-# search_recordings(query, artist_mbid=None, limit=10) slot in here later
-# for the albums/songs maintenance passes, reusing _mb_get/_throttle as-is.
+def _credited_name(artist_credit: list[dict]) -> str:
+    """MB's convention for turning an artist-credit list back into display
+    text: concatenate each entry's name with its own joinphrase (e.g. "Kiss"
+    + ", " + "Ace Frehley" -> "Kiss, Ace Frehley")."""
+    return "".join((ac.get("name") or "") + (ac.get("joinphrase") or "") for ac in artist_credit)
+
+
+def search_release_groups(title: str, artist_name: str | None = None, artist_mbid: str | None = None, limit: int = 10) -> list[dict]:
+    """Fuzzy-search MusicBrainz for release groups (i.e. "albums" in the
+    work-level sense MB uses -- one release group covers the original
+    pressing, remasters, special editions, etc.) matching `title`.
+
+    Scoped to one artist when we have something to scope by: an mbid is the
+    precise filter, an artist name is a softer hint, and with neither we
+    fall back to a plain title search. Candidates are ordered by MB's own
+    relevance score (best first)."""
+    title = (title or "").strip().replace('"', "")
+    if not title:
+        return []
+
+    if artist_mbid:
+        query = f'releasegroup:"{title}" AND arid:{artist_mbid}'
+    elif artist_name:
+        query = f'releasegroup:"{title}" AND artist:"{artist_name.strip().replace(chr(34), "")}"'
+    else:
+        query = f'releasegroup:"{title}"'
+
+    data = _mb_get("release-group", {"query": query, "limit": limit})
+    candidates = []
+    for rg in data.get("release-groups", []):
+        candidates.append({
+            "mbid": rg.get("id"),
+            "title": rg.get("title"),
+            "artistCredit": _credited_name(rg.get("artist-credit") or []),
+            "primaryType": rg.get("primary-type"),
+            "secondaryTypes": rg.get("secondary-types") or [],
+            "disambiguation": rg.get("disambiguation") or None,
+            "firstReleaseDate": rg.get("first-release-date") or None,
+            "score": int(rg.get("score", 0)),
+        })
+    return candidates
+
+
+# search_recordings(query, artist_mbid=None, limit=10) slots in here later
+# for a songs maintenance pass, reusing _mb_get/_throttle as-is.

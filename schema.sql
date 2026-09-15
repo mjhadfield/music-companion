@@ -1,4 +1,4 @@
--- Music Database schema
+-- Music Companion schema
 -- SQLite. This file is the single source of truth for structure;
 -- etl/init_db.py applies it to build/rebuild data/music.sqlite.
 --
@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS scrobbles (
 
 CREATE INDEX IF NOT EXISTS idx_scrobbles_song    ON scrobbles(song_id);
 CREATE INDEX IF NOT EXISTS idx_scrobbles_artist  ON scrobbles(artist_id);
+CREATE INDEX IF NOT EXISTS idx_scrobbles_album   ON scrobbles(album_id);
 CREATE INDEX IF NOT EXISTS idx_scrobbles_played  ON scrobbles(played_at);
 
 -- ---------------------------------------------------------------------

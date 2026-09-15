@@ -126,10 +126,38 @@ def get_or_create_album(
     title: str,
     year: int | None = None,
     mbid: str | None = None,
+    source: str | None = None,
 ) -> int:
     """artist_ids[0] is the primary/display artist; the full credit list
     (relevant when a source hands us more than one artist, e.g. Discogs'
-    "Kiss, Ace Frehley") is written to album_artists on first insert."""
+    "Kiss, Ace Frehley") is written to album_artists on first insert.
+
+    `source` mirrors get_or_create_artist's override check: a manual album
+    merge closes the loop by writing an alias_overrides row keyed on
+    (source, "<primary artist id>:<raw title, lowercased>") so the same
+    raw title from that source resolves straight to the merge's survivor
+    next time, instead of recreating the duplicate. Scoped by artist id
+    (not just title) since two different artists sharing a generic title
+    like "Greatest Hits" must not collide on one override. Note this key
+    goes stale if that artist row is *itself* later merged into another --
+    unlike artist-level overrides, nothing currently repoints it."""
+    primary_artist_id = artist_ids[0]
+    if source:
+        source_key = f"{primary_artist_id}:{title.strip().lower()}"
+        override_key = ("override", source, source_key)
+        if override_key in cache:
+            return cache[override_key]
+        row = conn.execute(
+            "SELECT canonical_id FROM alias_overrides WHERE source = ? AND source_key = ? AND canonical_type = 'album'",
+            (source, source_key),
+        ).fetchone()
+        if row:
+            album_id = row[0]
+            cache[override_key] = album_id
+            if mbid:
+                _set_mbid_if_free(conn, "albums", album_id, mbid)
+            return album_id
+
     if mbid:
         mbid_key = ("mbid", mbid)
         if mbid_key in cache:
@@ -139,7 +167,6 @@ def get_or_create_album(
             cache[mbid_key] = cache[(artist_ids[0], title.lower())] = row[0]
             return row[0]
 
-    primary_artist_id = artist_ids[0]
     key = (primary_artist_id, title.lower())
     if key in cache:
         album_id = cache[key]

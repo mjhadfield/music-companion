@@ -1,5 +1,6 @@
 /*
- * Shared helpers for the maintenance tool's pages (index.html, artists.html).
+ * Shared helpers for the maintenance tool's pages (index.html, artists.html,
+ * duplicates.html, albums.html, album-duplicates.html).
  * Plain <script src> include, no module system -- matches the rest of the
  * project's no-build-step convention.
  */

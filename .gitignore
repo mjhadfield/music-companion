@@ -28,7 +28,7 @@ data/.refresh_backups/
 # any merge (reassigning FKs and deleting the absorbed row) -- kept
 # indefinitely as a manual undo path, so ignored rather than cleaned up
 # automatically.
-data/.artist_merge_backups/
+data/.merge_backups/
 
 # site/public/music.sqlite (the slim public build) is INTENTIONALLY
 # tracked, not ignored -- it's what GitHub Pages serves. That was a

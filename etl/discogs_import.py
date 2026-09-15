@@ -140,7 +140,7 @@ def import_csv(csv_path: Path) -> None:
                 continue
             artist_ids = [get_or_create_artist(conn, artist_cache, name, source="discogs") for name in artist_names]
             year = parse_year(row.get(columns.get("released", ""), ""))
-            album_id = get_or_create_album(conn, album_cache, artist_ids, raw_title, year)
+            album_id = get_or_create_album(conn, album_cache, artist_ids, raw_title, year, source="discogs")
 
             rating_raw = row.get(columns.get("rating", ""), "")
             rating = int(rating_raw) if str(rating_raw).strip().isdigit() else None
