@@ -162,6 +162,26 @@ raw API response) it's a tracked file, not gitignored -- publishing it
 was a deliberate decision, made once real listening/purchase/gig data
 was already sitting in it.
 
+### Querying the database directly
+
+```bash
+python3 etl/explore/server.py   # serves on :8644
+```
+
+A read-only SQL browser for `data/music.sqlite` (the full working copy,
+not the slim public export) -- write your own query against any table
+and see the results, with autocomplete for table and column names
+(alias-aware: `FROM artists a` then typing `a.` suggests artists' own
+columns) and a schema sidebar to click a table or column straight into
+the editor. Genuinely read-only in two independent layers: the database
+is opened with SQLite's own `mode=ro` flag, and a query is refused up
+front unless it starts with `SELECT`/`WITH`. Every query also runs under
+a row cap and a wall-clock timeout, so nothing can lock up the tool.
+
+Deliberately styled to match Citadel (the LAN dashboard this links from)
+rather than this project's own site -- it's linked from there as its own
+project, both start/stop and a Launchpad tile.
+
 ## Publishing / GitHub Pages
 
 `.github/workflows/pages.yml` deploys everything under `site/` (the

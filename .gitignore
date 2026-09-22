@@ -19,6 +19,10 @@ data/raw/*
 !data/raw/sample_discogs_export.csv
 imports/
 
+# Dated full-database backups (e.g. manual tarballs of data/music.sqlite) -- same personal-data reasoning
+# as data/music.sqlite itself, just not caught by that specific filename.
+data/*.tar.gz
+
 # Pre-refresh snapshots the maintenance UI takes so a rejected refresh can
 # restore data/music.sqlite -- deleted automatically once you accept or
 # reject, but ignored as a backstop in case one is ever left behind.

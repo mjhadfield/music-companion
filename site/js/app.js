@@ -103,9 +103,18 @@ function paginationHtml(page, totalPages) {
   `;
 }
 
-function wirePagination(state, totalPages, rerender) {
-  const prev = app.querySelector('.pagination button[data-action="prev"]');
-  const next = app.querySelector('.pagination button[data-action="next"]');
+// `scope` defaults to the whole page since every browse page has at most
+// one of these widgets active at a time -- but the artist page can have
+// two independent bar-list panels (songs, albums) expanded simultaneously,
+// each with its own pagination/sort controls, so their own re-render
+// passes scope this to their own container rather than the whole page
+// (otherwise a page-wide querySelector(All) would grab -- or, for
+// wirePagination's querySelector, ONLY ever grab -- whichever panel's
+// controls happen to come first in the DOM, regardless of which panel's
+// button was actually clicked).
+function wirePagination(state, totalPages, rerender, scope = app) {
+  const prev = scope.querySelector('.pagination button[data-action="prev"]');
+  const next = scope.querySelector('.pagination button[data-action="next"]');
   // Re-rendering swaps innerHTML, which loses scroll position if the page
   // shrinks and the browser clamps it -- so restore exactly where the
   // reader was, instead of forcing back to the top on every page turn.
@@ -119,8 +128,12 @@ function wirePagination(state, totalPages, rerender) {
   if (next) next.addEventListener("click", () => turn(1));
 }
 
-function wireSortableHeaders(state, rerender, ascByDefault = []) {
-  app.querySelectorAll("th[data-sort]").forEach((th) => {
+// Selector is any [data-sort] element, not just table th's -- the bar-list
+// panels (renderArtistSongsPanel, renderArtistAlbumsPanel) use the same
+// data-sort attribute on plain buttons to keep a sort control without
+// pulling in a table. See wirePagination above for why `scope` matters.
+function wireSortableHeaders(state, rerender, ascByDefault = [], scope = app) {
+  scope.querySelectorAll("[data-sort]").forEach((th) => {
     th.addEventListener("click", () => {
       const key = th.dataset.sort;
       if (state.sort === key) {
@@ -168,6 +181,38 @@ function sortHeader(key, label, state, numeric = false) {
   const active = state.sort === key;
   const arrow = active ? `<span class="arrow">${state.dir === "asc" ? "↑" : "↓"}</span>` : "";
   return `<th data-sort="${key}" class="${numeric ? "num " : ""}${active ? "sorted" : ""}">${esc(label)}${arrow}</th>`;
+}
+
+// Compact sort control for the bar-list panels below -- same [data-sort]
+// attribute wireSortableHeaders already wires, just on plain buttons
+// instead of table headers, so an expanded list can offer the same sort
+// options without dropping into a table to do it.
+function sortToggle(options, state) {
+  return `
+    <div class="sort-toggle">
+      ${options.map(([key, label]) => {
+        const active = state.sort === key;
+        const arrow = active ? (state.dir === "asc" ? " ↑" : " ↓") : "";
+        return `<button type="button" data-sort="${key}" class="sort-toggle-btn${active ? " active" : ""}">${esc(label)}${arrow}</button>`;
+      }).join("")}
+    </div>
+  `;
+}
+
+// Renders rows in the same bar-chart shape used by the artist page's
+// top-10 preview (renderArtist) -- shared so the "Show more" expansion
+// below is visually identical to the preview it replaces, not a
+// differently-styled table.
+function barRowsHtml(rows, maxValue, routePrefix) {
+  return rows.map((r) => `
+    <div class="bar-row" onclick="location.hash='${routePrefix}${r.id}'">
+      <div>
+        <div class="bar-label">${esc(r.title)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${((r.plays / maxValue) * 100).toFixed(0)}%"></div></div>
+      </div>
+      <div class="bar-count">${r.plays.toLocaleString()}</div>
+    </div>
+  `).join("");
 }
 
 // ---------------------------------------------------------------------
@@ -749,31 +794,16 @@ function renderArtistSongsPanel() {
   container.innerHTML = `
     <div class="filter-bar">
       <input type="text" id="artist-songs-search" placeholder="Search songs…" value="${esc(st.q)}" />
+      ${sortToggle([["plays", "Plays"], ["title", "Title"]], st)}
       <div class="filter-count">${total.toLocaleString()} songs</div>
     </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr>
-          ${sortHeader("title", "Song", st)}
-          ${sortHeader("plays", "Plays", st, true)}
-        </tr></thead>
-        <tbody>
-          ${rows.map((r) => `
-            <tr data-id="${r.id}">
-              <td class="row-title">${esc(r.title)}</td>
-              <td class="num">${r.plays.toLocaleString()}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
+    <div class="bar-list">${barRowsHtml(rows, st.maxPlays, "#/song/")}</div>
     ${paginationHtml(st.page, totalPages)}
     <button class="show-less-btn" id="show-less-songs">Show less ↑</button>
   `;
 
-  container.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => { location.hash = `#/song/${tr.dataset.id}`; }));
-  wireSortableHeaders(st, renderArtistSongsPanel, ["title"]);
-  wirePagination(st, totalPages, renderArtistSongsPanel);
+  wireSortableHeaders(st, renderArtistSongsPanel, ["title"], container);
+  wirePagination(st, totalPages, renderArtistSongsPanel, container);
   wireSearchInput("artist-songs-search", st, renderArtistSongsPanel);
   document.getElementById("show-less-songs").addEventListener("click", () => {
     st.expanded = false;
@@ -781,8 +811,82 @@ function renderArtistSongsPanel() {
   });
 }
 
+// Artist page's expandable "digital listening" panel -- same shape as
+// renderArtistSongsPanel above, grouped by album instead of song. Existing
+// as its own list (not just the top-10 bars) matters here specifically:
+// a "Deluxe Edition" duplicate splitting off a handful of scrobbles would
+// otherwise fall below the top 10 and stay invisible.
+const artistAlbumsState = { artistId: null, expanded: false, q: "", sort: "plays", dir: "desc", page: 1 };
+
+function renderArtistAlbumsPanel() {
+  const container = document.getElementById("artist-albums-panel");
+  if (!container) return; // navigated away before this ran
+  const st = artistAlbumsState;
+
+  const topBars = document.getElementById("artist-top-albums");
+  if (topBars) topBars.hidden = st.expanded;
+
+  if (!st.expanded) {
+    container.innerHTML = `<button class="show-more-btn" id="show-more-albums">Show more ↓</button>`;
+    document.getElementById("show-more-albums").addEventListener("click", () => {
+      st.expanded = true;
+      st.page = 1;
+      renderArtistAlbumsPanel();
+    });
+    return;
+  }
+
+  const pageSize = 20;
+  const params = [st.artistId];
+  let where = "s.artist_id = ?";
+  if (st.q) {
+    where += " AND al.title LIKE ? COLLATE NOCASE";
+    params.push(`%${st.q}%`);
+  }
+
+  const countRows = query(`
+    SELECT al.id FROM scrobbles s JOIN albums al ON al.id = s.album_id
+    WHERE ${where} GROUP BY al.id
+  `, params);
+  const total = countRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  st.page = Math.min(Math.max(1, st.page), totalPages);
+
+  const sortCol = { title: "al.title", plays: "plays" }[st.sort] || "plays";
+  const dir = st.dir === "asc" ? "ASC" : "DESC";
+
+  const rows = query(`
+    SELECT al.id, al.title, count(*) AS plays
+    FROM scrobbles s JOIN albums al ON al.id = s.album_id
+    WHERE ${where}
+    GROUP BY al.id
+    ORDER BY ${sortCol} ${dir}
+    LIMIT ${pageSize} OFFSET ${(st.page - 1) * pageSize}
+  `, params);
+
+  container.innerHTML = `
+    <div class="filter-bar">
+      <input type="text" id="artist-albums-search" placeholder="Search albums…" value="${esc(st.q)}" />
+      ${sortToggle([["plays", "Plays"], ["title", "Title"]], st)}
+      <div class="filter-count">${total.toLocaleString()} albums</div>
+    </div>
+    <div class="bar-list">${barRowsHtml(rows, st.maxPlays, "#/album/")}</div>
+    ${paginationHtml(st.page, totalPages)}
+    <button class="show-less-btn" id="show-less-albums">Show less ↑</button>
+  `;
+
+  wireSortableHeaders(st, renderArtistAlbumsPanel, ["title"], container);
+  wirePagination(st, totalPages, renderArtistAlbumsPanel, container);
+  wireSearchInput("artist-albums-search", st, renderArtistAlbumsPanel);
+  document.getElementById("show-less-albums").addEventListener("click", () => {
+    st.expanded = false;
+    renderArtistAlbumsPanel();
+  });
+}
+
 // ---------------------------------------------------------------------
-// Artist: the hub page -- vinyl owned, most-played songs, shows attended
+// Artist: the hub page -- shows attended, vinyl owned, top songs, top
+// albums (the last two "all media": scrobbles regardless of format)
 // ---------------------------------------------------------------------
 function renderArtist(id) {
   const artist = query(`SELECT * FROM artists WHERE id = ?`, [id])[0];
@@ -814,6 +918,14 @@ function renderArtist(id) {
   `, [id]);
   const maxPlays = topSongs.length ? topSongs[0].plays : 1;
 
+  const topAlbums = query(`
+    SELECT al.id, al.title, count(*) AS plays
+    FROM scrobbles s JOIN albums al ON al.id = s.album_id
+    WHERE s.artist_id = ?
+    GROUP BY al.id ORDER BY plays DESC LIMIT 5
+  `, [id]);
+  const maxAlbumPlays = topAlbums.length ? topAlbums[0].plays : 1;
+
   const vinylRows = query(`
     SELECT DISTINCT al.id AS album_id, al.mbid, al.title, al.year, v.format, v.media_condition
     FROM vinyl_holdings v
@@ -843,51 +955,45 @@ function renderArtist(id) {
 
     <div id="about-panel"></div>
 
+    <div class="section">
+      <h2>Shows attended</h2>
+      ${setlistRows.length ? setlistRows.map((sl) => `
+        <div class="list-item" onclick="location.hash='#/setlist/${sl.id}'">
+          <div>
+            <div class="list-title">${esc(sl.venue_name || "Unknown venue")}</div>
+            <div class="list-sub">${esc(sl.city || "")}${sl.tour_name ? " · " + esc(sl.tour_name) : ""}</div>
+          </div>
+          <div class="list-right">${esc(sl.event_date)}</div>
+        </div>
+      `).join("") : `<p class="subtle">Not yet seen</p>`}
+    </div>
+
+    <div class="section">
+      <h2>On the shelf</h2>
+      ${vinylRows.length ? vinylRows.map((v) => `
+        <div class="vinyl-card" data-album-id="${v.album_id}" style="cursor:pointer">
+          <img class="cover-thumb" data-mbid="${v.mbid || ""}" alt="" loading="lazy" />
+          <div class="vinyl-body">
+            <div class="title">${esc(v.title)}${v.year ? ` <span class="subtle">(${v.year})</span>` : ""}</div>
+            <div class="meta">${esc(v.format || "")}${v.media_condition ? " · " + esc(v.media_condition) : ""}</div>
+          </div>
+        </div>
+      `).join("") : `<p class="subtle">No records owned yet</p>`}
+    </div>
+
     ${topSongs.length ? `
       <div class="section">
-        <h2>Most played songs</h2>
-        <div id="artist-top-songs">
-          ${topSongs.map((s) => `
-            <div class="bar-row" onclick="location.hash='#/song/${s.id}'">
-              <div>
-                <div class="bar-label">${esc(s.title)}</div>
-                <div class="bar-track"><div class="bar-fill" style="width:${((s.plays / maxPlays) * 100).toFixed(0)}%"></div></div>
-              </div>
-              <div class="bar-count">${s.plays.toLocaleString()}</div>
-            </div>
-          `).join("")}
-        </div>
+        <h2>Top songs (all media)</h2>
+        <div id="artist-top-songs">${barRowsHtml(topSongs, maxPlays, "#/song/")}</div>
         <div id="artist-songs-panel"></div>
       </div>
     ` : ""}
 
-    ${vinylRows.length ? `
+    ${topAlbums.length ? `
       <div class="section">
-        <h2>On the shelf</h2>
-        ${vinylRows.map((v) => `
-          <div class="vinyl-card" data-album-id="${v.album_id}" style="cursor:pointer">
-            <img class="cover-thumb" data-mbid="${v.mbid || ""}" alt="" loading="lazy" />
-            <div class="vinyl-body">
-              <div class="title">${esc(v.title)}${v.year ? ` <span class="subtle">(${v.year})</span>` : ""}</div>
-              <div class="meta">${esc(v.format || "")}${v.media_condition ? " · " + esc(v.media_condition) : ""}</div>
-            </div>
-          </div>
-        `).join("")}
-      </div>
-    ` : ""}
-
-    ${setlistRows.length ? `
-      <div class="section">
-        <h2>Shows attended</h2>
-        ${setlistRows.map((sl) => `
-          <div class="list-item" onclick="location.hash='#/setlist/${sl.id}'">
-            <div>
-              <div class="list-title">${esc(sl.venue_name || "Unknown venue")}</div>
-              <div class="list-sub">${esc(sl.city || "")}${sl.tour_name ? " · " + esc(sl.tour_name) : ""}</div>
-            </div>
-            <div class="list-right">${esc(sl.event_date)}</div>
-          </div>
-        `).join("")}
+        <h2>Top albums (all media)</h2>
+        <div id="artist-top-albums">${barRowsHtml(topAlbums, maxAlbumPlays, "#/album/")}</div>
+        <div id="artist-albums-panel"></div>
       </div>
     ` : ""}
   `;
@@ -923,7 +1029,23 @@ function renderArtist(id) {
     artistSongsState.sort = "plays";
     artistSongsState.dir = "desc";
     artistSongsState.page = 1;
+    // Bar widths in the expanded list stay relative to this artist's #1
+    // most-played song, same reference the top-10 preview uses -- so a
+    // page 2 entry's bar means the same thing as a top-10 entry's, rather
+    // than rescaling to whatever's biggest on the current page/search.
+    artistSongsState.maxPlays = maxPlays;
     renderArtistSongsPanel();
+  }
+
+  if (topAlbums.length) {
+    artistAlbumsState.artistId = id;
+    artistAlbumsState.expanded = false;
+    artistAlbumsState.q = "";
+    artistAlbumsState.sort = "plays";
+    artistAlbumsState.dir = "desc";
+    artistAlbumsState.page = 1;
+    artistAlbumsState.maxPlays = maxAlbumPlays;
+    renderArtistAlbumsPanel();
   }
 
   // The fetch itself was already kicked off at the top of this function;

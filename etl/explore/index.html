@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Music DB Explorer</title>
+<link rel="stylesheet" href="app.css" />
+</head>
+<body>
+<header class="top">
+  <span class="wordmark">MUSIC&nbsp;DB</span>
+  <span class="hud">Explorer</span>
+  <div class="top__right">
+    <span class="chip chip--ro">Read-only</span>
+    <span class="chip" id="db-size" title="data/music.sqlite">…</span>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="card schema">
+    <div class="card__in">
+      <div class="card__head"><span class="hud">Tables</span><span class="mono" id="table-count" style="font-size:11px;color:var(--silver-dim)"></span></div>
+      <div class="card__body">
+        <input class="schema__filter" id="schema-filter" type="search" placeholder="Filter tables & columns…" autocomplete="off" spellcheck="false">
+        <div id="tables"><p class="empty">Loading schema…</p></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="card">
+    <div class="card__in">
+      <div class="card__head"><span class="hud">Query</span><span class="mono" style="font-size:11px;color:var(--silver-dim)">Ctrl/⌘+Enter to run</span></div>
+      <div class="card__body">
+        <div class="editor__wrap">
+          <textarea id="sql" spellcheck="false" autocomplete="off" autocapitalize="off"
+            placeholder="SELECT a.name, COUNT(*) AS plays&#10;FROM scrobbles s JOIN artists a ON a.id = s.artist_id&#10;GROUP BY a.id ORDER BY plays DESC LIMIT 20"></textarea>
+          <div class="ac" id="ac" hidden></div>
+        </div>
+        <div class="toolbar">
+          <button class="btn btn--go" id="run">Run</button>
+          <select class="select" id="limit">
+            <option value="100">100 rows</option>
+            <option value="500" selected>500 rows</option>
+            <option value="1000">1,000 rows</option>
+            <option value="5000">5,000 rows</option>
+          </select>
+          <button class="btn" id="csv" disabled>Download CSV</button>
+          <span class="status" id="status"></span>
+        </div>
+        <div class="presets" id="presets"></div>
+        <div class="error" id="error" hidden></div>
+        <div class="results" id="results"></div>
+        <div class="recent" id="recent-card" hidden>
+          <span class="hud">Recent</span>
+          <ul class="recent__list" id="recent"></ul>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

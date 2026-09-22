@@ -111,13 +111,17 @@
   }
   .dup-candidate .meta { color: var(--text-dim); font-size: 0.78rem; margin-top: 4px; }
   .dup-candidate .actions { display: flex; gap: 8px; flex-shrink: 0; }
+  /* The checkbox+text pair forms the "start" flex item so .actions can
+     still sit flush right via the row's own space-between. */
+  .dup-candidate-main { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+  .dup-check { flex-shrink: 0; margin-top: 3px; width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
 
   .status-line { font-size: 0.82rem; margin-top: 8px; }
   .status-line.error { color: var(--danger); }
   .status-line.ok { color: var(--accent-scrobble); }
 
   .queue-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 4px; }
-  #dup-progress { color: var(--text-dim); font-size: 0.85rem; }
+  #dup-progress, #dup-selected-count { color: var(--text-dim); font-size: 0.85rem; }
 
   #action-log { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
   #action-log li { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--text-dim); }
@@ -173,13 +177,18 @@
 
   <div class="card">
     <h2>Potential duplicates</h2>
-    <p class="subtitle">A fuzzy title scan within each artist's own albums — review each before merging; a numbered sequel ("IV", "II") isn't the same release as its neighbour.</p>
+    <p class="subtitle">A fuzzy title scan within each artist's own albums — high-confidence pairs are pre-ticked; review the list and merge everything ticked in one go. A numbered sequel ("IV", "II") isn't the same release as its neighbour.</p>
     <div class="queue-controls">
       <label>Minimum similarity <input type="number" id="dup-min-score" value="90" min="1" max="100" style="width:60px" /></label>
       <button id="scan-btn">Scan</button>
       <span id="dup-progress"></span>
     </div>
+    <div class="queue-controls" id="dup-bulk-toolbar" style="display:none">
+      <span id="dup-selected-count"></span>
+      <button id="dup-review-btn" class="primary">Review selected →</button>
+    </div>
     <div id="dup-list"></div>
+    <div id="dup-bulk-confirm"></div>
   </div>
 
   <div class="card" id="action-log-card" style="display:none">
@@ -259,59 +268,6 @@ function wireAlbumTypeahead(input, resultsEl, excludeIdsGetter, onPick) {
   });
 }
 
-// -- Shared merge-confirm renderer, used by both the manual-merge picker
-// and each "Potential duplicates" row. Re-fetches fresh detail for both
-// sides (rather than trusting whatever stale data the caller has) so the
-// mbid-conflict warning below is always accurate.
-async function renderMergeConfirm(container, absorbedRef, canonicalRef, onMerged) {
-  container.innerHTML = `<div class="status-line">Loading…</div>`;
-  const [absorbed, canonical] = await Promise.all([
-    fetch(`/api/albums/detail?id=${absorbedRef.albumId}`).then((r) => r.json()),
-    fetch(`/api/albums/detail?id=${canonicalRef.albumId}`).then((r) => r.json()),
-  ]);
-
-  const bothHaveDifferentMbids = absorbed.mbid && canonical.mbid && absorbed.mbid !== canonical.mbid;
-  const warning = bothHaveDifferentMbids
-    ? `<div class="meta" style="color:var(--warn)">⚠ "${esc(absorbed.title)}" already has its own distinct MusicBrainz id — merging will discard it from this row (it stays recorded in the merge log, just no longer live).</div>`
-    : "";
-
-  container.innerHTML = `
-    <div class="merge-confirm">
-      <span>
-        <strong>${esc(absorbed.artistName)} — ${esc(absorbed.title)}</strong> (${absorbed.scrobbleCount.toLocaleString()} scrobbles, ${absorbed.vinylCount.toLocaleString()} vinyl${absorbed.mbid ? ", has mbid" : ""})
-        → merged into →
-        <strong>${esc(canonical.artistName)} — ${esc(canonical.title)}</strong> (${canonical.scrobbleCount.toLocaleString()} scrobbles, ${canonical.vinylCount.toLocaleString()} vinyl${canonical.mbid ? ", has mbid" : ""})
-        <div class="meta">Cannot be undone from here — a backup is kept automatically.</div>
-        ${warning}
-      </span>
-      <span>
-        <button data-role="do-merge" class="danger">Merge</button>
-        <button data-role="cancel-merge">Cancel</button>
-      </span>
-    </div>
-  `;
-  container.querySelector("[data-role='cancel-merge']").addEventListener("click", () => { container.innerHTML = ""; });
-  container.querySelector("[data-role='do-merge']").addEventListener("click", async () => {
-    container.innerHTML = `<div class="status-line">Merging…</div>`;
-    const res = await fetch("/api/albums/merge", {
-      method: "POST",
-      body: JSON.stringify({ absorbedId: absorbed.albumId, canonicalId: canonical.albumId }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      container.innerHTML = `<div class="status-line error">${esc(data.error || "Something went wrong.")}</div>`;
-      return;
-    }
-    const moved = Object.entries(data.rowsMoved)
-      .filter(([k, v]) => v > 0 && !k.includes("collisions_dropped"))
-      .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
-      .join(", ");
-    logAction(`Merged <span class="who">${esc(data.absorbedTitle)}</span> into <span class="who">${esc(data.canonicalTitle)}</span>${moved ? ` — moved ${esc(moved)}` : ""}`);
-    container.innerHTML = "";
-    onMerged();
-  });
-}
-
 // -- Manual merge section -------------------------------------------------
 // "Keep" is a single target; "Merge away" can be a whole batch -- some
 // artists have a dozen editions of the same album, and picking them off
@@ -379,8 +335,8 @@ async function renderManualMergeConfirm() {
       return `
         <div class="merge-row" data-album-id="${ref.albumId}">
           <span>
-            <strong>${esc(detail.title)}</strong>
-            <span class="meta">(${detail.scrobbleCount.toLocaleString()} scrobbles, ${detail.vinylCount.toLocaleString()} vinyl${detail.mbid ? ", has mbid" : ""})</span>
+            <strong>${esc(detail.title)}</strong>${mbAlbumLink(detail.mbid)}
+            <span class="meta">(${detail.scrobbleCount.toLocaleString()} scrobbles, ${detail.vinylCount.toLocaleString()} vinyl)</span>
             ${conflict ? `<div class="meta" style="color:var(--warn)">⚠ has its own distinct MusicBrainz id — will be discarded from this row</div>` : ""}
           </span>
           <span class="state ${status}">${stateHtml}</span>
@@ -392,8 +348,8 @@ async function renderManualMergeConfirm() {
       <div class="merge-confirm stack">
         <div>
           <strong>Merging ${rows.length} album${rows.length === 1 ? "" : "s"} into</strong>
-          ${esc(canonical.artistName)} — ${esc(canonical.title)}
-          <span class="meta">(${canonical.scrobbleCount.toLocaleString()} scrobbles, ${canonical.vinylCount.toLocaleString()} vinyl${canonical.mbid ? ", has mbid" : ""})</span>
+          ${esc(canonical.artistName)} — ${esc(canonical.title)}${mbAlbumLink(canonical.mbid)}
+          <span class="meta">(${canonical.scrobbleCount.toLocaleString()} scrobbles, ${canonical.vinylCount.toLocaleString()} vinyl)</span>
         </div>
         ${rowsHtml}
         <div class="meta">Cannot be undone from here — a backup is kept automatically for each merge.</div>
@@ -464,32 +420,68 @@ const dupMinScoreInput = document.getElementById("dup-min-score");
 const scanBtn = document.getElementById("scan-btn");
 const dupProgress = document.getElementById("dup-progress");
 const dupList = document.getElementById("dup-list");
+const dupBulkToolbar = document.getElementById("dup-bulk-toolbar");
+const dupSelectedCount = document.getElementById("dup-selected-count");
+const dupReviewBtn = document.getElementById("dup-review-btn");
+const dupBulkConfirm = document.getElementById("dup-bulk-confirm");
+
+// Candidates at or above this score start pre-ticked in the list below --
+// still just a starting point (see pickCanonical's comment), not a claim
+// of certainty, so unticking one is always one click away.
+const AUTO_TICK_SCORE = 97;
+
+// { c, wrap, checkbox }[] for whatever the current scan produced --
+// read by the bulk toolbar/review step, trimmed as rows are dismissed
+// or successfully merged.
+let currentCandidates = [];
 
 async function runScan() {
   const minScore = Math.min(100, Math.max(1, parseFloat(dupMinScoreInput.value) || 90));
   dupMinScoreInput.value = minScore;
   dupProgress.textContent = "Scanning…";
   dupList.innerHTML = "";
+  dupBulkConfirm.innerHTML = "";
+  currentCandidates = [];
 
   const res = await fetch(`/api/albums/duplicate-candidates?minScore=${minScore}`);
   const data = await res.json();
   if (!res.ok) {
     dupProgress.textContent = data.error || "Something went wrong.";
+    updateBulkToolbar();
     return;
   }
 
   dupProgress.textContent = `${data.candidateCount} candidate pair${data.candidateCount === 1 ? "" : "s"} at similarity ≥ ${data.minScore}`;
   if (!data.candidates.length) {
     dupList.innerHTML = `<div class="status-line">No candidates at this threshold.</div>`;
+    updateBulkToolbar();
     return;
   }
   for (const c of data.candidates) {
-    dupList.appendChild(renderCandidateRow(c));
+    const entry = renderCandidateRow(c);
+    currentCandidates.push(entry);
+    dupList.appendChild(entry.wrap);
   }
+  updateBulkToolbar();
+}
+
+function updateBulkToolbar() {
+  const selected = currentCandidates.filter((e) => e.checkbox.checked);
+  dupBulkToolbar.style.display = currentCandidates.length ? "flex" : "none";
+  dupSelectedCount.textContent = `${selected.length} selected`;
+  dupReviewBtn.disabled = !selected.length;
+}
+
+// Text alone can't settle "is this really the same release" -- a direct
+// link next to each side's title is what actually lets you check.
+function mbAlbumLink(mbid) {
+  return mbid
+    ? ` <a href="https://musicbrainz.org/release-group/${esc(mbid)}" target="_blank" rel="noopener">mbid ↗</a>`
+    : "";
 }
 
 function albumLabel(a) {
-  return `${esc(a.title)} <span class="meta">(${a.scrobbleCount.toLocaleString()} scrobbles, ${a.vinylCount.toLocaleString()} vinyl${a.mbid ? ", has mbid" : ""})</span>`;
+  return `${esc(a.title)}${mbAlbumLink(a.mbid)} <span class="meta">(${a.scrobbleCount.toLocaleString()} scrobbles, ${a.vinylCount.toLocaleString()} vinyl)</span>`;
 }
 
 // Words that mark a title as a specific edition rather than the album
@@ -501,6 +493,29 @@ const EDITION_MARKER_WORDS = ["deluxe", "remaster", "edition", "anniversary"]; /
 function hasEditionMarker(title) {
   const lower = title.toLowerCase();
   return EDITION_MARKER_WORDS.some((w) => lower.includes(w));
+}
+
+// token_set_ratio (the scorer behind every candidate's "similarity") scores
+// on shared words, not word ORDER or extra distinguishing words -- so it
+// happily scores "Van Halen II (Remastered)" vs "Van Halen (Remastered)"
+// at 100, same as it scores genuine duplicates like "X" vs "X (Deluxe
+// Edition)". A raw score threshold alone can't tell those apart, which
+// matters a lot once it's driving an AUTO-tick instead of just a sort
+// order. This strips only the same vetted edition words pickCanonical
+// already trusts, then requires what's left to match exactly -- "Van
+// Halen II" vs "Van Halen" still differ after stripping, so that pair
+// stays unticked; "Heaven in Hiding" vs "Heaven in Hiding (Deluxe
+// Edition)" collapse to the same string, so it's safe to tick.
+const EDITION_BRACKET_RE = new RegExp(
+  `[\\(\\[][^)\\]]*\\b(${EDITION_MARKER_WORDS.join("|")})\\w*\\b[^)\\]]*[\\)\\]]`, "gi"
+);
+
+function normalizeForAutoTick(title) {
+  return title.replace(EDITION_BRACKET_RE, " ").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function safeToAutoTick(a, b) {
+  return normalizeForAutoTick(a.title) === normalizeForAutoTick(b.title);
 }
 
 // Picks which side of a candidate pair defaults to "canonical" in the
@@ -527,38 +542,137 @@ function pickCanonical(a, b) {
 function renderCandidateRow(c) {
   const wrap = document.createElement("div");
   const bothHaveDifferentMbids = c.a.mbid && c.b.mbid && c.a.mbid !== c.b.mbid;
+  const autoTicked = c.score >= AUTO_TICK_SCORE && safeToAutoTick(c.a, c.b);
   wrap.innerHTML = `
     <div class="dup-candidate">
-      <span>
-        <strong>${esc(c.a.artistName)}</strong> — ${albumLabel(c.a)} ↔ ${albumLabel(c.b)}
-        <div class="meta">similarity ${c.score}${bothHaveDifferentMbids ? " · ⚠ both already have distinct MusicBrainz ids" : ""}</div>
-      </span>
+      <label class="dup-candidate-main">
+        <input type="checkbox" class="dup-check" data-role="select" ${autoTicked ? "checked" : ""} />
+        <span>
+          <strong>${esc(c.a.artistName)}</strong> — ${albumLabel(c.a)} ↔ ${albumLabel(c.b)}
+          <div class="meta">similarity ${c.score}${bothHaveDifferentMbids ? " · ⚠ both already have distinct MusicBrainz ids" : ""}</div>
+        </span>
+      </label>
       <span class="actions">
-        <button data-role="merge">Merge →</button>
         <button data-role="dismiss">Not a duplicate</button>
       </span>
     </div>
-    <div data-role="confirm-slot"></div>
   `;
-  const confirmSlot = wrap.querySelector("[data-role='confirm-slot']");
+  const checkbox = wrap.querySelector("[data-role='select']");
+  checkbox.addEventListener("change", updateBulkToolbar);
 
-  wrap.querySelector("[data-role='merge']").addEventListener("click", () => {
-    const [canonical, absorbed] = pickCanonical(c.a, c.b);
-    renderMergeConfirm(confirmSlot, { albumId: absorbed.albumId }, { albumId: canonical.albumId }, () => wrap.remove());
-  });
   wrap.querySelector("[data-role='dismiss']").addEventListener("click", async () => {
     await fetch("/api/albums/dismiss-duplicate", {
       method: "POST",
       body: JSON.stringify({ aId: c.a.albumId, bId: c.b.albumId }),
     });
+    currentCandidates = currentCandidates.filter((e) => e.wrap !== wrap);
     wrap.remove();
+    updateBulkToolbar();
   });
 
-  return wrap;
+  return { c, wrap, checkbox };
+}
+
+// Snapshots whatever's currently ticked, fetches fresh detail for every
+// pair (so mbid-conflict warnings are accurate), then lets "Merge all"
+// walk them one at a time with a live per-row status -- same pattern as
+// the manual merge queue's runAll above, just built from ticked scan
+// results instead of typeahead picks.
+async function renderBulkConfirm() {
+  const selected = currentCandidates.filter((e) => e.checkbox.checked);
+  if (!selected.length) return;
+  dupBulkConfirm.innerHTML = `<div class="status-line">Loading…</div>`;
+
+  const pairs = selected.map((e) => {
+    const [canonical, absorbed] = pickCanonical(e.c.a, e.c.b);
+    return { entry: e, canonical, absorbed };
+  });
+  const details = await Promise.all(
+    pairs.flatMap((p) => [
+      fetch(`/api/albums/detail?id=${p.canonical.albumId}`).then((r) => r.json()),
+      fetch(`/api/albums/detail?id=${p.absorbed.albumId}`).then((r) => r.json()),
+    ])
+  );
+  const rows = pairs.map((p, i) => ({
+    pair: p,
+    canonicalDetail: details[i * 2],
+    absorbedDetail: details[i * 2 + 1],
+    status: "pending",
+    error: null,
+  }));
+
+  function paint() {
+    const rowsHtml = rows.map(({ pair, canonicalDetail, absorbedDetail, status, error }) => {
+      const conflict = absorbedDetail.mbid && canonicalDetail.mbid && absorbedDetail.mbid !== canonicalDetail.mbid;
+      const stateHtml = { pending: "", merging: "Merging…", done: "✓ merged", error: `✗ ${esc(error || "failed")}` }[status];
+      return `
+        <div class="merge-row" data-album-id="${pair.absorbed.albumId}">
+          <span>
+            <strong>${esc(absorbedDetail.title)}</strong>${mbAlbumLink(absorbedDetail.mbid)}
+            <span class="meta">→ ${esc(canonicalDetail.title)}${mbAlbumLink(canonicalDetail.mbid)} (${absorbedDetail.scrobbleCount.toLocaleString()} scrobbles, ${absorbedDetail.vinylCount.toLocaleString()} vinyl)</span>
+            ${conflict ? `<div class="meta" style="color:var(--warn)">⚠ has its own distinct MusicBrainz id — will be discarded from this row</div>` : ""}
+          </span>
+          <span class="state ${status}">${stateHtml}</span>
+        </div>
+      `;
+    }).join("");
+
+    dupBulkConfirm.innerHTML = `
+      <div class="merge-confirm stack">
+        <div><strong>Merging ${rows.length} pair${rows.length === 1 ? "" : "s"}</strong></div>
+        ${rowsHtml}
+        <div class="meta">Cannot be undone from here — a backup is kept automatically for each merge.</div>
+        <div class="actions-row">
+          <button data-role="do-merge-all" class="danger">Merge all</button>
+          <button data-role="cancel-merge">Cancel</button>
+        </div>
+      </div>
+    `;
+    dupBulkConfirm.querySelector("[data-role='cancel-merge']").addEventListener("click", () => { dupBulkConfirm.innerHTML = ""; });
+    dupBulkConfirm.querySelector("[data-role='do-merge-all']").addEventListener("click", runAll);
+  }
+
+  async function runAll() {
+    dupBulkConfirm.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    for (const row of rows) {
+      row.status = "merging";
+      paint();
+      try {
+        const res = await fetch("/api/albums/merge", {
+          method: "POST",
+          body: JSON.stringify({ absorbedId: row.pair.absorbed.albumId, canonicalId: row.pair.canonical.albumId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Something went wrong.");
+        const moved = Object.entries(data.rowsMoved)
+          .filter(([k, v]) => v > 0 && !k.includes("collisions_dropped"))
+          .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
+          .join(", ");
+        logAction(`Merged <span class="who">${esc(data.absorbedTitle)}</span> into <span class="who">${esc(data.canonicalTitle)}</span>${moved ? ` — moved ${esc(moved)}` : ""}`);
+        row.status = "done";
+      } catch (err) {
+        row.status = "error";
+        row.error = err.message;
+      }
+      paint();
+    }
+    // Drop whatever succeeded from the scan list; anything that failed
+    // stays so it's obvious what still needs a retry.
+    const doneAbsorbedIds = new Set(rows.filter((r) => r.status === "done").map((r) => r.pair.absorbed.albumId));
+    currentCandidates = currentCandidates.filter((e) => {
+      const isDone = doneAbsorbedIds.has(e.c.a.albumId) || doneAbsorbedIds.has(e.c.b.albumId);
+      if (isDone) e.wrap.remove();
+      return !isDone;
+    });
+    updateBulkToolbar();
+  }
+
+  paint();
 }
 
 scanBtn.addEventListener("click", runScan);
 dupMinScoreInput.addEventListener("keydown", (e) => { if (e.key === "Enter") runScan(); });
+dupReviewBtn.addEventListener("click", renderBulkConfirm);
 
 // -- Rebuild public database -----------------------------------------------
 

@@ -1,19 +1,26 @@
 """
-Local-only web UI for etl/refresh.py -- a nicer way to trigger a data
-refresh, read its report, and then actually decide whether to keep it,
-than scrolling terminal output and hoping for the best.
+Web UI for etl/refresh.py -- a nicer way to trigger a data refresh, read
+its report, and then actually decide whether to keep it, than scrolling
+terminal output and hoping for the best.
 
-This binds to 127.0.0.1 deliberately and must never be exposed beyond
-localhost: it executes local scripts (which hit your Last.fm/Setlist.fm
-API keys and can import an arbitrary CSV from imports/) on request, with
-no authentication of its own. Fine for a tool only you can reach on your
-own machine; dangerous for anything else.
+It executes local scripts (which hit your Last.fm/Setlist.fm API keys and
+can import an arbitrary CSV from imports/) on request, so it's gated
+behind a shared password rather than left open to whoever can reach the
+port. Whether it's reachable beyond this machine is controlled by one
+thing: set MAINTENANCE_PASSWORD in .env and it binds to the LAN with
+every request requiring that password (HTTP Basic Auth -- browsers
+prompt once and remember it per-origin); leave it unset and it stays on
+127.0.0.1 with no auth check, exactly as before. There's deliberately no
+way to end up LAN-reachable without a password required, or vice versa.
 
 Usage:
     python3 etl/maintenance/server.py
     open http://localhost:8643/
 """
+import base64
+import hmac
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -33,14 +40,18 @@ from rapidfuzz import fuzz, process
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "etl"))
-from common import connect as db_connect  # noqa: E402
+from common import connect as db_connect, load_env  # noqa: E402
 from musicbrainz import search_artists, search_release_groups  # noqa: E402
+
+load_env()
+PASSWORD = os.environ.get("MAINTENANCE_PASSWORD", "")
 
 PAGE_PATH = Path(__file__).resolve().parent / "index.html"
 ARTISTS_PAGE_PATH = Path(__file__).resolve().parent / "artists.html"
 DUPLICATES_PAGE_PATH = Path(__file__).resolve().parent / "duplicates.html"
 ALBUMS_PAGE_PATH = Path(__file__).resolve().parent / "albums.html"
 ALBUM_DUPLICATES_PAGE_PATH = Path(__file__).resolve().parent / "album-duplicates.html"
+VINYL_PAGE_PATH = Path(__file__).resolve().parent / "vinyl.html"
 SHARED_JS_PATH = Path(__file__).resolve().parent / "shared.js"
 DATA_DB = ROOT / "data" / "music.sqlite"
 BACKUP_DIR = ROOT / "data" / ".refresh_backups"
@@ -133,7 +144,33 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(length) or b"{}")
 
+    def _authorized(self) -> bool:
+        """No password configured -> loopback-only mode (see main()), where auth is moot -- always allow.
+        Password configured -> every request needs it, timing-safe compared; username is ignored."""
+        if not PASSWORD:
+            return True
+        given = self.headers.get("Authorization", "")
+        if not given.startswith("Basic "):
+            return False
+        try:
+            decoded = base64.b64decode(given[len("Basic "):]).decode()
+        except Exception:
+            return False
+        _, _, pw = decoded.partition(":")
+        return hmac.compare_digest(pw, PASSWORD)
+
+    def _require_auth(self) -> bool:
+        if self._authorized():
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Music Maintenance"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     def do_GET(self):
+        if not self._require_auth():
+            return
         # Used only by the new /api/artists/... routes below -- the
         # pre-existing routes keep parsing self.path themselves, untouched.
         path = urlsplit(self.path).path
@@ -149,6 +186,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file(ALBUMS_PAGE_PATH, "text/html; charset=utf-8")
         elif self.path == "/album-duplicates.html":
             self._send_file(ALBUM_DUPLICATES_PAGE_PATH, "text/html; charset=utf-8")
+        elif self.path == "/vinyl.html":
+            self._send_file(VINYL_PAGE_PATH, "text/html; charset=utf-8")
         elif self.path == "/shared.js":
             self._send_file(SHARED_JS_PATH, "application/javascript; charset=utf-8")
         elif self.path == "/imports":
@@ -195,10 +234,14 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_album_tracklist(query)
         elif path == "/api/albums/duplicate-candidates":
             self._handle_album_duplicate_candidates(query)
+        elif path == "/api/vinyl/queue":
+            self._handle_vinyl_queue(query)
         else:
             self.send_error(404)
 
     def do_POST(self):
+        if not self._require_auth():
+            return
         if self.path == "/run":
             return self._handle_run()
         if self.path == "/build":
@@ -663,6 +706,34 @@ class Handler(BaseHTTPRequestHandler):
     # duplicate scan is scoped per-artist rather than global -- see
     # ALBUM_DUPLICATE_MIN_SHORT_LEN's comment for why.
 
+    def _handle_vinyl_queue(self, query):
+        conn = db_connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT vh.id, vh.album_id, al.title, al.mbid, al.artist_id, ar.name, ar.mbid,
+                       vh.format, vh.label, vh.date_added
+                FROM vinyl_holdings vh
+                JOIN albums al ON al.id = vh.album_id
+                JOIN artists ar ON ar.id = al.artist_id
+                ORDER BY ar.name, al.title
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+
+        self._send_json({
+            "totalVinyl": len(rows),
+            "rows": [
+                {
+                    "vinylId": r[0], "albumId": r[1], "albumTitle": r[2], "albumMbid": r[3],
+                    "artistId": r[4], "artistName": r[5], "artistMbid": r[6],
+                    "format": r[7], "label": r[8], "dateAdded": r[9],
+                }
+                for r in rows
+            ],
+        })
+
     def _handle_albums_missing_mbid(self, query):
         try:
             min_count = int((query.get("minCount") or ["3"])[0])
@@ -977,11 +1048,18 @@ class Handler(BaseHTTPRequestHandler):
             absorbed = conn.execute(
                 "SELECT id, title, mbid, artist_id FROM albums WHERE id = ?", (absorbed_id,)
             ).fetchone()
-            canonical = conn.execute("SELECT id, title FROM albums WHERE id = ?", (canonical_id,)).fetchone()
+            canonical = conn.execute(
+                "SELECT id, title, artist_id FROM albums WHERE id = ?", (canonical_id,)
+            ).fetchone()
         finally:
             conn.close()
         if not absorbed or not canonical:
             return self._send_json({"error": "absorbedId and canonicalId must both be existing albums"}, status=404)
+        if absorbed[3] != canonical[2]:
+            return self._send_json({
+                "error": "different_artist",
+                "message": "These albums belong to different artists -- merge the artists first if they're really the same act.",
+            }, status=409)
 
         # Safety copy before anything destructive -- same as the artist
         # merge, an undo-by-hand path rather than a separate accept/reject
@@ -1092,10 +1170,26 @@ class Handler(BaseHTTPRequestHandler):
         })
 
 
+def _lan_ip() -> str:
+    """Best-effort LAN address for the startup message only -- doesn't send anything."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        try:
+            s.connect(("10.255.255.255", 1))
+            return s.getsockname()[0]
+        except OSError:
+            return "this machine's LAN IP"
+
+
 def main():
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    print(f"Maintenance UI: http://localhost:{PORT}/")
-    print("Local only -- do not expose this port. Ctrl+C to stop.")
+    host = "0.0.0.0" if PASSWORD else "127.0.0.1"
+    server = ThreadingHTTPServer((host, PORT), Handler)
+    if PASSWORD:
+        print(f"Maintenance UI: http://{_lan_ip()}:{PORT}/  (password required)")
+        print("MAINTENANCE_PASSWORD is set -- reachable from the LAN. Ctrl+C to stop.")
+    else:
+        print(f"Maintenance UI: http://localhost:{PORT}/")
+        print("No MAINTENANCE_PASSWORD set -- staying local-only. Set one in .env for LAN access. Ctrl+C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

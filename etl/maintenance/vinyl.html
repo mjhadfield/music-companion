@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Music Companion — Vinyl Holdings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  /* Same dark palette as the other maintenance pages -- local-only tool, no light mode. */
+  :root {
+    --bg: #0d0a10;
+    --bg-elevated: #17121c;
+    --border: #332a3d;
+    --text: #f1ecf5;
+    --text-dim: #a89bb5;
+    --text-muted: #7d7188;
+    --accent-vinyl: #b8822a;
+    --accent-scrobble: #d43e78;
+    --accent-live: #8b4fd6;
+    --accent: #8b4fd6;
+    --warn: #e2a33e;
+    --danger: #c0453f;
+    --font-display: "Oswald", "Arial Narrow", -apple-system, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); line-height: 1.5; }
+  a { color: var(--accent); }
+  main { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; }
+  .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+  h1 { font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.03em; font-size: 1.6rem; margin: 0; }
+  h3 {
+    font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.03em;
+    font-size: 0.78rem; color: var(--text-dim); margin: 0 0 8px;
+  }
+  .back-link { font-size: 0.85rem; white-space: nowrap; }
+  .subtitle { color: var(--text-dim); font-size: 0.9rem; margin: 0 0 16px; }
+
+  .card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; margin-bottom: 24px; }
+
+  .queue-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .queue-controls label { font-size: 0.85rem; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  #queue-progress { color: var(--text-dim); font-size: 0.85rem; }
+
+  button {
+    font-family: var(--font-body); border: 1px solid var(--border); background: var(--bg);
+    color: var(--text); border-radius: 7px; padding: 7px 14px; font-size: 0.85rem; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { filter: brightness(1.12); }
+  button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+  input[type="text"] {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 10px; font-size: 0.88rem;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 0.9rem; vertical-align: top; }
+  th { color: var(--text-dim); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  td .meta { color: var(--text-dim); font-size: 0.78rem; }
+  td.status { white-space: nowrap; }
+  td.status .missing { color: var(--warn); }
+  td.status .dupes { color: var(--accent); }
+  td.status .clean { color: var(--text-dim); }
+  td.actions { text-align: right; white-space: nowrap; }
+  #queue-tbody tr:last-of-type td { border-bottom: none; }
+  #queue-empty { color: var(--text-dim); font-size: 0.88rem; padding: 8px; display: none; }
+
+  .resolve-row td { background: var(--bg); border-bottom: 1px solid var(--border); padding: 16px 18px; }
+  .resolve-section { margin-bottom: 16px; }
+  .resolve-section:last-child { margin-bottom: 0; }
+  .resolve-row input[type="text"] { width: 260px; }
+  .inline-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .mb-candidate, .conflict-banner, .merge-confirm {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px;
+    background: var(--bg-elevated); font-size: 0.85rem;
+  }
+  .mb-candidate .meta, .conflict-banner .meta, .merge-confirm .meta { color: var(--text-dim); font-size: 0.78rem; }
+  .conflict-banner { border-color: var(--warn); }
+  .conflict-banner .headline { color: var(--warn); }
+  .merge-confirm.stack { flex-direction: column; align-items: stretch; gap: 10px; }
+  .merge-confirm.stack .actions-row { display: flex; gap: 8px; }
+  .merge-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px;
+    background: var(--bg); font-size: 0.85rem;
+  }
+  .merge-row .state { font-size: 0.78rem; color: var(--text-dim); white-space: nowrap; }
+  .merge-row .state.done { color: var(--accent-scrobble); }
+  .merge-row .state.error { color: var(--danger); }
+
+  .dup-candidate {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px;
+    background: var(--bg-elevated); font-size: 0.85rem;
+  }
+  .dup-candidate-main { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+  .dup-check { flex-shrink: 0; margin-top: 3px; width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+
+  .search-wrap { position: relative; }
+  .search-results {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5;
+    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
+    max-height: 240px; overflow-y: auto;
+  }
+  .search-result-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 8px 12px; cursor: pointer; font-size: 0.85rem;
+  }
+  .search-result-row:hover { background: var(--bg); }
+  .search-result-row .meta { color: var(--text-dim); font-size: 0.76rem; }
+
+  .status-line { font-size: 0.82rem; margin-top: 8px; }
+  .status-line.error { color: var(--danger); }
+  .status-line.ok { color: var(--accent-scrobble); }
+
+  #action-log { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
+  #action-log li { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  #action-log li:last-child { border-bottom: none; }
+  #action-log li .who { color: var(--text); }
+
+  #log-section { display: none; }
+  #log-status {
+    font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.04em;
+    font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .spinner { width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #log {
+    background: #0a0810; border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.82rem; white-space: pre-wrap;
+    word-break: break-word; max-height: 60vh; overflow-y: auto;
+  }
+  .log-line { padding: 1px 0; }
+  .log-line.header { color: var(--accent); font-weight: 700; margin-top: 6px; }
+  .log-line.warn { color: var(--warn); font-weight: 600; }
+  .log-line.dim { color: var(--text-muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="page-head">
+    <h1>Vinyl Holdings</h1>
+    <a href="/" class="back-link">← Maintenance home</a>
+  </div>
+  <p class="subtitle">Vinyl is the master copy -- work each holding top-down: confirm its artist has the right MusicBrainz id, then fold any likely-duplicate album records into the one this vinyl actually points at.</p>
+
+  <div class="card">
+    <div class="queue-controls">
+      <label><input type="checkbox" id="show-all" /> Show all vinyl, not just what needs attention</label>
+      <button id="refresh-btn">Refresh</button>
+      <span id="queue-progress"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>Artist</th><th>Album</th><th>Status</th><th></th></tr></thead>
+      <tbody id="queue-tbody"></tbody>
+    </table>
+    <div id="queue-empty">Nothing needs attention -- every vinyl holding's artist has an mbid and no likely duplicates turned up.</div>
+  </div>
+
+  <div class="card" id="action-log-card" style="display:none">
+    <h3>Recent actions</h3>
+    <ul id="action-log"></ul>
+  </div>
+
+  <div class="card">
+    <button id="build-btn">Rebuild public database →</button>
+    <div id="log-section">
+      <div id="log-status"><span id="spinner" class="spinner"></span> <span id="log-status-text">Running…</span></div>
+      <div id="log"></div>
+    </div>
+  </div>
+</main>
+
+<script src="shared.js"></script>
+<script>
+const showAllCheckbox = document.getElementById("show-all");
+const refreshBtn = document.getElementById("refresh-btn");
+const queueProgress = document.getElementById("queue-progress");
+const queueTbody = document.getElementById("queue-tbody");
+const queueEmpty = document.getElementById("queue-empty");
+const actionLogCard = document.getElementById("action-log-card");
+const actionLog = document.getElementById("action-log");
+const buildBtn = document.getElementById("build-btn");
+const logSection = document.getElementById("log-section");
+const logEl = document.getElementById("log");
+const logStatusText = document.getElementById("log-status-text");
+
+// Same starting point as album-duplicates.html's bulk review -- pairs at
+// or above this score start pre-ticked, everything else starts unticked.
+const AUTO_TICK_SCORE = 97;
+
+// The scorer behind every candidate's "similarity" matches on shared
+// words, not word order or extra distinguishing words -- it scores "Van
+// Halen II (Remastered)" vs "Van Halen (Remastered)" at 100, same as it
+// scores a genuine duplicate like "X" vs "X (Deluxe Edition)". A raw
+// score threshold alone can't tell those apart, which matters once it's
+// driving an auto-tick. This strips only known edition-marker words, then
+// requires what's left to match exactly -- see album-duplicates.html's
+// identical check for the full reasoning and worked examples.
+const EDITION_MARKER_WORDS = ["deluxe", "remaster", "edition", "anniversary"];
+const EDITION_BRACKET_RE = new RegExp(
+  `[\\(\\[][^)\\]]*\\b(${EDITION_MARKER_WORDS.join("|")})\\w*\\b[^)\\]]*[\\)\\]]`, "gi"
+);
+
+function normalizeForAutoTick(title) {
+  return title.replace(EDITION_BRACKET_RE, " ").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function safeToAutoTick(titleA, titleB) {
+  return normalizeForAutoTick(titleA) === normalizeForAutoTick(titleB);
+}
+
+// Text alone can't settle "is this really the same release" -- a direct
+// link next to each side's title is what actually lets you check.
+function mbAlbumLink(mbid) {
+  return mbid
+    ? ` <a href="https://musicbrainz.org/release-group/${esc(mbid)}" target="_blank" rel="noopener">mbid ↗</a>`
+    : "";
+}
+
+let allRows = [];               // raw /api/vinyl/queue rows
+let candidatesByAlbumId = null; // Map<albumId, {other, score}[]>
+let openPanelVinylId = null;
+
+function logAction(text) {
+  actionLogCard.style.display = "block";
+  const li = document.createElement("li");
+  li.innerHTML = text;
+  actionLog.insertBefore(li, actionLog.firstChild);
+  while (actionLog.children.length > 5) actionLog.removeChild(actionLog.lastChild);
+}
+
+function buildCandidateMap(candidates) {
+  const map = new Map();
+  const add = (albumId, other, score) => {
+    if (!map.has(albumId)) map.set(albumId, []);
+    map.get(albumId).push({ other, score });
+  };
+  for (const c of candidates) {
+    add(c.a.albumId, c.b, c.score);
+    add(c.b.albumId, c.a, c.score);
+  }
+  for (const list of map.values()) list.sort((a, b) => b.score - a.score);
+  return map;
+}
+
+async function loadQueue() {
+  openPanelVinylId = null;
+  queueTbody.innerHTML = "";
+  queueProgress.textContent = "Loading…";
+
+  const [vinylRes, dupRes] = await Promise.all([
+    fetch("/api/vinyl/queue"),
+    fetch("/api/albums/duplicate-candidates?minScore=90&limit=5000"),
+  ]);
+  const vinylData = await vinylRes.json();
+  const dupData = await dupRes.json();
+  if (!vinylRes.ok) {
+    queueProgress.textContent = vinylData.error || "Something went wrong.";
+    return;
+  }
+  allRows = vinylData.rows;
+  candidatesByAlbumId = buildCandidateMap(dupRes.ok ? dupData.candidates : []);
+
+  render();
+}
+
+function rowNeedsAttention(row) {
+  return !row.artistMbid || (candidatesByAlbumId.get(row.albumId) || []).length > 0;
+}
+
+function render() {
+  queueTbody.innerHTML = "";
+  const showAll = showAllCheckbox.checked;
+  const rows = showAll ? allRows : allRows.filter(rowNeedsAttention);
+  const missingCount = allRows.filter((r) => !r.artistMbid).length;
+  const dupeCount = allRows.filter((r) => (candidatesByAlbumId.get(r.albumId) || []).length > 0).length;
+
+  queueProgress.textContent = `${allRows.length} vinyl holdings — ${missingCount} missing artist mbid, ${dupeCount} with likely album duplicates`;
+  queueEmpty.style.display = rows.length ? "none" : "block";
+  for (const row of rows) {
+    queueTbody.appendChild(renderQueueRow(row));
+  }
+}
+
+function renderQueueRow(row) {
+  const tr = document.createElement("tr");
+  tr.dataset.vinylId = row.vinylId;
+  const dupeCount = (candidatesByAlbumId.get(row.albumId) || []).length;
+  let statusHtml;
+  if (!row.artistMbid) {
+    statusHtml = `<span class="missing">⚠ missing artist mbid</span>`;
+  } else if (dupeCount) {
+    statusHtml = `<span class="dupes">${dupeCount} likely duplicate${dupeCount === 1 ? "" : "s"}</span>`;
+  } else {
+    statusHtml = `<span class="clean">✓ clean</span>`;
+  }
+  tr.innerHTML = `
+    <td>${esc(row.artistName)}</td>
+    <td>${esc(row.albumTitle)}${row.format ? `<div class="meta">${esc(row.format)}${row.label ? ` · ${esc(row.label)}` : ""}</div>` : ""}</td>
+    <td class="status">${statusHtml}</td>
+    <td class="actions"><button data-role="resolve">Resolve</button></td>
+  `;
+  tr.querySelector("[data-role='resolve']").addEventListener("click", () => togglePanel(row));
+  return tr;
+}
+
+function togglePanel(row) {
+  const existingPanel = queueTbody.querySelector(`tr.resolve-row[data-for="${row.vinylId}"]`);
+  if (existingPanel) {
+    existingPanel.remove();
+    openPanelVinylId = null;
+    return;
+  }
+  const oldPanel = queueTbody.querySelector("tr.resolve-row");
+  if (oldPanel) oldPanel.remove();
+
+  openPanelVinylId = row.vinylId;
+  const tr = queueTbody.querySelector(`tr[data-vinyl-id="${row.vinylId}"]`);
+  tr.after(buildResolvePanel(row));
+}
+
+function buildResolvePanel(row) {
+  const tr = document.createElement("tr");
+  tr.className = "resolve-row";
+  tr.dataset.for = row.vinylId;
+  const td = document.createElement("td");
+  td.colSpan = 4;
+  td.innerHTML = `
+    <div class="resolve-section" data-role="mbid-section">
+      <h3>Artist MusicBrainz id</h3>
+      <div data-role="mbid-body"></div>
+    </div>
+    <div class="resolve-section" data-role="dupe-section">
+      <h3>Likely duplicate albums</h3>
+      <div data-role="dupe-body"></div>
+    </div>
+  `;
+  tr.appendChild(td);
+
+  renderMbidSection(td, row);
+  renderDupeSection(td, row);
+  return tr;
+}
+
+// -- Artist mbid assignment -- ported from artists.html's resolve panel,
+// scoped to the one artist this vinyl holding is credited to.
+
+function renderMbidSection(panelTd, row) {
+  const body = panelTd.querySelector("[data-role='mbid-body']");
+  if (row.artistMbid) {
+    body.innerHTML = `<div class="status-line ok">✓ already has an mbid (${esc(row.artistMbid)}).</div>`;
+    return;
+  }
+  body.innerHTML = `
+    <div class="inline-form">
+      <input type="text" data-role="mb-query" value="${esc(row.artistName)}" />
+      <button data-role="mb-search">Search</button>
+    </div>
+    <div data-role="mb-results"></div>
+    <div class="inline-form" style="margin-top:10px">
+      <input type="text" data-role="manual-mbid" placeholder="e.g. 5b11f4ce-a62d-471e-81fc-a69a8278c7da" />
+      <button data-role="manual-assign">Assign</button>
+    </div>
+    <div data-role="conflict-slot"></div>
+    <div data-role="status" class="status-line"></div>
+  `;
+  wireMbSearch(body, row);
+  wireManualAssign(body, row);
+  runMbSearch(body, row.artistName, row);
+}
+
+function setMbidStatus(body, text, kind) {
+  const el = body.querySelector("[data-role='status']");
+  el.textContent = text || "";
+  el.className = "status-line" + (kind ? ` ${kind}` : "");
+}
+
+function wireMbSearch(body, row) {
+  body.querySelector("[data-role='mb-search']").addEventListener("click", () => {
+    runMbSearch(body, body.querySelector("[data-role='mb-query']").value.trim(), row);
+  });
+}
+
+async function runMbSearch(body, query, row) {
+  const resultsEl = body.querySelector("[data-role='mb-results']");
+  if (!query) { resultsEl.innerHTML = ""; return; }
+  resultsEl.innerHTML = `<div class="status-line">Searching…</div>`;
+  const res = await fetch(`/api/artists/mb-search?q=${encodeURIComponent(query)}`);
+  const data = await res.json();
+  if (!res.ok) {
+    resultsEl.innerHTML = `<div class="status-line error">${esc(data.error || "Search failed.")}</div>`;
+    return;
+  }
+  if (!data.candidates.length) {
+    resultsEl.innerHTML = `<div class="status-line">No matches.</div>`;
+    return;
+  }
+  resultsEl.innerHTML = "";
+  for (const c of data.candidates) {
+    const div = document.createElement("div");
+    div.className = "mb-candidate";
+    const years = c.beginDate ? ` · ${esc(c.beginDate)}–${c.ended ? esc(c.endDate || "") : ""}` : "";
+    div.innerHTML = `
+      <span>
+        <strong>${esc(c.name)}</strong>${c.disambiguation ? ` <span class="meta">(${esc(c.disambiguation)})</span>` : ""}
+        <div class="meta">
+          ${esc(c.type || "")}${c.country ? ` · ${esc(c.country)}` : ""}${years} · score ${c.score}
+          · <a href="https://musicbrainz.org/artist/${esc(c.mbid)}" target="_blank" rel="noopener">view on MusicBrainz ↗</a>
+        </div>
+      </span>
+      <button data-role="mb-assign">Assign</button>
+    `;
+    div.querySelector("[data-role='mb-assign']").addEventListener("click", () => assignMbid(body, row, c.mbid));
+    resultsEl.appendChild(div);
+  }
+}
+
+function wireManualAssign(body, row) {
+  body.querySelector("[data-role='manual-assign']").addEventListener("click", () => {
+    const mbid = body.querySelector("[data-role='manual-mbid']").value.trim();
+    if (!mbid) { setMbidStatus(body, "Enter an mbid first.", "error"); return; }
+    assignMbid(body, row, mbid);
+  });
+}
+
+async function assignMbid(body, row, mbid) {
+  setMbidStatus(body, "Assigning…");
+  const res = await fetch("/api/artists/assign-mbid", {
+    method: "POST",
+    body: JSON.stringify({ artistId: row.artistId, mbid }),
+  });
+  const data = await res.json();
+
+  if (res.status === 409) {
+    renderMbidConflict(body, row, data.conflictingArtist, data.message);
+    return;
+  }
+  if (!res.ok) {
+    setMbidStatus(body, data.error || "Something went wrong.", "error");
+    return;
+  }
+
+  logAction(`Assigned mbid to <span class="who">${esc(row.artistName)}</span>`);
+  onArtistMbidResolved(row, mbid);
+}
+
+function renderMbidConflict(body, row, conflictingArtist, message) {
+  const slot = body.querySelector("[data-role='conflict-slot']");
+  slot.innerHTML = "";
+  const div = document.createElement("div");
+  div.className = "conflict-banner";
+  div.innerHTML = `
+    <span>
+      <div class="headline">${esc(message || "That mbid is already in use.")}</div>
+      <div class="meta">Merge "${esc(row.artistName)}" into "${esc(conflictingArtist.name)}"?</div>
+    </span>
+    <span>
+      <button data-role="conflict-merge" class="primary">Merge</button>
+      <button data-role="conflict-cancel">Cancel</button>
+    </span>
+  `;
+  div.querySelector("[data-role='conflict-merge']").addEventListener("click", async () => {
+    setMbidStatus(body, "Merging…");
+    const res = await fetch("/api/artists/merge", {
+      method: "POST",
+      body: JSON.stringify({ absorbedId: row.artistId, canonicalId: conflictingArtist.artistId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setMbidStatus(body, data.error || "Something went wrong.", "error");
+      return;
+    }
+    logAction(`Merged <span class="who">${esc(row.artistName)}</span> into <span class="who">${esc(conflictingArtist.name)}</span>`);
+    // The absorbed artist is gone -- this vinyl's album now hangs off the
+    // canonical artist, which already has the mbid we were trying to set.
+    row.artistId = conflictingArtist.artistId;
+    onArtistMbidResolved(row, conflictingArtist.mbid || null);
+  });
+  div.querySelector("[data-role='conflict-cancel']").addEventListener("click", () => { slot.innerHTML = ""; setMbidStatus(body, ""); });
+  slot.appendChild(div);
+  setMbidStatus(body, "");
+}
+
+// Refreshes every in-memory row sharing this artist (a vinyl artist is
+// rarely credited on just one holding) so the table/status/dupe-gating
+// all reflect the new mbid without a full reload.
+function onArtistMbidResolved(row, mbid) {
+  for (const r of allRows) {
+    if (r.artistId === row.artistId) r.artistMbid = mbid;
+  }
+  render();
+  const reopened = allRows.find((r) => r.vinylId === row.vinylId);
+  // render() may have filtered this row out of the "needs attention" view
+  // (mbid resolved + no duplicate candidates) -- only reopen if its row is
+  // actually still in the table.
+  if (reopened && queueTbody.querySelector(`tr[data-vinyl-id="${reopened.vinylId}"]`)) {
+    togglePanel(reopened);
+  }
+}
+
+// -- Likely duplicate albums -- same tick/review/merge-all pattern as
+// album-duplicates.html's bulk review, except canonical is always fixed
+// to this vinyl's own album (vinyl is the master copy, never absorbed).
+
+function renderDupeSection(panelTd, row) {
+  const body = panelTd.querySelector("[data-role='dupe-body']");
+  if (!row.artistMbid) {
+    body.innerHTML = `<div class="status-line">Assign this artist's MusicBrainz id first.</div>`;
+    return;
+  }
+  const candidates = candidatesByAlbumId.get(row.albumId) || [];
+  if (!candidates.length) {
+    body.innerHTML = `<div class="status-line">No likely duplicates found for this album.</div>`;
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="status-line">This vinyl's album: <strong>${esc(row.albumTitle)}</strong>${mbAlbumLink(row.albumMbid)}</div>
+    <div id="dupe-list-${row.vinylId}"></div>
+    <div class="queue-controls" style="margin-top:10px">
+      <span data-role="dupe-selected-count"></span>
+      <button data-role="dupe-review" class="primary">Review selected →</button>
+    </div>
+    <div data-role="dupe-confirm"></div>
+  `;
+  const list = body.querySelector(`#dupe-list-${row.vinylId}`);
+  const selectedCountEl = body.querySelector("[data-role='dupe-selected-count']");
+  const reviewBtn = body.querySelector("[data-role='dupe-review']");
+  const confirmEl = body.querySelector("[data-role='dupe-confirm']");
+
+  const entries = candidates.map((cand) => {
+    const wrap = document.createElement("div");
+    const autoTicked = cand.score >= AUTO_TICK_SCORE && safeToAutoTick(row.albumTitle, cand.other.title);
+    wrap.innerHTML = `
+      <div class="dup-candidate">
+        <label class="dup-candidate-main">
+          <input type="checkbox" class="dup-check" ${autoTicked ? "checked" : ""} />
+          <span>
+            <strong>${esc(cand.other.title)}</strong>${mbAlbumLink(cand.other.mbid)}
+            <span class="meta">(${cand.other.scrobbleCount.toLocaleString()} scrobbles, ${cand.other.vinylCount.toLocaleString()} vinyl)</span>
+            <div class="meta">similarity ${cand.score}${row.albumMbid && cand.other.mbid && row.albumMbid !== cand.other.mbid ? " · ⚠ has its own distinct MusicBrainz id" : ""}</div>
+          </span>
+        </label>
+        <span class="actions">
+          <button data-role="dismiss">Not a duplicate</button>
+        </span>
+      </div>
+    `;
+    const checkbox = wrap.querySelector("input[type='checkbox']");
+    checkbox.addEventListener("change", updateToolbar);
+    wrap.querySelector("[data-role='dismiss']").addEventListener("click", async () => {
+      await fetch("/api/albums/dismiss-duplicate", {
+        method: "POST",
+        body: JSON.stringify({ aId: row.albumId, bId: cand.other.albumId }),
+      });
+      wrap.remove();
+      removeCandidate(row.albumId, cand.other.albumId);
+      updateToolbar();
+    });
+    list.appendChild(wrap);
+    return { cand, wrap, checkbox };
+  });
+
+  function updateToolbar() {
+    const selected = entries.filter((e) => e.wrap.isConnected && e.checkbox.checked);
+    selectedCountEl.textContent = `${selected.length} selected`;
+    reviewBtn.disabled = !selected.length;
+  }
+  updateToolbar();
+
+  reviewBtn.addEventListener("click", async () => {
+    const selected = entries.filter((e) => e.wrap.isConnected && e.checkbox.checked);
+    if (!selected.length) return;
+    await runDupeMerge(confirmEl, row, selected, entries, updateToolbar);
+  });
+}
+
+// The map holds both directions of every pair (see buildCandidateMap), so
+// a dismiss/merge has to strip both -- otherwise the pair could still turn
+// up from the other album's own vinyl row before the next full reload.
+function removeCandidate(albumId, otherAlbumId) {
+  for (const [a, b] of [[albumId, otherAlbumId], [otherAlbumId, albumId]]) {
+    const list = candidatesByAlbumId.get(a) || [];
+    candidatesByAlbumId.set(a, list.filter((c) => c.other.albumId !== b));
+  }
+}
+
+async function runDupeMerge(confirmEl, row, selected, allEntries, updateToolbar) {
+  confirmEl.innerHTML = `<div class="status-line">Loading…</div>`;
+  const [canonical, ...absorbedDetails] = await Promise.all([
+    fetch(`/api/albums/detail?id=${row.albumId}`).then((r) => r.json()),
+    ...selected.map((e) => fetch(`/api/albums/detail?id=${e.cand.other.albumId}`).then((r) => r.json())),
+  ]);
+  const rows = selected.map((e, i) => ({ entry: e, detail: absorbedDetails[i], status: "pending", error: null }));
+
+  function paint() {
+    const rowsHtml = rows.map(({ detail, status, error }) => {
+      const conflict = detail.mbid && canonical.mbid && detail.mbid !== canonical.mbid;
+      const stateHtml = { pending: "", merging: "Merging…", done: "✓ merged", error: `✗ ${esc(error || "failed")}` }[status];
+      return `
+        <div class="merge-row">
+          <span>
+            <strong>${esc(detail.title)}</strong>${mbAlbumLink(detail.mbid)}
+            <span class="meta">(${detail.scrobbleCount.toLocaleString()} scrobbles, ${detail.vinylCount.toLocaleString()} vinyl)</span>
+            ${conflict ? `<div class="meta" style="color:var(--warn)">⚠ has its own distinct MusicBrainz id — will be discarded from this row</div>` : ""}
+          </span>
+          <span class="state ${status}">${stateHtml}</span>
+        </div>
+      `;
+    }).join("");
+
+    confirmEl.innerHTML = `
+      <div class="merge-confirm stack">
+        <div><strong>Merging ${rows.length} album${rows.length === 1 ? "" : "s"} into</strong> ${esc(canonical.artistName)} — ${esc(canonical.title)}${mbAlbumLink(canonical.mbid)} <span class="meta">(this vinyl's album)</span></div>
+        ${rowsHtml}
+        <div class="meta">Cannot be undone from here — a backup is kept automatically for each merge.</div>
+        <div class="actions-row">
+          <button data-role="do-merge-all" class="danger">Merge all</button>
+          <button data-role="cancel-merge">Cancel</button>
+        </div>
+      </div>
+    `;
+    confirmEl.querySelector("[data-role='cancel-merge']").addEventListener("click", () => { confirmEl.innerHTML = ""; });
+    confirmEl.querySelector("[data-role='do-merge-all']").addEventListener("click", runAll);
+  }
+
+  async function runAll() {
+    confirmEl.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    for (const r of rows) {
+      r.status = "merging";
+      paint();
+      try {
+        const res = await fetch("/api/albums/merge", {
+          method: "POST",
+          body: JSON.stringify({ absorbedId: r.entry.cand.other.albumId, canonicalId: row.albumId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Something went wrong.");
+        const moved = Object.entries(data.rowsMoved)
+          .filter(([k, v]) => v > 0 && !k.includes("collisions_dropped"))
+          .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
+          .join(", ");
+        logAction(`Merged <span class="who">${esc(data.absorbedTitle)}</span> into <span class="who">${esc(data.canonicalTitle)}</span>${moved ? ` — moved ${esc(moved)}` : ""}`);
+        r.status = "done";
+        r.entry.wrap.remove();
+        removeCandidate(row.albumId, r.entry.cand.other.albumId);
+      } catch (err) {
+        r.status = "error";
+        r.error = err.message;
+      }
+      paint();
+    }
+    updateToolbar();
+  }
+
+  paint();
+}
+
+// -- Wiring ---------------------------------------------------------------
+
+refreshBtn.addEventListener("click", loadQueue);
+showAllCheckbox.addEventListener("change", render);
+
+buildBtn.addEventListener("click", async () => {
+  buildBtn.disabled = true;
+  logEl.innerHTML = "";
+  document.getElementById("spinner").style.display = "";
+  logStatusText.textContent = "Rebuilding public database…";
+  logStatusText.style.color = "";
+  logSection.style.display = "block";
+
+  const res = await fetch("/build", { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) {
+    logStatusText.textContent = data.error || "Something went wrong.";
+    buildBtn.disabled = false;
+    return;
+  }
+  pollJob(data.jobId, logEl, (result) => {
+    document.getElementById("spinner").style.display = "none";
+    logStatusText.textContent = result.returncode === 0 ? "Done" : `Exited with code ${result.returncode}`;
+    logStatusText.style.color = result.returncode === 0 ? "var(--accent-scrobble)" : "var(--accent-live)";
+    buildBtn.disabled = false;
+  });
+});
+
+loadQueue();
+</script>
+</body>
+</html>
