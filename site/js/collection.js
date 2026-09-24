@@ -331,8 +331,8 @@ function renderStats(host, shown, total) {
     <div class="cs"><b>${uniq((r) => r.artist_id)}</b><span>artists</span></div>
     <div class="cs"><b>${uniq((r) => r.labels)}</b><span>labels</span></div>
     ${countries ? `<div class="cs"><b>${countries}</b><span>countries</span></div>` : ""}
-    <div class="cs" title="The decade most of these albums first came out"><b>${topDecade ? topDecade[0] : "—"}</b><span>released</span></div>
-    <div class="cs" title="The decade most of these records were pressed"><b>${topPressed ? topPressed[0] : "—"}</b><span>pressed</span></div>
+    <div class="cs" title="The decade most of these albums first came out"><b>${topDecade ? topDecade[0] : "—"}</b><span>Top Released</span></div>
+    <div class="cs" title="The decade most of these records were pressed"><b>${topPressed ? topPressed[0] : "—"}</b><span>Top Pressed</span></div>
     <div class="cs"><b>${shown.length - reissues}</b><span>original presses</span></div>
     <div class="cs cs-genres">${topGenres.length ? `<div class="gmix">${topGenres.map(([g, c], i) => `<i style="flex:${c}; --i:${i}" title="${esc(g)} · ${c}"></i>`).join("")}</div>
       <span>${topGenres.slice(0, 4).map(([g]) => esc(g)).join(" · ")}</span>` : `<span class="subtle">genres appear once they've been fetched</span>`}</div>`;
@@ -574,16 +574,36 @@ function pressingBadges(r) {
 function recordDetailHtml(r, all) {
   const others = all.filter((x) => x.album_id === r.album_id && x.id !== r.id);
   const hist = query(`SELECT count(*) AS n, min(played_at) AS first, max(played_at) AS last FROM scrobbles WHERE album_id = ?`, [r.album_id])[0];
-  const songs = query(`
-    SELECT so.id, so.title, (SELECT count(*) FROM scrobbles s WHERE s.song_id = so.id) AS plays,
-           (SELECT count(DISTINCT ss.setlist_id) FROM setlist_songs ss WHERE ss.song_id = so.id) AS shows
+  const rows = query(`
+    SELECT so.id, so.title, (SELECT count(*) FROM scrobbles s WHERE s.song_id = so.id) AS plays
     FROM songs so WHERE so.album_id = ? OR so.id IN (SELECT DISTINCT song_id FROM scrobbles WHERE album_id = ? AND song_id IS NOT NULL)
     ORDER BY plays DESC`, [r.album_id, r.album_id]);
-  const live = songs.filter((s) => s.shows > 0);
-  const liveShows = live.length ? query(`SELECT count(DISTINCT ss.setlist_id) AS n FROM setlist_songs ss JOIN songs so ON so.id = ss.song_id
-                                         WHERE so.id IN (${live.map(() => "?").join(",")})`, live.map((s) => s.id))[0].n : 0;
-  const bySong = {};
-  songs.forEach((s) => { if (!bySong[normTitle(s.title)]) bySong[normTitle(s.title)] = s; });
+  const setlistsOf = {};
+  if (rows.length) {
+    for (const x of query(`SELECT song_id, setlist_id FROM setlist_songs WHERE song_id IN (${rows.map(() => "?").join(",")})`, rows.map((x) => x.id))) {
+      (setlistsOf[x.song_id] ||= []).push(x.setlist_id);
+    }
+  }
+  // One entry per track, not per song row: a track's plays and live sightings are often split
+  // across rows not merged yet ("War Pigs - 2009 Remaster" has the scrobbles, the setlist's plain
+  // "War Pigs" the shows) -- count them all. Links go to the plain-titled row when there is one.
+  const byKey = new Map();
+  for (const x of rows) {
+    const k = normTitle(x.title);
+    let g = byKey.get(k);
+    if (!g) byKey.set(k, (g = { rows: [], plays: 0, setlists: new Set() }));
+    g.rows.push(x);
+    g.plays += x.plays;
+    (setlistsOf[x.id] || []).forEach((id) => g.setlists.add(id));
+  }
+  const songs = [...byKey.values()].map((g) => {
+    const plain = g.rows.find((x) => !/\s-\s|[([]/.test(x.title));
+    const best = plain || g.rows[0];
+    return { id: best.id, title: best.title, plays: g.plays, shows: g.setlists.size, setlists: g.setlists };
+  }).sort((a, b) => b.plays - a.plays);
+  const live = songs.filter((x) => x.shows > 0);
+  const liveShows = new Set(live.flatMap((x) => [...x.setlists])).size;
+  const bySong = Object.fromEntries([...byKey.keys()].map((k) => [k, songs.find((x) => normTitle(x.title) === k) || null]));
   const discogsTracks = jsonOr(r.tracklist, []).filter((t) => (t.type || "track") === "track" && t.title);
   const tracks = discogsTracks.length
     ? discogsTracks.map((t) => ({ pos: t.position, title: t.title, dur: t.duration, song: bySong[normTitle(t.title)] }))
