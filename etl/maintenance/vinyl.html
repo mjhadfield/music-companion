@@ -88,6 +88,12 @@
   .big-cover { width: 220px; height: 220px; object-fit: cover; border: 1px solid var(--edge); border-radius: var(--radius-sm); }
   .d-body .resolve input[type="text"] { width: 240px; }
   @media (max-width: 700px) { .d-head { grid-template-columns: 1fr; } .checklist li { grid-template-columns: 18px 1fr; } .checklist li .c-text, .checklist li .c-fix { grid-column: 2; } }
+  .swatch { display: inline-block; width: 16px; height: 16px; border-radius: 50%; vertical-align: middle; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+  .swatch.translucent { opacity: .55; }
+  .palette { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0; }
+  .pal { display: inline-flex; gap: 5px; align-items: center; padding: 2px 8px 2px 4px; font-size: 0.74rem; border: 1px solid var(--edge); border-radius: 999px; background: var(--surface); color: var(--text); cursor: pointer; }
+  .pal.on { border-color: var(--accent-vinyl); box-shadow: 0 0 0 1px var(--accent-vinyl); }
+  .pal-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -369,6 +375,7 @@ function renderDrawer(h) {
   if (missingArtists.length) renderArtistSection($("artists"), missingArtists);
   renderLinkSection($("link"), h);
   loadGenreChips($("genres"), a.albumId);
+  renderColourEditor(dBody.querySelector("[data-role='colour']"), h);
   renderTitleYear($("titleyear"), h);
   renderCover($("cover"), h);
   if (h.versionProfiles.length) {
@@ -387,6 +394,64 @@ function renderDrawer(h) {
     if (b.dataset.jump === "identity") dBody.querySelector("[data-role='open-identity']")?.click();
     if (b.dataset.jump === "artist") dBody.querySelector("[data-role='open-artist']")?.click();
   }));
+}
+
+// -- Record colour -----------------------------------------------------------------------------
+// The site shows each record in its real colour, read from the format ("Red", "Blu", Discogs'
+// "Red Translucent"...). When that misses or is wrong, set it here: up to 3 colours + an effect.
+const DISC_PALETTE = {
+  black: "#111", white: "#e9e6df", clear: "rgba(225,228,236,.35)", red: "#b3262e", crimson: "#a4162c", oxblood: "#5a1a1f",
+  orange: "#dd7426", amber: "#d9921f", yellow: "#e2bd3c", gold: "#c9a227", cream: "#eee2c4", bone: "#e8dcc2", green: "#2e8f55",
+  teal: "#23857f", turquoise: "#2bb5b0", aqua: "#46b7d6", blue: "#2c63c9", "sea blue": "#2a6fa0", purple: "#7a3cc4", violet: "#8a4fd6",
+  magenta: "#c2378f", pink: "#e27fac", brown: "#6f4428", grey: "#7c7f86", silver: "#b9bcc6", smoke: "rgba(110,110,120,.6)",
+};
+const DISC_EFFECTS = { solid: "Solid", translucent: "Translucent", marbled: "Marbled", splatter: "Splatter", split: "Split", swirl: "Swirl" };
+function discSwatch(colours, effect) {
+  const c = colours.map((n) => DISC_PALETTE[n] || n);
+  const a = c[0] || "#111", b = c[1] || "#e9e6df", d = c[2] || b;
+  const bg = effect === "split" ? `linear-gradient(90deg, ${a} 50%, ${b} 50%)`
+    : effect === "marbled" || effect === "swirl" ? `conic-gradient(from 30deg, ${a}, ${b}, ${d}, ${a}, ${b}, ${a})`
+    : effect === "splatter" ? `radial-gradient(circle at 30% 35%, ${b} 0 12%, transparent 13%), radial-gradient(circle at 68% 62%, ${d} 0 10%, transparent 11%), ${a}`
+    : a;
+  return `<span class="swatch${effect === "translucent" ? " translucent" : ""}" style="background:${bg}"></span>`;
+}
+function detectedColours(h) {
+  const tags = (h.formatInfo?.tags || []).filter((t) => t.kind === "colour").map((t) => t.label);
+  return [...tags, ...(h.formatText ? [h.formatText] : [])];
+}
+function renderColourEditor(host, h) {
+  const cur = h.discColour;
+  const detected = detectedColours(h);
+  host.innerHTML = `${cur ? `${discSwatch(cur.colours, cur.effect)} <b>${esc(cur.colours.join(" / "))}</b> <span class="meta">${esc(DISC_EFFECTS[cur.effect] || cur.effect)} · set by you</span>`
+      : detected.length ? `<span class="meta">detected: ${esc(detected.join(" · "))}</span>` : `<span class="meta">black (nothing in the format says otherwise)</span>`}
+    <button class="small" data-role="colour-edit">${cur ? "Change" : "Set colour"}</button>
+    ${cur ? `<button class="small" data-role="colour-clear" title="Go back to what the format says">Reset</button>` : ""}
+    <div data-role="colour-picker" hidden></div>`;
+  const picker = host.querySelector("[data-role='colour-picker']");
+  let pick = [...(cur?.colours || [])], effect = cur?.effect || "solid";
+  const draw = () => {
+    picker.innerHTML = `<div class="palette">${Object.keys(DISC_PALETTE).map((n) => `<button class="pal${pick.includes(n) ? " on" : ""}" data-c="${esc(n)}" title="${esc(n)}">${discSwatch([n], "solid")}<span>${esc(n)}</span></button>`).join("")}</div>
+      <div class="pal-row"><select data-role="effect">${Object.entries(DISC_EFFECTS).map(([k, v]) => `<option value="${k}" ${k === effect ? "selected" : ""}>${v}</option>`).join("")}</select>
+        <span>${pick.length ? `${discSwatch(pick, effect)} ${esc(pick.join(" / "))}` : `<span class="meta">pick up to 3 colours</span>`}</span>
+        <button class="small good" data-role="colour-save" ${pick.length ? "" : "disabled"}>Save</button></div>`;
+    picker.querySelectorAll("[data-c]").forEach((b) => b.addEventListener("click", () => {
+      const n = b.dataset.c;
+      pick = pick.includes(n) ? pick.filter((x) => x !== n) : [...pick, n].slice(-3);
+      draw();
+    }));
+    picker.querySelector("[data-role='effect']").addEventListener("change", (e) => { effect = e.target.value; draw(); });
+    picker.querySelector("[data-role='colour-save']").addEventListener("click", () => save({ colours: pick, effect }));
+  };
+  async function save(body) {
+    const { ok, data } = await api("/api/vinyl/colour", { vinylId: h.vinylId, ...body });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    h.discColour = data.discColour;
+    if (data.editId) toast(body.clear ? "Colour back to what the format says" : `Colour set: ${esc(data.discColour.colours.join(" / "))}`, { undo: { kind: "edit", id: data.editId, onUndone: () => openDrawer(h.vinylId, { scroll: false }) } });
+    notifyChanged();
+    renderColourEditor(host, h);
+  }
+  host.querySelector("[data-role='colour-edit']").addEventListener("click", () => { picker.hidden = !picker.hidden; if (!picker.hidden) draw(); });
+  host.querySelector("[data-role='colour-clear']")?.addEventListener("click", () => save({ clear: true }));
 }
 
 // The album's genre tags, editable in place (see Maintenance > Genres for the whole picture).
@@ -421,6 +486,7 @@ function pressingHtml(h) {
     <dt>Format</dt><dd>${fmtTags(h)}</dd>
     <dt>Label</dt><dd>${esc(h.label || "—")}${h.catalogNumber ? ` · <span class="mono">${esc(h.catalogNumber)}</span>` : ""}</dd>
     <dt>Released</dt><dd>${h.pressingYear || "—"}${h.discogs?.country ? ` · ${esc(h.discogs.country)}` : ""}${h.discogs?.masterId ? ` · <a class="mb" href="https://www.discogs.com/master/${h.discogs.masterId}" target="_blank" rel="noopener">Discogs master ↗</a>` : ""}</dd>
+    <dt>Colour</dt><dd data-role="colour"></dd>
     <dt>Condition</dt><dd>${esc(h.mediaCondition || "—")} <span class="meta">(media)</span>${h.sleeveCondition ? ` · ${esc(h.sleeveCondition)} <span class="meta">(sleeve)</span>` : ""}</dd>
     <dt>Rating</dt><dd>${stars(h.rating) || "—"}</dd>
     <dt>Added</dt><dd>${esc(fmtDate(h.dateAdded))}</dd>

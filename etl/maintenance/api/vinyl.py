@@ -127,6 +127,7 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
     reviewed = {r[0] for r in c.execute("SELECT entity_id FROM review_marks WHERE entity_type = 'album' AND mark = 'verified:album-mbid'")}
 
     cache = _cache(c, {f"lookup:release-group:{r[16]}" for r in rows if r[16]}
+                   | {f"rg-first-release:{r[16]}" for r in rows if r[16]}
                    | {f"lookup:release-parent:{r[13]}" for r in rows if r[13]}
                    | {f"lookup:discogs-release:{r[2]}" for r in rows if r[2]}
                    | {f"lookup:discogs-api:{r[2]}" for r in rows if r[2]})
@@ -149,6 +150,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
         # only stands in when it IS the album's (a mis-linked pressing must not suggest a year).
         year_source = rg or (pressing_rg if pressing_rg and pressing_rg.get("mbid") == mbid else None)
         original_year = _year(year_source.get("firstReleaseDate")) if year_source else None
+        if original_year is None and mbid:  # the genres sweep saw this release group's first-release date
+            original_year = _year(cache.get(f"rg-first-release:{mbid}"))
         h = {
             "vinylId": vid, "discogsReleaseId": rel_id, "catalogNumber": cat, "label": label, "format": fmt, "formatInfo": fmt_info,
             "pressingYear": pressing_year, "mediaCondition": media_c, "sleeveCondition": sleeve_c, "dateAdded": added,
@@ -164,6 +167,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
             "otherPressings": [p for p in pressings[album_id] if p != vid],
             "versions": versions,
             "rg": rg, "pressingRg": pressing_rg, "originalYear": original_year,
+            # the genres sweep found this release group browsing the artist's own discography
+            "inArtistDiscography": bool(mbid) and f"rg-first-release:{mbid}" in cache,
             "discogsChecked": bool(rel_id) and discogs_key in cache, "discogsLinks": discogs or [],
             "discogs": cache.get(f"lookup:discogs-api:{rel_id}") if rel_id else None,
             "discogsDetailsChecked": bool(rel_id) and f"lookup:discogs-api:{rel_id}" in cache,
@@ -224,6 +229,8 @@ def _checks(h: dict, rg_checked: bool, reviewed: bool) -> list[dict]:
                                     "artistName": h["artist"]["name"]}
         else:
             add("identity", "Identity verified", "ok", "Release group is credited to this artist")
+    elif a["mbid"] and h["inArtistDiscography"]:
+        add("identity", "Identity verified", "ok", "In this artist's own MusicBrainz discography")
     elif a["mbid"] and reviewed:
         add("identity", "Identity verified", "ok", "Confirmed (Discogs master or by hand)")
     elif a["mbid"]:
@@ -281,6 +288,11 @@ def one_holding(req):
     h["otherPressingDetails"] = [{k: o[k] for k in ("vinylId", "discogsReleaseId", "catalogNumber", "label", "format", "formatInfo",
                                                     "pressingYear", "mbReleaseId", "dateAdded", "rawTitle", "pressingTitle")} for o in others]
     h["albumProfile"] = profiles.get(h["album"]["albumId"])
+    with read_conn() as c:
+        row = c.execute("SELECT v.disc_colour, d.format_text FROM vinyl_holdings v LEFT JOIN vinyl_details d ON d.holding_id = v.id "
+                        "WHERE v.id = ?", (vid,)).fetchone()
+    h["discColour"] = json.loads(row[0]) if row and row[0] else None
+    h["formatText"] = row[1] if row else None  # Discogs' own colour wording, once pressing details are fetched
     h["versionProfiles"] = [profiles[i] for i in h["versions"] if i in profiles]
     return h
 
@@ -372,6 +384,28 @@ def _move(c, vid: int, album_id: int, reason: str) -> int | None:
     if target[1] not in credited:
         raise ApiError("That album is by a different artist — a pressing can only move between albums by the same artist.", 409, "different_artist")
     return merge.edit_entity(c, "vinyl", vid, {"album_id": album_id}, reason)["editId"]
+
+
+DISC_EFFECTS = {"solid", "translucent", "marbled", "splatter", "split", "swirl"}
+
+
+@route("POST", "/api/vinyl/colour", mutating=True)
+def disc_colour(req):
+    """The record's colour set by hand (when the format text doesn't say, or says it wrong).
+    colours: up to 3 names; effect: solid|translucent|marbled|splatter|split|swirl. clear=true
+    goes back to what's detected. Undoable (an edit)."""
+    vid = req.int("vinylId", required=True)
+    if req.body.get("clear"):
+        value = None
+    else:
+        colours = [str(x).strip().lower() for x in (req.body.get("colours") or []) if str(x).strip()][:3]
+        effect = req.str("effect") or "solid"
+        if not colours or effect not in DISC_EFFECTS:
+            raise ApiError("pick at least one colour, and an effect")
+        value = json.dumps({"colours": colours, "effect": effect})
+    with write_tx() as c:
+        e = merge.edit_entity(c, "vinyl", vid, {"disc_colour": value}, "record colour")
+    return {"vinylId": vid, "discColour": json.loads(value) if value else None, "editId": e["editId"]}
 
 
 @route("POST", "/api/vinyl/move", mutating=True)

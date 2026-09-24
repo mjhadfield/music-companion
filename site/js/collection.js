@@ -24,7 +24,7 @@ const FORMAT_TAGS = {
   Cle: ["Clear", "colour"], Tra: ["Transparent", "colour"], Gol: ["Gold", "colour"], Sil: ["Silver", "colour"],
   Pin: ["Pink", "colour"], Ros: ["Rose", "colour"], Bro: ["Brown", "colour"], Gry: ["Grey", "colour"],
   Mar: ["Marbled", "colour"], Spl: ["Splatter", "colour"], Vio: ["Violet", "colour"], Tur: ["Turquoise", "colour"],
-  Smo: ["Smoke", "colour"], Sun: ["Sunburst", "colour"],
+  Smo: ["Smoke", "colour"], Sun: ["Sunburst", "colour"], Amb: ["Amber", "colour"], Cry: ["Clear", "colour"],
 };
 const MEDIA_RE = /^(\d+)?x?(LP|12"|10"|7"|Vinyl|Box Set|CD|Cass)$/i;
 const DISC_COLOURS = {
@@ -33,6 +33,7 @@ const DISC_COLOURS = {
   gold: "#c9a227", silver: "#b9bcc6", pink: "#e27fac", rose: "#df8da6", brown: "#6f4428", grey: "#7c7f86", gray: "#7c7f86",
   turquoise: "#2bb5b0", smoke: "rgba(110,110,120,.6)", bone: "#e8dcc2", cream: "#eee2c4", magenta: "#c2378f", teal: "#23857f",
   aqua: "#46b7d6", beige: "#dccfb0", maroon: "#6d1f2a", oxblood: "#5a1a1f", "sea blue": "#2a6fa0", crimson: "#a4162c",
+  amber: "#d9921f",
 };
 const GRADES = [
   [/^mint/i, "M", 8], [/^near mint/i, "NM", 7], [/^very good plus/i, "VG+", 6], [/^very good/i, "VG", 5],
@@ -40,7 +41,7 @@ const GRADES = [
 ];
 // Format facets: a friendly name -> does this record have it?
 const FORMAT_FACETS = {
-  "Coloured": (r) => r.colours.length > 0 && !(r.colours.length === 1 && r.colours[0] === "black"),
+  "Coloured": (r) => r.colours.length > 0 && !(r.colours.length === 1 && r.colours[0] === "black" && r.discEffect !== "translucent"),
   "180g": (r) => r.tagCodes.has("180") || r.tagCodes.has("200") || /180|200 ?g/i.test(r.descText),
   "Gatefold": (r) => r.tagCodes.has("Gat") || /gatefold/i.test(r.descText),
   "Limited": (r) => r.tagCodes.has("Ltd") || /limited/i.test(r.descText),
@@ -78,15 +79,28 @@ function discBackground(r) {
   const cols = r.colours.map((c) => DISC_COLOURS[c]).filter(Boolean);
   const grooves = "repeating-radial-gradient(circle at 50% 50%, rgba(255,255,255,.05) 0 1px, transparent 1px 3px)";
   const base = cols[0] || "#0d0d0f";
-  if (r.colours.includes("splatter")) {
-    const dot = cols[1] || "#e9e6df";
-    return `radial-gradient(circle at 30% 35%, ${dot} 0 3%, transparent 4%), radial-gradient(circle at 70% 60%, ${dot} 0 4%, transparent 5%), radial-gradient(circle at 45% 75%, ${dot} 0 2%, transparent 3%), ${grooves}, ${base}`;
+  const fx = r.discEffect;
+  if (fx === "split") return `${grooves}, linear-gradient(90deg, ${base} 50%, ${cols[1] || "#e9e6df"} 50%)`;
+  if (fx === "translucent") return `${grooves}, color-mix(in srgb, ${base} 55%, transparent)`;
+  if (fx === "solid") return `${grooves}, ${base}`;
+  if (fx === "splatter" || fx === "marbled" || fx === "swirl") {
+    const b = cols[1] || "#e9e6df", c = cols[2] || b;
+    if (fx === "splatter") return splatter(base, b, c, grooves);
+    return `${grooves}, conic-gradient(from 40deg, ${base}, ${b}, ${c}, ${base}, ${b}, ${base})`;
   }
+  if (r.colours.includes("splatter")) return splatter(base, cols[1] || "#e9e6df", cols[2] || cols[1] || "#e9e6df", grooves);
   if (r.colours.includes("marbled") || cols.length > 1) {
     const b = cols[1] || "#e9e6df";
     return `${grooves}, conic-gradient(from 40deg, ${base}, ${b}, ${base}, ${b}, ${base})`;
   }
   return `${grooves}, ${base}`;
+}
+
+// Splatter: bold flecks of the second (and third) colour, scattered over the base.
+const SPLATS = [[72, 22, 6], [86, 44, 5], [78, 70, 7], [64, 52, 4], [90, 62, 3], [70, 86, 4], [82, 30, 3], [22, 30, 6], [35, 70, 5], [45, 40, 3], [60, 12, 3], [93, 50, 2]];
+function splatter(base, b, c, grooves) {
+  const dots = SPLATS.map(([x, y, r], i) => `radial-gradient(circle at ${x}% ${y}%, ${i % 3 === 2 ? c : b} 0 ${r}%, transparent ${r + 0.8}%)`);
+  return `${dots.join(", ")}, ${grooves}, ${base}`;
 }
 
 function gradeOf(cond) {
@@ -98,6 +112,11 @@ const jsonOr = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } c
 const normTitle = (t) => String(t || "").toLowerCase().replace(/\s*[([].*?[)\]]/g, "").replace(/\s+-\s+.*$/, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
 let _tableCache = null;
+const _columnCache = {};
+function hasColumn(table, column) {
+  _columnCache[table] ||= new Set(query(`PRAGMA table_info(${table})`).map((r) => r.name));
+  return _columnCache[table].has(column);
+}
 function hasTable(name) {
   if (!_tableCache) _tableCache = new Set(query("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')").map((r) => r.name));
   return _tableCache.has(name);
@@ -109,10 +128,10 @@ function loadCollection() {
   const details = hasTable("vinyl_details");
   const rows = query(`
     SELECT v.id, v.album_id, v.label, v.catalog_number, v.format, v.media_condition, v.sleeve_condition, v.rating, v.notes,
-           v.date_added, v.discogs_release_id, v.mb_release_id,
+           v.date_added, v.discogs_release_id, v.mb_release_id${hasColumn("vinyl_holdings", "pressing_year") ? ", v.pressing_year AS csv_pressing_year, v.disc_colour" : ""},
            al.title, al.year, al.cover_status, al.mbid AS album_mbid, ar.id AS artist_id, ar.name AS artist_name, ar.sort_name,
            (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays
-           ${details ? ", d.country, d.released, d.year AS pressing_year, d.format_descriptions, d.format_text, d.identifiers, d.companies, d.tracklist, d.discogs_notes, d.styles" : ""}
+           ${details ? ", d.country, d.released, d.year AS discogs_year, d.format_descriptions, d.format_text, d.identifiers, d.companies, d.tracklist, d.discogs_notes, d.styles" : ""}
     FROM vinyl_holdings v
     JOIN albums al ON al.id = v.album_id
     JOIN artists ar ON ar.id = al.artist_id
@@ -130,14 +149,21 @@ function loadCollection() {
     const f = parseFormat(r.format);
     const desc = jsonOr(r.format_descriptions, []);
     const labels = [...new Set(String(r.label || "").split(/\s*,\s*/).filter(Boolean))];
+    const pressingYear = r.discogs_year || r.csv_pressing_year || null;
     const rec = {
-      ...r, label: labels.join(" / ") || null, labels, fmt: f, discs: f.discs, reissue: f.reissue || desc.some((d) => /reissue|repress|remaster/i.test(d)),
+      ...r, label: labels.join(" / ") || null, labels, fmt: f, discs: f.discs, pressing_year: pressingYear,
+      // a reissue: the format says so, or this pressing came out well after the album did
+      reissue: f.reissue || desc.some((d) => /reissue|repress|remaster/i.test(d)) || Boolean(pressingYear && r.year && pressingYear >= r.year + 2),
       tagCodes: new Set(f.tags.map((t) => t.code)), descText: `${desc.join(" ")} ${r.format_text || ""}`,
       genres: genresByAlbum[r.album_id] || [], decade: r.year ? `${Math.floor(r.year / 10) * 10}s` : null,
+      pressDecade: pressingYear ? `${Math.floor(pressingYear / 10) * 10}s` : null,
       addedYear: (r.date_added || "").slice(0, 4) || null, grade: gradeOf(r.media_condition), sleeveGrade: gradeOf(r.sleeve_condition),
       sortArtist: String(r.sort_name || r.artist_name || "").replace(/^the\s+/i, ""),
     };
-    rec.colours = recordColours(f.tags, r.format_text);
+    const own = jsonOr(r.disc_colour, null); // set by hand in maintenance: wins over what the format says
+    rec.colours = own?.colours?.length ? own.colours : recordColours(f.tags, r.format_text);
+    rec.discEffect = own?.effect || null;
+    rec.colourSetByHand = Boolean(own);
     return rec;
   });
   _collection = { db, records };
@@ -146,12 +172,13 @@ function loadCollection() {
 
 const collectionState = {
   view: "wall", q: "", sort: "added", group: "none", insights: false,
-  facets: { genre: new Set(), decade: new Set(), format: new Set(), label: new Set(), country: new Set(), grade: new Set() },
-  minRating: 0, open: null, more: {},
+  facets: { genre: new Set(), decade: new Set(), pressed: new Set(), format: new Set(), label: new Set(), country: new Set(), grade: new Set(), rating: new Set() },
+  open: null, more: {},
 };
 const FACET_OF = {
   genre: (r) => r.genres, decade: (r) => (r.decade ? [r.decade] : []), label: (r) => r.labels,
   country: (r) => (r.country ? [r.country] : []), grade: (r) => (r.grade ? [r.grade.short] : []),
+  pressed: (r) => (r.pressDecade ? [r.pressDecade] : []), rating: (r) => (r.rating ? ["★".repeat(r.rating)] : []),
   format: (r) => Object.keys(FORMAT_FACETS).filter((k) => FORMAT_FACETS[k](r)),
 };
 
@@ -161,7 +188,6 @@ function passes(r, st, skip = null) {
     const q = st.q.toLowerCase();
     if (![r.title, r.artist_name, r.label, r.catalog_number, ...r.genres].some((x) => String(x || "").toLowerCase().includes(q))) return false;
   }
-  if (st.minRating && (r.rating || 0) < st.minRating) return false;
   for (const [facet, sel] of Object.entries(st.facets)) {
     if (facet === skip || !sel.size) continue;
     const vals = FACET_OF[facet](r);
@@ -244,12 +270,12 @@ function renderCollection(holdingId = null) {
     const shown = all.filter((r) => passes(r, st)).sort(SORTS[st.sort].fn);
     renderStats($("stats"), shown, all.length);
     renderFacets($("facets"), all, update);
-    const active = Object.values(st.facets).reduce((n, s) => n + s.size, 0) + (st.minRating ? 1 : 0);
+    const active = Object.values(st.facets).reduce((n, s) => n + s.size, 0);
     $("filters").textContent = active ? `Filters (${active})` : "Filters";
     $("count").innerHTML = shown.length === all.length ? `${plural(all.length, "record")}`
       : `${plural(shown.length, "record")} of ${all.length} · <button class="linkish" data-role="clear">clear filters</button>`;
     $("count").querySelector("[data-role='clear']")?.addEventListener("click", () => {
-      Object.values(st.facets).forEach((s) => s.clear()); st.minRating = 0; st.q = ""; app.querySelector("#coll-search").value = ""; update();
+      Object.values(st.facets).forEach((s) => s.clear()); st.q = ""; app.querySelector("#coll-search").value = ""; update();
     });
     const host = $("results");
     if (!shown.length) host.innerHTML = `<div class="empty-state">No records match — try removing a filter.</div>`;
@@ -283,9 +309,13 @@ function groupRecords(list, group) {
 
 function renderStats(host, shown, total) {
   const uniq = (f) => new Set(shown.flatMap((r) => [].concat(f(r))).filter(Boolean)).size;
-  const decades = {};
-  shown.forEach((r) => { if (r.decade) decades[r.decade] = (decades[r.decade] || 0) + 1; });
-  const topDecade = Object.entries(decades).sort((a, b) => b[1] - a[1])[0];
+  const top = (f) => {
+    const c = {};
+    shown.forEach((r) => { const k = f(r); if (k) c[k] = (c[k] || 0) + 1; });
+    return Object.entries(c).sort((a, b) => b[1] - a[1])[0];
+  };
+  const topDecade = top((r) => r.decade), topPressed = top((r) => r.pressDecade);
+  const reissues = shown.filter((r) => r.reissue).length;
   const genreCounts = {};
   shown.forEach((r) => r.genres.slice(0, 2).forEach((g) => { genreCounts[g] = (genreCounts[g] || 0) + 1; }));
   const topGenres = Object.entries(genreCounts).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -296,7 +326,9 @@ function renderStats(host, shown, total) {
     <div class="cs"><b>${uniq((r) => r.artist_id)}</b><span>artists</span></div>
     <div class="cs"><b>${uniq((r) => r.labels)}</b><span>labels</span></div>
     ${countries ? `<div class="cs"><b>${countries}</b><span>countries</span></div>` : ""}
-    <div class="cs"><b>${topDecade ? topDecade[0] : "—"}</b><span>top decade</span></div>
+    <div class="cs" title="The decade most of these albums first came out"><b>${topDecade ? topDecade[0] : "—"}</b><span>released</span></div>
+    <div class="cs" title="The decade most of these records were pressed"><b>${topPressed ? topPressed[0] : "—"}</b><span>pressed</span></div>
+    <div class="cs"><b>${shown.length - reissues}</b><span>original presses</span></div>
     <div class="cs cs-genres">${topGenres.length ? `<div class="gmix">${topGenres.map(([g, c], i) => `<i style="flex:${c}; --i:${i}" title="${esc(g)} · ${c}"></i>`).join("")}</div>
       <span>${topGenres.slice(0, 4).map(([g]) => esc(g)).join(" · ")}</span>` : `<span class="subtle">genres appear once they've been fetched</span>`}</div>`;
   void gsum;
@@ -308,9 +340,11 @@ function renderFacets(host, all, onChange) {
     const c = {};
     for (const r of all) if (passes(r, st, facet)) for (const v of FACET_OF[facet](r)) c[v] = (c[v] || 0) + 1;
     for (const v of st.facets[facet]) c[v] = c[v] || 0; // a selected value stays visible even at 0
+    if (facet === "rating") for (let n = 1; n <= 5; n++) c["★".repeat(n)] = c["★".repeat(n)] || 0; // every rating, 5★ to 1★, always
     return c;
   };
-  const ORDER = { decade: (a, b) => a[0].localeCompare(b[0]), grade: (a, b) => GRADE_ORDER.indexOf(a[0]) - GRADE_ORDER.indexOf(b[0]) };
+  const ORDER = { decade: (a, b) => a[0].localeCompare(b[0]), pressed: (a, b) => a[0].localeCompare(b[0]),
+    grade: (a, b) => GRADE_ORDER.indexOf(a[0]) - GRADE_ORDER.indexOf(b[0]), rating: (a, b) => b[0].length - a[0].length };
   const row = (facet, title, limit = 12) => {
     const entries = Object.entries(counts(facet)).sort(ORDER[facet] || ((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])));
     if (!entries.length) return "";
@@ -320,21 +354,14 @@ function renderFacets(host, all, onChange) {
       `<button class="fchip${st.facets[facet].has(v) ? " on" : ""}" data-facet="${facet}" data-val="${esc(v)}" ${n || st.facets[facet].has(v) ? "" : "disabled"}>${esc(v)} <i>${n}</i></button>`).join("")}
       ${entries.length > limit ? `<button class="linkish" data-more="${facet}">${open ? "less" : `+${entries.length - limit} more`}</button>` : ""}</div></div>`;
   };
-  const extraActive = ["grade", "label", "country"].some((f) => st.facets[f].size) || st.minRating;
-  const extraOpen = st.moreFilters || extraActive;
-  host.innerHTML = row("genre", "Genre", 10) + row("decade", "Decade", 12) + row("format", "Format", 12)
-    + `<div class="facet-more"${extraOpen ? "" : " hidden"}>${row("grade", "Condition", 9) + row("label", "Label", 10) + row("country", "Pressed in", 10)
-    + `<div class="facet"><span class="f-title">Rating</span><div class="f-chips">${[5, 4, 3].map((n) =>
-      `<button class="fchip${st.minRating === n ? " on" : ""}" data-rating="${n}">${"★".repeat(n)}${n < 5 ? "+" : ""}</button>`).join("")}</div></div>`}</div>
-    ${extraActive ? "" : `<button class="linkish more-filters" data-role="more-filters">${extraOpen ? "Fewer filters ▴" : "More filters — condition, label, country, rating ▾"}</button>`}`;
-  host.querySelector("[data-role='more-filters']")?.addEventListener("click", () => { st.moreFilters = !st.moreFilters; onChange(); });
+  host.innerHTML = row("genre", "Genre", 12) + row("decade", "Released", 12) + row("pressed", "Pressed", 12) + row("format", "Format", 12)
+    + row("grade", "Condition", 9) + row("rating", "Rating", 5) + row("label", "Label", 10) + row("country", "Pressed in", 10);
   host.querySelectorAll("[data-facet]").forEach((b) => b.addEventListener("click", () => {
     const s = st.facets[b.dataset.facet];
     s.has(b.dataset.val) ? s.delete(b.dataset.val) : s.add(b.dataset.val);
     onChange();
   }));
   host.querySelectorAll("[data-more]").forEach((b) => b.addEventListener("click", () => { st.more[b.dataset.more] = !st.more[b.dataset.more]; onChange(); }));
-  host.querySelectorAll("[data-rating]").forEach((b) => b.addEventListener("click", () => { st.minRating = st.minRating === +b.dataset.rating ? 0 : +b.dataset.rating; onChange(); }));
 }
 const GRADE_ORDER = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P", "—"];
 
@@ -351,17 +378,18 @@ function renderWall(host, groups) {
         <span class="rec-title">${esc(r.title)}</span>
         <span class="rec-artist">${esc(r.artist_name)}</span>
         <span class="rec-meta">${starsHtml(r.rating)}<span>${r.year || ""}</span>${colourDot(r)}${r.discs > 1 ? `<span class="tagl">${r.discs}LP</span>` : ""}</span>
+        ${r.reissue ? `<span class="rec-press" title="This record is a ${r.pressing_year || ""} reissue of a ${r.year || ""} album">${r.pressing_year ? `${r.pressing_year} ` : ""}reissue</span>` : ""}
       </button>`).join("")}</div>`).join("");
   host.querySelectorAll(".rec").forEach((b) => b.addEventListener("click", () => openRecord(+b.dataset.id)));
 }
 
 function renderList(host, groups) {
   host.innerHTML = `<div class="table-scroll"><table class="data-table coll-table"><thead><tr><th></th><th>Title</th><th>Artist</th><th class="num">Year</th>
-      <th>Label · cat#</th><th>Format</th><th>Condition</th><th>Rating</th><th>Added</th></tr></thead><tbody>
-    ${groups.map((g) => `${g.key !== null ? `<tr class="grp"><td colspan="9">${esc(g.key)} <span class="subtle">${g.items.length}</span></td></tr>` : ""}
+      <th class="num">Pressed</th><th>Label · cat#</th><th>Format</th><th>Condition</th><th>Rating</th><th>Added</th></tr></thead><tbody>
+    ${groups.map((g) => `${g.key !== null ? `<tr class="grp"><td colspan="10">${esc(g.key)} <span class="subtle">${g.items.length}</span></td></tr>` : ""}
       ${g.items.map((r) => `<tr data-id="${r.id}"><td>${coverImg(r, "lthumb")}</td><td class="row-title">${esc(r.title)}</td><td>${esc(r.artist_name)}</td>
-        <td class="num">${r.year || ""}</td><td>${esc([r.label, r.catalog_number].filter(Boolean).join(" · "))}</td>
-        <td>${esc(r.fmt.media || "")} ${colourDot(r)} ${r.reissue ? '<span class="subtle">RE</span>' : ""}</td>
+        <td class="num">${r.year || ""}</td><td class="num">${r.pressing_year || ""}${r.reissue ? ' <span class="subtle">RE</span>' : ""}</td><td>${esc([r.label, r.catalog_number].filter(Boolean).join(" · "))}</td>
+        <td>${esc(r.fmt.media || "")} ${colourDot(r)}</td>
         <td>${r.grade ? esc(r.grade.short) : ""}${r.sleeveGrade ? ` <span class="subtle">/ ${esc(r.sleeveGrade.short)}</span>` : ""}</td>
         <td>${starsHtml(r.rating)}</td><td class="nowrap">${esc((r.date_added || "").slice(0, 10))}</td></tr>`).join("")}`).join("")}
     </tbody></table></div>`;
@@ -431,7 +459,8 @@ function renderInsights(host, shown) {
   const orig = shown.filter((r) => !r.reissue).length;
   host.innerHTML = `<div class="ins-grid">
     <div class="ins ins-wide"><h3>Added to the collection</h3><div data-role="added-chart"></div></div>
-    ${bars("By decade", tally((r) => r.decade), "decade", { sort: "key" })}
+    ${bars("Released (original decade)", tally((r) => r.decade), "decade", { sort: "key" })}
+    ${bars("Pressed (decade)", tally((r) => r.pressDecade), "pressed", { sort: "key" })}
     ${bars("Genres", tally((r) => r.genres), "genre", { limit: 12 })}
     ${bars("Labels", tally((r) => r.labels), "label")}
     ${bars("Condition (record)", tally((r) => r.grade?.short), "grade")}
@@ -532,7 +561,8 @@ function pressingBadges(r) {
   if (r.fmt.media) labels.add(r.fmt.media);
   for (const t of r.fmt.tags) if (!["kind", "colour"].includes(t.kind) || t.code === "Comp") labels.add(t.label);
   for (const d of desc) if (!/^(LP|Album|Vinyl)$/i.test(d)) labels.add(d.replace(/^RE$/, "Reissue"));
-  const colour = r.format_text || (r.colours.length ? r.colours.map((c) => c[0].toUpperCase() + c.slice(1)).join(" / ") : "");
+  const colourName = r.colours.map((c) => c[0].toUpperCase() + c.slice(1)).join(" / ") + (r.discEffect && r.discEffect !== "solid" ? ` ${r.discEffect}` : "");
+  const colour = r.colourSetByHand ? colourName : r.format_text || colourName;
   return `${[...labels].map((l) => `<span class="pbadge">${esc(l)}</span>`).join("")}${colour && FORMAT_FACETS.Coloured(r) ? `<span class="pbadge colour"><i class="cdot" style="background:${discBackground(r)}"></i>${esc(colour)}</span>` : colour ? `<span class="pbadge">${esc(colour)}</span>` : ""}`;
 }
 
@@ -559,6 +589,7 @@ function recordDetailHtml(r, all) {
   const companies = jsonOr(r.companies, []);
   const pressedBy = companies.filter((c) => /pressed by|manufactured by|made by/i.test(c.role || "")).map((c) => `${c.role}: ${c.name}`);
   const pressingYear = r.pressing_year || (r.released || "").slice(0, 4);
+  const pressKind = r.reissue ? "reissue" : "original press";
   const fmtDate = (s) => (s ? new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
   const top = songs[0]?.plays ? songs[0] : null;
   return `
@@ -575,7 +606,7 @@ function recordDetailHtml(r, all) {
     <section class="rd-sec">
       <h3>This pressing</h3>
       <div class="rd-line"><b>${esc(r.label || "Unknown label")}</b>${r.catalog_number ? ` · <span class="mono">${esc(r.catalog_number)}</span>` : ""}${r.country ? ` · ${esc(r.country)}` : ""}${pressingYear ? ` · ${esc(pressingYear)}` : ""}
-        ${r.year && pressingYear && String(r.year) !== String(pressingYear) ? `<span class="subtle"> (original ${r.year})</span>` : ""}</div>
+        <span class="press-kind ${r.reissue ? "re" : "og"}">${pressKind}${r.reissue && r.year ? ` of the ${r.year} album` : ""}</span></div>
       <div class="pbadges">${pressingBadges(r)}</div>
       ${meter(r.grade, "Record")}${meter(r.sleeveGrade, "Sleeve")}
       ${r.notes ? `<blockquote class="rd-note">${esc(r.notes).replace(/\n/g, "<br>")}<cite>— your note</cite></blockquote>` : ""}

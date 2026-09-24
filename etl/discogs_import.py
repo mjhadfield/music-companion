@@ -150,8 +150,8 @@ def import_csv(csv_path: Path) -> None:
                 INSERT INTO vinyl_holdings (
                     album_id, discogs_release_id, catalog_number, label, format,
                     media_condition, sleeve_condition, date_added, rating, notes,
-                    raw_artist_text, raw_title_text
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    raw_artist_text, raw_title_text, pressing_year
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     album_id,
@@ -166,6 +166,7 @@ def import_csv(csv_path: Path) -> None:
                     row.get(columns.get("notes", ""), ""),
                     raw_artist,
                     raw_title,
+                    year,  # this pressing's year (the album's original year is reviewed in maintenance)
                 ),
             )
             imported += 1

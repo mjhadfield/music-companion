@@ -210,6 +210,7 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
           k === "mbid" ? `mbid ${o ? mbLink(i.entityType, o) : "∅"} → ${n ? mbLink(i.entityType, n) : "∅"}`
           : k === "mb_release_id" ? `pressing ${o ? mbLink("release", o) : "∅"} → ${n ? mbLink("release", n) : "∅"}`
           : k === "album_id" ? `moved to another album (#${esc(o)} → #${esc(n)})`
+          : k === "disc_colour" ? `record colour ${(() => { try { const c = n && JSON.parse(n); return c ? `→ ${esc(c.colours.join(" / "))} (${esc(c.effect)})` : "reset to what the format says"; } catch { return "changed"; } })()}`
           : `${esc(k)} “${esc(o ?? "∅")}” → “${esc(n ?? "∅")}”`);
         what = `Edited ${i.entityType} <span class="who">${esc(i.name)}</span>: ${parts.join("; ") || "cover reset"}`;
       }

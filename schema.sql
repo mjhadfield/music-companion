@@ -101,7 +101,11 @@ CREATE TABLE IF NOT EXISTS vinyl_holdings (
     -- the work across every pressing). Set when a human accepts MusicBrainz's own Discogs-URL
     -- link for this discogs_release_id; its release group should equal the album's mbid.
     -- After created_at because ALTER TABLE ADD COLUMN appends (see migrations.py).
-    mb_release_id           TEXT
+    mb_release_id           TEXT,
+    -- The year THIS pressing came out (Discogs "Released"); albums.year is the album's original
+    -- year. And the record's colour when set by hand: JSON {"colours": [...], "effect": "..."}.
+    pressing_year           INTEGER,
+    disc_colour             TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_vinyl_album ON vinyl_holdings(album_id);

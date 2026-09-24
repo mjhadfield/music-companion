@@ -992,6 +992,9 @@ body.drawer-open { overflow: hidden; }
 }
 
 main#app.wide { max-width: 1380px; }
-.facet-more { display: grid; gap: 6px; }
-.facet-more[hidden] { display: none; }
-.more-filters { font-size: 0.78rem; justify-self: start; margin-top: 2px; }
+
+.rec-press { font-family: var(--font-mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent-soft); }
+.press-kind { display: inline-block; margin-left: 8px; font-family: var(--font-mono); font-size: 0.66rem; text-transform: uppercase; letter-spacing: .06em;
+  padding: 1px 6px; border: 1px solid var(--edge); vertical-align: middle; }
+.press-kind.og { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.press-kind.re { color: var(--accent-soft); }

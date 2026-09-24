@@ -19,6 +19,7 @@ import json
 import sqlite3
 
 MB_MIN_VOTES = 2
+FIRST_RELEASE_KEY = "rg-first-release:{}"  # a release group's first-release date, seen in a genres browse
 PRIORITY = {"manual": 3, "musicbrainz": 2, "discogs": 1}
 # Discogs style names that are a MusicBrainz genre under another name. Everything else is just
 # lowercased (Discogs "Heavy Metal" == MusicBrainz "heavy metal"); anything missed can be merged
@@ -135,6 +136,10 @@ def apply_musicbrainz_groups(conn: sqlite3.Connection, groups: list[dict], artis
                     targets[keys[k]] = rg
     for aid, rg in targets.items():
         apply(conn, aid, "musicbrainz", pick_musicbrainz(by_rg[rg].get("genres")))
+        if by_rg[rg].get("firstReleaseDate"):  # the album's true original date, for Vinyl's "original year" check
+            conn.execute("INSERT INTO mb_cache (key, payload_json, fetched_at) VALUES (?, ?, datetime('now')) "
+                         "ON CONFLICT (key) DO UPDATE SET payload_json = excluded.payload_json, fetched_at = excluded.fetched_at",
+                         (FIRST_RELEASE_KEY.format(rg), json.dumps(by_rg[rg]["firstReleaseDate"])))
     return len(targets)
 
 

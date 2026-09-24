@@ -499,7 +499,7 @@ def undo_merge(conn, log_id: int) -> dict:
 # -- Identity edits --------------------------------------------------------------------------
 
 EDITABLE = {"artists": {"mbid", "name"}, "albums": {"mbid", "title", "year", "cover_status", "cover_updated_at"},
-            "songs": {"mbid", "title", "album_id"}, "vinyl_holdings": {"album_id", "mb_release_id"}}
+            "songs": {"mbid", "title", "album_id"}, "vinyl_holdings": {"album_id", "mb_release_id", "disc_colour"}}
 _NAME_FIELD = {"artists": "name", "albums": "title", "songs": "title", "vinyl_holdings": "raw_title_text"}
 _UNIQUE_MBID = {"artists", "albums", "songs"}  # vinyl_holdings.mb_release_id is deliberately not unique
 

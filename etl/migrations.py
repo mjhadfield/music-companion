@@ -348,6 +348,32 @@ def _m007_genres_and_pressings(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m008_pressing_year_and_disc_colour(conn: sqlite3.Connection) -> None:
+    """Two public columns on vinyl_holdings:
+      pressing_year  the year THIS pressing came out (Discogs' "Released"), as distinct from the
+                     album's original year (albums.year) -- an anniversary reissue is a 2021
+                     pressing of a 1986 album. Backfilled from the raw Discogs export rows.
+      disc_colour    the record's colour set by hand when the format text doesn't say (or says it
+                     wrong): JSON {"colours": ["red", "black"], "effect": "marbled"}; NULL = as detected."""
+    import json
+    import re
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(vinyl_holdings)")}
+    if "pressing_year" not in cols:
+        conn.execute("ALTER TABLE vinyl_holdings ADD COLUMN pressing_year INTEGER")
+    if "disc_colour" not in cols:
+        conn.execute("ALTER TABLE vinyl_holdings ADD COLUMN disc_colour TEXT")
+    released = {}
+    for (raw,) in conn.execute("SELECT raw_json FROM staging_discogs_rows"):
+        row = json.loads(raw)
+        rel, when = str(row.get("release_id") or "").strip(), str(row.get("Released") or "")
+        m = re.search(r"\b(1[89]\d\d|20\d\d)\b", when)
+        if rel.isdigit() and m:
+            released[int(rel)] = int(m.group(1))
+    conn.executemany("UPDATE vinyl_holdings SET pressing_year = ? WHERE discogs_release_id = ? AND pressing_year IS NULL",
+                     [(y, rid) for rid, y in released.items()])
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -356,6 +382,7 @@ MIGRATIONS = [
     ("005_releases_and_import_inbox", _m005_releases_and_import_inbox),
     ("006_song_tracks", _m006_song_tracks),
     ("007_genres_and_pressings", _m007_genres_and_pressings),
+    ("008_pressing_year_and_disc_colour", _m008_pressing_year_and_disc_colour),
 ]
 
 
