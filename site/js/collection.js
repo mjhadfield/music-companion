@@ -129,7 +129,7 @@ function loadCollection() {
   const rows = query(`
     SELECT v.id, v.album_id, v.label, v.catalog_number, v.format, v.media_condition, v.sleeve_condition, v.rating, v.notes,
            v.date_added, v.discogs_release_id, v.mb_release_id${hasColumn("vinyl_holdings", "pressing_year") ? ", v.pressing_year AS csv_pressing_year, v.disc_colour" : ""},
-           al.title, al.year, al.cover_status, al.mbid AS album_mbid, ar.id AS artist_id, ar.name AS artist_name, ar.sort_name,
+           al.title, al.year, al.cover_status, al.cover_updated_at, al.mbid AS album_mbid, ar.id AS artist_id, ar.name AS artist_name, ar.sort_name,
            (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays
            ${details ? ", d.country, d.released, d.year AS discogs_year, d.format_descriptions, d.format_text, d.identifiers, d.companies, d.tracklist, d.discogs_notes, d.styles" : ""}
     FROM vinyl_holdings v
@@ -371,7 +371,7 @@ function renderFacets(host, all, onChange) {
 const GRADE_ORDER = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P", "—"];
 
 function coverImg(r, cls = "") {
-  return r.cover_status === "ok" ? `<img class="${cls}" src="public/covers/${r.album_id}.jpg" alt="" loading="lazy" />` : `<div class="${cls} noart">${esc(r.title.slice(0, 1))}</div>`;
+  return r.cover_status === "ok" ? `<img class="${cls}" src="${esc(coverUrl(r.album_id, r.cover_updated_at))}" alt="" loading="lazy" />` : `<div class="${cls} noart">${esc(r.title.slice(0, 1))}</div>`;
 }
 const colourDot = (r) => (r.colours.length && FORMAT_FACETS.Coloured(r) ? `<i class="cdot" style="background:${discBackground(r)}" title="${esc(r.colours.join(" / "))} vinyl"></i>` : "");
 
@@ -404,7 +404,8 @@ function renderList(host, groups) {
 // Shelf: spines filed A-Z by artist, each in its cover's own dominant colour.
 const spineColours = (() => { try { return JSON.parse(localStorage.getItem("mc-spines") || "{}"); } catch { return {}; } })();
 function spineColourFor(r, el) {
-  if (spineColours[r.album_id]) { el.style.setProperty("--spine", spineColours[r.album_id]); return; }
+  const key = `${r.album_id}@${r.cover_updated_at || ""}`; // a replaced cover gets its colour worked out again
+  if (spineColours[key]) { el.style.setProperty("--spine", spineColours[key]); return; }
   if (r.cover_status !== "ok") return;
   const img = new Image();
   img.onload = () => {
@@ -415,12 +416,12 @@ function spineColourFor(r, el) {
       let R = 0, G = 0, B = 0, n = 0;
       for (let i = 0; i < d.length; i += 4) { R += d[i]; G += d[i + 1]; B += d[i + 2]; n++; }
       const col = `rgb(${Math.round(R / n)}, ${Math.round(G / n)}, ${Math.round(B / n)})`;
-      spineColours[r.album_id] = col;
+      spineColours[key] = col;
       el.style.setProperty("--spine", col);
       try { localStorage.setItem("mc-spines", JSON.stringify(spineColours)); } catch { /* storage full or blocked -- just recompute next time */ }
     } catch { /* cross-origin or decode issue: keep the default spine */ }
   };
-  img.src = `public/covers/${r.album_id}.jpg`;
+  img.src = coverUrl(r.album_id, r.cover_updated_at);
 }
 function renderShelf(host, list) {
   let letter = null;

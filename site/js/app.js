@@ -257,7 +257,7 @@ function renderHome() {
   `);
 
   const recentVinyl = query(`
-    SELECT v.id AS holding_id, al.id AS album_id, al.cover_status, al.title, ar.name AS artist_name, v.date_added, v.format
+    SELECT v.id AS holding_id, al.id AS album_id, al.cover_status, al.cover_updated_at, al.title, ar.name AS artist_name, v.date_added, v.format
     FROM vinyl_holdings v
     JOIN albums al ON al.id = v.album_id
     JOIN artists ar ON ar.id = al.artist_id
@@ -322,7 +322,7 @@ function renderHome() {
       <div class="vinyl-tile-grid">
         ${recentVinyl.map((v) => `
           <div class="vinyl-tile" data-album-id="${v.album_id}" data-holding-id="${v.holding_id}">
-            <img class="vinyl-tile-cover" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" alt="" loading="lazy" />
+            <img class="vinyl-tile-cover" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" data-cover-version="${esc(v.cover_updated_at || "")}" alt="" loading="lazy" />
             <div class="vinyl-tile-title">${esc(v.title)}</div>
             <div class="vinyl-tile-sub">${esc(v.artist_name)}</div>
             <div class="vinyl-tile-meta">${esc(v.format || "")} · ${esc((v.date_added || "").slice(0, 10))}</div>
@@ -360,7 +360,7 @@ function renderHome() {
       },
     }
   );
-  app.querySelectorAll("img.vinyl-tile-cover").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus));
+  app.querySelectorAll("img.vinyl-tile-cover").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus, img.dataset.coverVersion));
   app.querySelectorAll(".vinyl-tile[data-holding-id]").forEach((el) => {
     el.addEventListener("click", () => { location.hash = `#/vinyl/${el.dataset.holdingId}`; });
   });
@@ -848,7 +848,7 @@ function renderArtist(id) {
   const maxAlbumPlays = topAlbums.length ? topAlbums[0].plays : 1;
 
   const vinylRows = query(`
-    SELECT DISTINCT al.id AS album_id, al.cover_status, al.title, al.year, v.format, v.media_condition
+    SELECT DISTINCT al.id AS album_id, al.cover_status, al.cover_updated_at, al.title, al.year, v.format, v.media_condition
     FROM vinyl_holdings v
     JOIN album_artists aa ON aa.album_id = v.album_id
     JOIN albums al ON al.id = v.album_id
@@ -894,7 +894,7 @@ function renderArtist(id) {
       <h2>On the shelf</h2>
       ${vinylRows.length ? vinylRows.map((v) => `
         <div class="vinyl-card" data-album-id="${v.album_id}" style="cursor:pointer">
-          <img class="cover-thumb" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" alt="" loading="lazy" />
+          <img class="cover-thumb" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" data-cover-version="${esc(v.cover_updated_at || "")}" alt="" loading="lazy" />
           <div class="vinyl-body">
             <div class="title">${esc(v.title)}${v.year ? ` <span class="subtle">(${v.year})</span>` : ""}</div>
             <div class="meta">${esc(v.format || "")}${v.media_condition ? " · " + esc(v.media_condition) : ""}</div>
@@ -920,7 +920,7 @@ function renderArtist(id) {
     ` : ""}
   `;
 
-  app.querySelectorAll("img.cover-thumb").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus));
+  app.querySelectorAll("img.cover-thumb").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus, img.dataset.coverVersion));
   app.querySelectorAll(".vinyl-card[data-album-id]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/album/${el.dataset.albumId}`; }));
 
   // Badges jump to the matching browse page, pre-filtered to this artist
@@ -1223,7 +1223,7 @@ function renderAlbum(id) {
   `;
 
   const img = app.querySelector("img.album-cover-large");
-  if (img) attachCoverArt(img, album.id, album.cover_status);
+  if (img) attachCoverArt(img, album.id, album.cover_status, album.cover_updated_at);
   app.querySelectorAll("[data-holding]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/vinyl/${el.dataset.holding}`; }));
   app.querySelectorAll("[data-song-id]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/song/${el.dataset.songId}`; }));
 }

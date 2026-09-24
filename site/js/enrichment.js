@@ -130,10 +130,17 @@ async function getArtistEnrichment(artist) {
 /** Point an <img> at an album's locally-cached cover (public/covers/{albumId}.jpg), or
  * remove it from the DOM if this album doesn't have one yet -- the maintenance tool's Vinyl
  * Holdings page is where that gets fixed, not this page fetching it live. */
-function attachCoverArt(imgEl, albumId, coverStatus) {
+function attachCoverArt(imgEl, albumId, coverStatus, coverVersion) {
   if (coverStatus !== "ok") {
     imgEl.remove();
     return;
   }
-  imgEl.src = `public/covers/${albumId}.jpg`;
+  imgEl.src = coverUrl(albumId, coverVersion);
+}
+
+/** A cover's address, stamped with when it last changed (albums.cover_updated_at): replacing a
+ * cover in maintenance keeps the same file name, so without the stamp browsers -- and Citadel's
+ * iframe, which a hard refresh of the page doesn't reach -- keep showing the old image. */
+function coverUrl(albumId, coverVersion) {
+  return `public/covers/${albumId}.jpg${coverVersion ? `?v=${encodeURIComponent(coverVersion)}` : ""}`;
 }
