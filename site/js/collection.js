@@ -150,12 +150,17 @@ function loadCollection() {
     const desc = jsonOr(r.format_descriptions, []);
     const labels = [...new Set(String(r.label || "").split(/\s*,\s*/).filter(Boolean))];
     const pressingYear = r.discogs_year || r.csv_pressing_year || null;
+    const markedReissue = f.reissue || desc.some((d) => /reissue|repress|remaster/i.test(d));
+    // A reissue whose album year isn't earlier than the pressing: that "album year" is really the
+    // pressing's own (not corrected in maintenance yet) -- the original year is unknown, not that.
+    const originalYear = markedReissue && pressingYear && r.year && r.year >= pressingYear ? null : r.year;
     const rec = {
       ...r, label: labels.join(" / ") || null, labels, fmt: f, discs: f.discs, pressing_year: pressingYear,
       // a reissue: the format says so, or this pressing came out well after the album did
-      reissue: f.reissue || desc.some((d) => /reissue|repress|remaster/i.test(d)) || Boolean(pressingYear && r.year && pressingYear >= r.year + 2),
+      year: originalYear, yearUnconfirmed: originalYear == null && Boolean(r.year),
+      reissue: markedReissue || Boolean(pressingYear && originalYear && pressingYear >= originalYear + 2),
       tagCodes: new Set(f.tags.map((t) => t.code)), descText: `${desc.join(" ")} ${r.format_text || ""}`,
-      genres: genresByAlbum[r.album_id] || [], decade: r.year ? `${Math.floor(r.year / 10) * 10}s` : null,
+      genres: genresByAlbum[r.album_id] || [], decade: originalYear ? `${Math.floor(originalYear / 10) * 10}s` : null,
       pressDecade: pressingYear ? `${Math.floor(pressingYear / 10) * 10}s` : null,
       addedYear: (r.date_added || "").slice(0, 4) || null, grade: gradeOf(r.media_condition), sleeveGrade: gradeOf(r.sleeve_condition),
       sortArtist: String(r.sort_name || r.artist_name || "").replace(/^the\s+/i, ""),
@@ -176,7 +181,7 @@ const collectionState = {
   open: null, more: {},
 };
 const FACET_OF = {
-  genre: (r) => r.genres, decade: (r) => (r.decade ? [r.decade] : []), label: (r) => r.labels,
+  genre: (r) => r.genres, decade: (r) => [r.decade || "Not confirmed"], label: (r) => r.labels,
   country: (r) => (r.country ? [r.country] : []), grade: (r) => (r.grade ? [r.grade.short] : []),
   pressed: (r) => (r.pressDecade ? [r.pressDecade] : []), rating: (r) => (r.rating ? ["★".repeat(r.rating)] : []),
   format: (r) => Object.keys(FORMAT_FACETS).filter((k) => FORMAT_FACETS[k](r)),
@@ -378,7 +383,7 @@ function renderWall(host, groups) {
         <span class="rec-title">${esc(r.title)}</span>
         <span class="rec-artist">${esc(r.artist_name)}</span>
         <span class="rec-meta">${starsHtml(r.rating)}<span>${r.year || ""}</span>${colourDot(r)}${r.discs > 1 ? `<span class="tagl">${r.discs}LP</span>` : ""}</span>
-        ${r.reissue ? `<span class="rec-press" title="This record is a ${r.pressing_year || ""} reissue of a ${r.year || ""} album">${r.pressing_year ? `${r.pressing_year} ` : ""}reissue</span>` : ""}
+        ${r.reissue ? `<span class="rec-press" title="${r.year ? `A ${r.pressing_year || ""} reissue of the ${r.year} album` : "A reissue — the album's original year isn't confirmed yet"}">${r.pressing_year ? `${r.pressing_year} ` : ""}reissue</span>` : ""}
       </button>`).join("")}</div>`).join("");
   host.querySelectorAll(".rec").forEach((b) => b.addEventListener("click", () => openRecord(+b.dataset.id)));
 }
@@ -459,7 +464,7 @@ function renderInsights(host, shown) {
   const orig = shown.filter((r) => !r.reissue).length;
   host.innerHTML = `<div class="ins-grid">
     <div class="ins ins-wide"><h3>Added to the collection</h3><div data-role="added-chart"></div></div>
-    ${bars("Released (original decade)", tally((r) => r.decade), "decade", { sort: "key" })}
+    ${bars("Released (original decade)", tally((r) => r.decade || "Not confirmed"), "decade", { sort: "key" })}
     ${bars("Pressed (decade)", tally((r) => r.pressDecade), "pressed", { sort: "key" })}
     ${bars("Genres", tally((r) => r.genres), "genre", { limit: 12 })}
     ${bars("Labels", tally((r) => r.labels), "label")}
@@ -606,7 +611,7 @@ function recordDetailHtml(r, all) {
     <section class="rd-sec">
       <h3>This pressing</h3>
       <div class="rd-line"><b>${esc(r.label || "Unknown label")}</b>${r.catalog_number ? ` · <span class="mono">${esc(r.catalog_number)}</span>` : ""}${r.country ? ` · ${esc(r.country)}` : ""}${pressingYear ? ` · ${esc(pressingYear)}` : ""}
-        <span class="press-kind ${r.reissue ? "re" : "og"}">${pressKind}${r.reissue && r.year ? ` of the ${r.year} album` : ""}</span></div>
+        <span class="press-kind ${r.reissue ? "re" : "og"}">${pressKind}${r.reissue && r.year ? ` of the ${r.year} album` : r.reissue ? " · original year not confirmed yet" : ""}</span></div>
       <div class="pbadges">${pressingBadges(r)}</div>
       ${meter(r.grade, "Record")}${meter(r.sleeveGrade, "Sleeve")}
       ${r.notes ? `<blockquote class="rd-note">${esc(r.notes).replace(/\n/g, "<br>")}<cite>— your note</cite></blockquote>` : ""}

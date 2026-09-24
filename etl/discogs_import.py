@@ -139,8 +139,12 @@ def import_csv(csv_path: Path) -> None:
                 skipped += 1
                 continue
             artist_ids = [get_or_create_artist(conn, artist_cache, name, source="discogs") for name in artist_names]
-            year = parse_year(row.get(columns.get("released", ""), ""))
-            album_id = get_or_create_album(conn, album_cache, artist_ids, raw_title, year, source="discogs")
+            year = parse_year(row.get(columns.get("released", ""), ""))  # THIS pressing's year
+            fmt_tokens = {t.strip() for part in (row.get(columns.get("format", ""), "") or "").split("+") for t in part.split(",")}
+            # A reissue's date is not the album's: a new album gets no year rather than the wrong one
+            # (maintenance > Vinyl fills in the original year from MusicBrainz, reviewed).
+            album_year = None if fmt_tokens & {"RE", "RP", "RM"} else year
+            album_id = get_or_create_album(conn, album_cache, artist_ids, raw_title, album_year, source="discogs")
 
             rating_raw = row.get(columns.get("rating", ""), "")
             rating = int(rating_raw) if str(rating_raw).strip().isdigit() else None

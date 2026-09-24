@@ -246,6 +246,10 @@ def _checks(h: dict, rg_checked: bool, reviewed: bool) -> list[dict]:
             + (f" (this pressing is from {h['pressingYear']})" if h["pressingYear"] else ""), "year")
     elif h["originalYear"]:
         add("year", "Original year", "ok", f"{a['year']} matches the original release")
+    elif h["formatInfo"]["reissue"] and h["pressingYear"] and a["year"] >= h["pressingYear"]:
+        # no MusicBrainz date needed to know this one's wrong: a reissue can't predate the album
+        add("year", "Original year", "bad", f"{a['year']} is this reissue's own pressing year, not the album's — look it up to get the original",
+            "lookup")
     else:
         add("year", "Original year", "unknown", f"{a['year']} — not confirmed against MusicBrainz yet")
 
