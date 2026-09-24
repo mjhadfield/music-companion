@@ -390,3 +390,56 @@ CREATE TABLE IF NOT EXISTS staging_setlistfm_rows (
     imported_at TEXT NOT NULL DEFAULT (datetime('now')),
     raw_json    TEXT NOT NULL
 );
+
+-- Genres (migration 007): a first-class tag on albums (release groups), from MusicBrainz genres
+-- and, for vinyl, Discogs styles. Artists inherit theirs through the artist_genres view.
+CREATE TABLE IF NOT EXISTS genres (
+    id            INTEGER PRIMARY KEY,
+    name          TEXT NOT NULL UNIQUE,
+    mbid          TEXT UNIQUE,
+    parent_id     INTEGER REFERENCES genres(id),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS album_genres (
+    album_id      INTEGER NOT NULL REFERENCES albums(id),
+    genre_id      INTEGER NOT NULL REFERENCES genres(id),
+    source        TEXT NOT NULL CHECK (source IN ('musicbrainz', 'discogs', 'manual')),
+    votes         INTEGER,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (album_id, genre_id)
+);
+CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre_id);
+
+CREATE TABLE IF NOT EXISTS vinyl_details (
+    holding_id          INTEGER PRIMARY KEY REFERENCES vinyl_holdings(id),
+    country             TEXT,
+    released            TEXT,
+    year                INTEGER,
+    format_descriptions TEXT,
+    format_text         TEXT,
+    identifiers         TEXT,
+    companies           TEXT,
+    tracklist           TEXT,
+    discogs_notes       TEXT,
+    genres              TEXT,
+    styles              TEXT,
+    fetched_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS genre_hidden (
+    album_id      INTEGER NOT NULL REFERENCES albums(id),
+    genre_id      INTEGER NOT NULL REFERENCES genres(id),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (album_id, genre_id)
+);
+CREATE TABLE IF NOT EXISTS genre_rules (
+    genre_id         INTEGER PRIMARY KEY REFERENCES genres(id),
+    action           TEXT NOT NULL CHECK (action IN ('hide', 'merge')),
+    target_genre_id  INTEGER REFERENCES genres(id),
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE VIEW IF NOT EXISTS artist_genres AS
+    SELECT aa.artist_id, ag.genre_id,
+           count(DISTINCT ag.album_id) AS albums,
+           count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = ag.album_id) THEN ag.album_id END) AS vinyl_albums
+    FROM album_genres ag JOIN album_artists aa ON aa.album_id = ag.album_id
+    GROUP BY aa.artist_id, ag.genre_id;

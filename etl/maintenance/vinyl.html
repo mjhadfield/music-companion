@@ -355,6 +355,7 @@ function renderDrawer(h) {
     </div>
     ${sec("Completeness", checklist)}
     ${missingArtists.length ? sec(`Artist identity <span class="meta">(${missingArtists.length} without an MBID)</span>`, `<div data-role="artists"></div>`, { role: "artist" }) : ""}
+    ${sec("Genres", `<div data-role="genres"><span class="meta">Loading…</span></div>`, { role: "genres", right: `<a class="meta" href="/genres.html#browse">Genre review →</a>` })}
     ${sec("This pressing", pressingHtml(h), { right: h.discogsReleaseId ? discogsLink(h.discogsReleaseId, "Discogs release") : "" })}
     ${sec("MusicBrainz link for this pressing", `<div data-role="link"></div>`, { role: "link" })}
     ${sec("Title & year", `<div data-role="titleyear"></div>`, { role: "titleyear" })}
@@ -367,6 +368,7 @@ function renderDrawer(h) {
   const $ = (r) => dBody.querySelector(`[data-role='${r}']`);
   if (missingArtists.length) renderArtistSection($("artists"), missingArtists);
   renderLinkSection($("link"), h);
+  loadGenreChips($("genres"), a.albumId);
   renderTitleYear($("titleyear"), h);
   renderCover($("cover"), h);
   if (h.versionProfiles.length) {
@@ -385,6 +387,14 @@ function renderDrawer(h) {
     if (b.dataset.jump === "identity") dBody.querySelector("[data-role='open-identity']")?.click();
     if (b.dataset.jump === "artist") dBody.querySelector("[data-role='open-artist']")?.click();
   }));
+}
+
+// The album's genre tags, editable in place (see Maintenance > Genres for the whole picture).
+async function loadGenreChips(host, albumId) {
+  const { ok, data } = await api(`/api/genres/album?albumId=${albumId}`);
+  if (!ok || !host.isConnected) return;
+  mountGenreChips(host, albumId, data.genres, { onChange: () => loadGenreChips(host, albumId) });
+  if (!data.genres.length) host.insertAdjacentHTML("afterbegin", `<span class="meta" style="margin-right:6px">none yet —</span>`);
 }
 
 // The quick fix next to each checklist line: either a direct action or a jump to its section.

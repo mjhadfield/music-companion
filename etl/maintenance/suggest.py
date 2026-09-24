@@ -492,7 +492,102 @@ def _song_recordings(limit: int, log, progress, cancelled) -> None:
         conn.close()
 
 
+def _genres(limit: int, log, progress, cancelled) -> None:
+    """MusicBrainz genres for your albums: one browse per artist (100 albums a request, cached),
+    applied to the albums that are exactly those release groups. Vinyl artists first, then most
+    played; artists already fetched are skipped. `limit` = artists this batch."""
+    import genres as genre_tags
+    conn = db_connect()
+    try:
+        artists = conn.execute("""
+            SELECT ar.id, ar.name, ar.mbid,
+                   (SELECT count(*) FROM vinyl_holdings v JOIN album_artists aa ON aa.album_id = v.album_id WHERE aa.artist_id = ar.id) AS vinyl,
+                   (SELECT count(*) FROM scrobbles s WHERE s.artist_id = ar.id) AS plays
+            FROM artists ar
+            WHERE ar.mbid IS NOT NULL AND EXISTS (SELECT 1 FROM album_artists aa JOIN albums al ON al.id = aa.album_id
+                                                  WHERE aa.artist_id = ar.id AND al.mbid IS NOT NULL)
+              AND NOT EXISTS (SELECT 1 FROM mb_cache m WHERE m.key = 'browse:rg-genres:' || ar.mbid)
+            ORDER BY vinyl DESC, plays DESC LIMIT ?""", (limit,)).fetchall()
+        log(f"Fetching MusicBrainz genres for {len(artists)} artist(s) — vinyl first, then most played (1–3 requests each).")
+        mbid_sets = artist_mbid_sets(conn, [a[0] for a in artists]) if artists else {}
+        tagged = 0
+        for i, (aid, name, _mbid, _v, _p) in enumerate(artists):
+            if cancelled():
+                log("Cancelled.")
+                break
+            progress(i, len(artists))
+            try:
+                groups = []
+                for m in sorted(mbid_sets.get(aid, set())):  # own id + "also releases as"
+                    groups += mbcache.artist_release_group_genres(m) or []
+                n = genre_tags.apply_musicbrainz_groups(conn, groups, [aid])
+                conn.commit()
+                tagged += n
+                log(f"  · {name}: {n} album(s) of yours matched")
+            except Exception as exc:  # one failed artist shouldn't end the sweep
+                conn.rollback()
+                log(f"  ! {name}: {exc}")
+        progress(len(artists), len(artists))
+        log(f"Done — genres applied to {tagged} album(s). Review them in Maintenance › Genres.")
+    finally:
+        conn.close()
+
+
+def _pressings(limit: int, log, progress, cancelled) -> None:
+    """Full Discogs detail for each record you own (pressing country and date, format
+    descriptions, barcode/matrix, pressing plant, tracklist, notes, styles) -> vinyl_details,
+    and the styles -> the album's Discogs genres. Discogs allows ~23 requests a minute, so this
+    is about 2.6s a record. Records already fetched are skipped."""
+    import genres as genre_tags
+    conn = db_connect()
+    try:
+        rows = conn.execute("""
+            SELECT v.id, v.album_id, v.discogs_release_id, al.title FROM vinyl_holdings v JOIN albums al ON al.id = v.album_id
+            WHERE v.discogs_release_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM vinyl_details d WHERE d.holding_id = v.id)
+            ORDER BY v.date_added DESC LIMIT ?""", (limit,)).fetchall()
+        log(f"Fetching Discogs pressing details for {len(rows)} record(s) (about {round(len(rows) * 2.6 / 60, 1)} minutes).")
+        done = 0
+        for i, (hid, album_id, rid, title) in enumerate(rows):
+            if cancelled():
+                log("Cancelled.")
+                break
+            progress(i, len(rows))
+            try:
+                d = mbcache.discogs_release_full(rid)
+                if not d:
+                    log(f"  · {title}: Discogs doesn't know release {rid}")
+                    continue
+                fmt = (d.get("formats") or [{}])[0] if d.get("formats") else {}
+                conn.execute("""
+                    INSERT INTO vinyl_details (holding_id, country, released, year, format_descriptions, format_text, identifiers,
+                                               companies, tracklist, discogs_notes, genres, styles, fetched_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ON CONFLICT (holding_id) DO UPDATE SET country = excluded.country, released = excluded.released, year = excluded.year,
+                        format_descriptions = excluded.format_descriptions, format_text = excluded.format_text,
+                        identifiers = excluded.identifiers, companies = excluded.companies, tracklist = excluded.tracklist,
+                        discogs_notes = excluded.discogs_notes, genres = excluded.genres, styles = excluded.styles, fetched_at = excluded.fetched_at""",
+                    (hid, d.get("country"), d.get("released"), d.get("year") or None,
+                     json.dumps([x for f in d.get("formats") or [] for x in f.get("descriptions") or []]),
+                     "; ".join(f["text"] for f in d.get("formats") or [] if f.get("text")) or None,
+                     json.dumps(d.get("identifiers") or []), json.dumps(d.get("companies") or []), json.dumps(d.get("tracklist") or []),
+                     d.get("notes"), json.dumps(d.get("genres") or []), json.dumps(d.get("styles") or [])))
+                genre_tags.apply_discogs_styles(conn, album_id)
+                conn.commit()
+                done += 1
+                log(f"  · {title}: {d.get('country') or '?'} {d.get('released') or d.get('year') or ''} · {', '.join(d.get('styles') or []) or 'no styles'}"
+                    + (f" · {fmt.get('text')}" if fmt.get("text") else ""))
+            except Exception as exc:
+                conn.rollback()
+                log(f"  ! {title}: {exc}")
+        progress(len(rows), len(rows))
+        log(f"Done — {done} record(s) detailed.")
+    finally:
+        conn.close()
+
+
 SWEEPS = {
+    "genres": _genres,
+    "pressings": _pressings,
     "song-recordings": _song_recordings,
     "album-editions": _album_editions,
     "live-albums": _live_albums,

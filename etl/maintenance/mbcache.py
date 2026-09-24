@@ -114,6 +114,17 @@ def discogs_release_details(release_id: int):
     return _cached(f"lookup:discogs-api:{int(release_id)}", "lookup", lambda: discogs_api.release(release_id))
 
 
+def artist_release_group_genres(artist_mbid: str):
+    """An artist's release groups with their voted genres (MusicBrainz browse, 1 request / 100)."""
+    return _cached(f"browse:rg-genres:{artist_mbid}", "browse", lambda: mb.browse_release_group_genres(artist_mbid))
+
+
+def discogs_release_full(release_id: int):
+    """Discogs' full release (pressing detail, tracklist, styles) -- its own key: older
+    lookup:discogs-api entries hold only the few fields the vinyl checks needed."""
+    return _cached(f"lookup:discogs-full:{int(release_id)}", "lookup", lambda: discogs_api.release(release_id))
+
+
 def recording_release_groups(title: str, artist_mbid: str):
     key = f"search:recording-rgs:{artist_mbid}:{title.strip().lower()}"
     return _cached(key, "browse", lambda: mb.recording_release_groups(title, artist_mbid))  # 30 days: albums rarely change

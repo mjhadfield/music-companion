@@ -44,7 +44,7 @@ from common import DB_OVERRIDDEN, DB_PATH, connect as db_connect, load_env  # no
 from migrations import migrate  # noqa: E402
 import covers  # noqa: E402
 import merge  # noqa: E402
-from api import albums as _albums, artists as _artists, editions as _editions, general as _general, imports as _imports, recordings as _recordings, songs as _songs, vinyl as _vinyl  # noqa: E402,F401  (registers routes)
+from api import albums as _albums, artists as _artists, editions as _editions, general as _general, genres as _genres, imports as _imports, recordings as _recordings, songs as _songs, vinyl as _vinyl  # noqa: E402,F401  (registers routes)
 from api.core import ROUTES, ApiError, Req, merge_error_response  # noqa: E402
 
 load_env()
@@ -59,6 +59,7 @@ PAGES = {
     "/vinyl.html": "vinyl.html",
     "/songs.html": "songs.html",
     "/inbox.html": "inbox.html",
+    "/genres.html": "genres.html",
 }
 # Pages folded into a tab of another page -- old bookmarks keep working.
 REDIRECTS = {

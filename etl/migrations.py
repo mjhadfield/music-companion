@@ -284,6 +284,70 @@ def _m006_song_tracks(conn: sqlite3.Connection) -> None:
         conn.executemany("INSERT OR IGNORE INTO scrobble_tracks (scrobble_id, lastfm_mbid) VALUES (?, ?)", rows)
 
 
+def _m007_genres_and_pressings(conn: sqlite3.Connection) -> None:
+    """Genres as a first-class tag, plus full Discogs pressing detail for the vinyl collection.
+      genres          one row per genre name (MusicBrainz's vocabulary; Discogs styles join it).
+                      parent_id is for a later genre map (MusicBrainz genres have "subgenre of").
+      album_genres    album (release group) -> genre, with its source and MusicBrainz vote count.
+                      Artists never get their own rows: they inherit through artist_genres (a view).
+      vinyl_details   one pressing's Discogs detail: country, date, format descriptions, identifiers
+                      (barcode, matrix/runout), companies (pressing plant...), tracklist, notes.
+      genre_hidden    a genre removed from an album by hand -- refreshes never bring it back.
+      genre_rules     a genre hidden everywhere, or merged into another (synonyms).
+    genres/album_genres/vinyl_details/artist_genres are public; the rest are internal."""
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS genres (
+            id            INTEGER PRIMARY KEY,
+            name          TEXT NOT NULL UNIQUE,
+            mbid          TEXT UNIQUE,
+            parent_id     INTEGER REFERENCES genres(id),
+            created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS album_genres (
+            album_id      INTEGER NOT NULL REFERENCES albums(id),
+            genre_id      INTEGER NOT NULL REFERENCES genres(id),
+            source        TEXT NOT NULL CHECK (source IN ('musicbrainz', 'discogs', 'manual')),
+            votes         INTEGER,
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (album_id, genre_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_album_genres_genre ON album_genres(genre_id);
+        CREATE TABLE IF NOT EXISTS vinyl_details (
+            holding_id          INTEGER PRIMARY KEY REFERENCES vinyl_holdings(id),
+            country             TEXT,
+            released            TEXT,
+            year                INTEGER,
+            format_descriptions TEXT,
+            format_text         TEXT,
+            identifiers         TEXT,
+            companies           TEXT,
+            tracklist           TEXT,
+            discogs_notes       TEXT,
+            genres              TEXT,
+            styles              TEXT,
+            fetched_at          TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS genre_hidden (
+            album_id      INTEGER NOT NULL REFERENCES albums(id),
+            genre_id      INTEGER NOT NULL REFERENCES genres(id),
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (album_id, genre_id)
+        );
+        CREATE TABLE IF NOT EXISTS genre_rules (
+            genre_id         INTEGER PRIMARY KEY REFERENCES genres(id),
+            action           TEXT NOT NULL CHECK (action IN ('hide', 'merge')),
+            target_genre_id  INTEGER REFERENCES genres(id),
+            created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE VIEW IF NOT EXISTS artist_genres AS
+            SELECT aa.artist_id, ag.genre_id,
+                   count(DISTINCT ag.album_id) AS albums,
+                   count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = ag.album_id) THEN ag.album_id END) AS vinyl_albums
+            FROM album_genres ag JOIN album_artists aa ON aa.album_id = ag.album_id
+            GROUP BY aa.artist_id, ag.genre_id
+    """)
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -291,6 +355,7 @@ MIGRATIONS = [
     ("004_artist_mb_aliases", _m004_artist_mb_aliases),
     ("005_releases_and_import_inbox", _m005_releases_and_import_inbox),
     ("006_song_tracks", _m006_song_tracks),
+    ("007_genres_and_pressings", _m007_genres_and_pressings),
 ]
 
 

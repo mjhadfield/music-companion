@@ -81,6 +81,19 @@ def _move(conn, journal: dict, rows_moved: dict, table: str, column: str, absorb
     rows_moved[table] = rows_moved.get(table, 0) + len(ids)
 
 
+def _move_album_genres(conn, journal: dict, rows_moved: dict, absorbed_id: int, canonical_id: int) -> None:
+    """Genres (and removed-genre decisions) follow the album. Keyed (album, genre), so ones the
+    survivor already has are dropped instead -- journaled either way for undo."""
+    for table, cols in (("album_genres", "genre_id, source, votes, created_at"), ("genre_hidden", "genre_id, created_at")):
+        dup = f"genre_id IN (SELECT genre_id FROM {table} WHERE album_id = ?)"
+        dropped = [list(r) for r in conn.execute(f"SELECT {cols} FROM {table} WHERE album_id = ? AND {dup}", (absorbed_id, canonical_id))]
+        conn.execute(f"DELETE FROM {table} WHERE album_id = ? AND {dup}", (absorbed_id, canonical_id))
+        moved = [r[0] for r in conn.execute(f"SELECT genre_id FROM {table} WHERE album_id = ?", (absorbed_id,))]
+        conn.execute(f"UPDATE {table} SET album_id = ? WHERE album_id = ?", (canonical_id, absorbed_id))
+        journal[f"{table}_moved"], journal[f"{table}_dropped"] = moved, dropped
+        rows_moved[table] = len(moved)
+
+
 def _upsert_alias(conn, journal: dict, source: str, source_key: str, canonical_type: str, canonical_id: int, note: str) -> None:
     existing = conn.execute(
         "SELECT id, canonical_id, note FROM alias_overrides WHERE source = ? AND source_key = ? AND canonical_type = ?",
@@ -295,6 +308,7 @@ def merge_albums(conn, absorbed_id: int, canonical_id: int, identity: dict | Non
 
     for table in ("songs", "vinyl_holdings", "scrobbles", "album_releases"):  # editions follow the album
         _move(conn, journal, rows_moved, table, "album_id", absorbed_id, canonical_id)
+    _move_album_genres(conn, journal, rows_moved, absorbed_id, canonical_id)
     _note_rows(conn, journal, rows_moved, "album", absorbed_id, canonical_id)
     _repoint_aliases(conn, journal, rows_moved, "album", absorbed_id, canonical_id)
 
@@ -455,6 +469,14 @@ def undo_merge(conn, log_id: int) -> dict:
             conn.execute("UPDATE album_artists SET album_id = ? WHERE artist_id = ? AND album_id = ?", (absorbed_id, artist_id, canonical_id))
     for album_id, artist_id, position in j["album_artists_deleted"]:
         conn.execute("INSERT OR IGNORE INTO album_artists (album_id, artist_id, position) VALUES (?, ?, ?)", (album_id, artist_id, position))
+    if entity_type == "album":  # genres went with the album (merges from before genres have no entries)
+        for table, cols in (("album_genres", "genre_id, source, votes, created_at"), ("genre_hidden", "genre_id, created_at")):
+            moved = j.get(f"{table}_moved") or []
+            if moved:
+                conn.execute(f"UPDATE {table} SET album_id = ? WHERE album_id = ? AND genre_id IN (SELECT value FROM json_each(?))",
+                             (absorbed_id, canonical_id, json.dumps(moved)))
+            for row in j.get(f"{table}_dropped") or []:
+                conn.execute(f"INSERT OR IGNORE INTO {table} (album_id, {cols}) VALUES (?, {', '.join('?' * len(row))})", (absorbed_id, *row))
 
     if j["alias_inserted"]:
         conn.execute("DELETE FROM alias_overrides WHERE id IN (SELECT value FROM json_each(?))", (json.dumps(j["alias_inserted"]),))
@@ -602,6 +624,8 @@ def _undo_created(conn, album_id: int) -> None:
         raise MergeError("Another album has been merged into it since -- undo that merge first.", "diverged")
     conn.execute("DELETE FROM review_marks WHERE entity_type = 'album' AND entity_id = ?", (album_id,))
     conn.execute("DELETE FROM notes WHERE entity_type = 'album' AND entity_id = ?", (album_id,))
+    conn.execute("DELETE FROM album_genres WHERE album_id = ?", (album_id,))  # derived since -- goes with it
+    conn.execute("DELETE FROM genre_hidden WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM album_artists WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM albums WHERE id = ?", (album_id,))
 
@@ -669,6 +693,8 @@ def _undo_split(conn, d: dict) -> None:
         conn.execute(f"UPDATE {table} SET album_id = ? WHERE album_id = ?", (back, new))
     conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE canonical_type = 'album' AND canonical_id = ?", (back, new))
     conn.execute("DELETE FROM review_marks WHERE entity_type = 'album' AND entity_id = ?", (new,))
+    conn.execute("DELETE FROM album_genres WHERE album_id = ?", (new,))
+    conn.execute("DELETE FROM genre_hidden WHERE album_id = ?", (new,))
     conn.execute("DELETE FROM album_artists WHERE album_id = ?", (new,))
     conn.execute("DELETE FROM albums WHERE id = ?", (new,))
     if d.get("mergeLogId"):
@@ -682,6 +708,17 @@ def undo_edit(conn, edit_id: int) -> dict:
     entity_type, entity_id, name, changes_json, undone_at = row
     if undone_at:
         raise MergeError("This edit was already undone.", "already_undone")
+    special = json.loads(changes_json)
+    if "_genres" in special or "_genreRule" in special:
+        import genres as genre_tags
+        if "_genres" in special:
+            if not _row_dict(conn, "albums", entity_id):
+                raise MergeError(f'"{name}" has been merged away since -- undo that merge first.', "gone")
+            genre_tags.undo_genre_edit(conn, special["_genres"])
+        else:
+            genre_tags.undo_genre_rule(conn, special["_genreRule"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     table = _TABLE[entity_type]
     current = _row_dict(conn, table, entity_id)
     if not current:

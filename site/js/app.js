@@ -257,7 +257,7 @@ function renderHome() {
   `);
 
   const recentVinyl = query(`
-    SELECT al.id AS album_id, al.cover_status, al.title, ar.name AS artist_name, v.date_added, v.format
+    SELECT v.id AS holding_id, al.id AS album_id, al.cover_status, al.title, ar.name AS artist_name, v.date_added, v.format
     FROM vinyl_holdings v
     JOIN albums al ON al.id = v.album_id
     JOIN artists ar ON ar.id = al.artist_id
@@ -321,7 +321,7 @@ function renderHome() {
       <h2>Latest record buys</h2>
       <div class="vinyl-tile-grid">
         ${recentVinyl.map((v) => `
-          <div class="vinyl-tile" data-album-id="${v.album_id}">
+          <div class="vinyl-tile" data-album-id="${v.album_id}" data-holding-id="${v.holding_id}">
             <img class="vinyl-tile-cover" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" alt="" loading="lazy" />
             <div class="vinyl-tile-title">${esc(v.title)}</div>
             <div class="vinyl-tile-sub">${esc(v.artist_name)}</div>
@@ -361,8 +361,8 @@ function renderHome() {
     }
   );
   app.querySelectorAll("img.vinyl-tile-cover").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus));
-  app.querySelectorAll(".vinyl-tile[data-album-id]").forEach((el) => {
-    el.addEventListener("click", () => { location.hash = `#/album/${el.dataset.albumId}`; });
+  app.querySelectorAll(".vinyl-tile[data-holding-id]").forEach((el) => {
+    el.addEventListener("click", () => { location.hash = `#/vinyl/${el.dataset.holdingId}`; });
   });
 }
 
@@ -432,114 +432,6 @@ function renderArtistsBrowse() {
   wireSortableHeaders(st, renderArtistsBrowse, ["name"]);
   wirePagination(st, totalPages, renderArtistsBrowse);
   wireSearchInput("browse-search", st, renderArtistsBrowse);
-}
-
-// ---------------------------------------------------------------------
-// Browse: Vinyl (#/vinyl) -- small enough to show in full, with cover art
-// ---------------------------------------------------------------------
-const vinylState = { q: "", sort: "date_added", dir: "desc", granularity: "year", periodFilter: null };
-
-function renderVinylBrowse() {
-  const st = vinylState;
-  const g = GRANULARITIES[st.granularity];
-
-  // Same split as the scrobbles page: the search term scopes the chart
-  // too (so searching an artist shows their own acquisition history),
-  // the period filter (a clicked bar) only scopes the list.
-  const searchParams = [];
-  let searchWhere = "";
-  if (st.q) {
-    searchWhere = "(al.title LIKE ? COLLATE NOCASE OR ar.name LIKE ? COLLATE NOCASE)";
-    searchParams.push(`%${st.q}%`, `%${st.q}%`);
-  }
-
-  const listWhereParts = ["v.date_added IS NOT NULL", "v.date_added != ''"];
-  const listParams = [];
-  if (searchWhere) { listWhereParts.push(searchWhere); listParams.push(...searchParams); }
-  if (st.periodFilter) {
-    listWhereParts.push(`strftime('${g.fmt}', v.date_added) = ?`);
-    listParams.push(st.periodFilter.key);
-  }
-  const where = `WHERE ${listWhereParts.join(" AND ")}`;
-  const sortCol = { title: "al.title", artist: "ar.name", year: "al.year", date_added: "v.date_added" }[st.sort] || "v.date_added";
-  const dir = st.dir === "asc" ? "ASC" : "DESC";
-
-  const rows = query(`
-    SELECT v.id, al.id AS album_id, al.title, al.year, ar.id AS artist_id, ar.name AS artist_name,
-           v.media_condition, v.date_added
-    FROM vinyl_holdings v
-    JOIN albums al ON al.id = v.album_id
-    JOIN artists ar ON ar.id = al.artist_id
-    ${where}
-    ORDER BY ${sortCol} ${dir} NULLS LAST
-  `, listParams);
-
-  const chartWhereParts = ["v.date_added IS NOT NULL", "v.date_added != ''"];
-  if (searchWhere) chartWhereParts.push(searchWhere);
-  if (g.rangeModifier) chartWhereParts.push(`v.date_added >= datetime('now', '${g.rangeModifier}')`);
-  const chartRows = query(`
-    SELECT strftime('${g.fmt}', v.date_added) AS bucket, count(*) AS c
-    FROM vinyl_holdings v
-    JOIN albums al ON al.id = v.album_id
-    JOIN artists ar ON ar.id = al.artist_id
-    WHERE ${chartWhereParts.join(" AND ")}
-    GROUP BY bucket ORDER BY bucket
-  `, searchParams);
-
-  app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
-    <div class="page-header"><h1>Vinyl</h1><div class="subtle">${rows.length.toLocaleString()} records</div></div>
-    <div class="section">
-      <h2>Added</h2>
-      <div id="vinyl-chart-toolbar"></div>
-      <div id="vinyl-chart"></div>
-    </div>
-    <div class="filter-bar">
-      <input type="text" id="browse-search" placeholder="Search title or artist…" value="${esc(st.q)}" />
-    </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr>
-          ${sortHeader("title", "Title", st)}
-          ${sortHeader("artist", "Artist", st)}
-          ${sortHeader("year", "Year", st, true)}
-          <th>Condition</th>
-          ${sortHeader("date_added", "Added", st)}
-        </tr></thead>
-        <tbody>
-          ${rows.map((r) => `
-            <tr data-album-id="${r.album_id}">
-              <td class="row-title">${esc(r.title)}</td>
-              <td>${esc(r.artist_name)}</td>
-              <td class="num">${r.year || ""}</td>
-              <td>${esc(r.media_condition || "")}</td>
-              <td class="nowrap">${esc((r.date_added || "").slice(0, 10))}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  app.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => { location.hash = `#/album/${tr.dataset.albumId}`; }));
-  wireSortableHeaders(st, renderVinylBrowse, ["title", "artist"]);
-  wireSearchInput("browse-search", st, renderVinylBrowse);
-
-  renderChartToolbar(document.getElementById("vinyl-chart-toolbar"), st, renderVinylBrowse);
-  renderBarChart(
-    document.getElementById("vinyl-chart"),
-    chartRows.map((r) => ({
-      label: bucketTickLabel(st.granularity, r.bucket),
-      tooltipLabel: humanBucketLabel(st.granularity, r.bucket),
-      value: r.c,
-      key: r.bucket,
-    })),
-    {
-      color: "var(--accent-vinyl)",
-      selectedKey: st.periodFilter?.key,
-      onClick: (d) => { toggleBucketFilter(st, st.granularity, d.key); renderVinylBrowse(); },
-    }
-  );
 }
 
 // ---------------------------------------------------------------------
@@ -981,6 +873,7 @@ function renderArtist(id) {
       <div class="badge scrobble${scrobbleCount ? "" : " disabled"}" id="badge-scrobble">${scrobbleCount.toLocaleString()} scrobbles</div>
       <div class="badge live${liveCount ? "" : " disabled"}" id="badge-live">Seen live ${liveCount}×</div>
     </div>
+    ${genreTagsHtml(artistGenreNames(id), "From their albums")}
 
     <div id="about-panel"></div>
 
@@ -1034,8 +927,7 @@ function renderArtist(id) {
   // (a badge for a count of zero is inert -- nothing to filter down to).
   if (vinylCount) {
     document.getElementById("badge-vinyl").addEventListener("click", () => {
-      vinylState.q = artist.name; vinylState.periodFilter = null;
-      location.hash = "#/vinyl";
+      location.hash = `#/vinyl?q=${encodeURIComponent(artist.name)}`;
     });
   }
   if (scrobbleCount) {
@@ -1300,21 +1192,20 @@ function renderAlbum(id) {
       <div>
         <h1>${esc(album.title)}</h1>
         <div class="subtle"><span class="link-text" onclick="location.hash='#/artist/${album.artist_id}'">${esc(album.artist_name)}</span>${album.year ? ` · ${album.year}` : ""}</div>
+        ${genreTagsHtml(albumGenreNames(id))}
       </div>
     </div>
 
     <div class="section">
       <h2>${holdings.length > 1 ? "Your copies" : "Your copy"}</h2>
-      ${holdings.map((h) => `
-        <div class="vinyl-card">
-          <div class="vinyl-body">
-            <div class="title">${esc(h.format || "")}</div>
-            <div class="meta">${[h.label, h.catalog_number].filter(Boolean).map(esc).join(" · ")}</div>
-            <div class="meta">${[h.media_condition, h.sleeve_condition ? `${h.sleeve_condition} sleeve` : null].filter(Boolean).map(esc).join(" / ")}</div>
-            ${h.notes ? `<div class="meta">${esc(h.notes)}</div>` : ""}
-            <div class="meta subtle">Added ${esc((h.date_added || "").slice(0, 10))}</div>
-          </div>
-        </div>
+      ${loadCollection().filter((r) => r.album_id === id).map((r) => `
+        <button class="pressing-card" data-holding="${r.id}">
+          <div class="rd-line"><b>${esc(r.label || "Unknown label")}</b>${r.catalog_number ? ` · <span class="mono">${esc(r.catalog_number)}</span>` : ""}${r.country ? ` · ${esc(r.country)}` : ""}${r.pressing_year ? ` · ${r.pressing_year}` : ""} ${starsHtml(r.rating)}</div>
+          <div class="pbadges">${pressingBadges(r)}</div>
+          ${meter(r.grade, "Record")}${meter(r.sleeveGrade, "Sleeve")}
+          ${r.notes ? `<div class="subtle pc-note">“${esc(r.notes)}”</div>` : ""}
+          <div class="subtle">Added ${esc((r.date_added || "").slice(0, 10))} · open in the collection →</div>
+        </button>
       `).join("") || '<div class="subtle">No holding details recorded.</div>'}
     </div>
 
@@ -1333,6 +1224,7 @@ function renderAlbum(id) {
 
   const img = app.querySelector("img.album-cover-large");
   if (img) attachCoverArt(img, album.id, album.cover_status);
+  app.querySelectorAll("[data-holding]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/vinyl/${el.dataset.holding}`; }));
   app.querySelectorAll("[data-song-id]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/song/${el.dataset.songId}`; }));
 }
 
@@ -1481,13 +1373,17 @@ function render() {
   const setlistMatch = hash.match(/^#\/setlist\/(\d+)/);
   const albumMatch = hash.match(/^#\/album\/(\d+)/);
   const venueMatch = hash.match(/^#\/venue\/(\d+)/);
+  const recordMatch = hash.match(/^#\/vinyl\/(\d+)/);
+  app.classList.remove("wide");
+  if (!recordMatch && typeof closeRecord === "function") closeRecord(false); // leaving the collection: no drawer left behind
   if (artistMatch) return renderArtist(Number(artistMatch[1]));
   if (songMatch) return renderSong(Number(songMatch[1]));
   if (setlistMatch) return renderSetlist(Number(setlistMatch[1]));
   if (albumMatch) return renderAlbum(Number(albumMatch[1]));
   if (venueMatch) return renderVenue(Number(venueMatch[1]));
   if (hash.startsWith("#/artists")) return renderArtistsBrowse();
-  if (hash.startsWith("#/vinyl")) return renderVinylBrowse();
+  if (recordMatch) return renderCollection(Number(recordMatch[1]));
+  if (hash.startsWith("#/vinyl")) return renderCollection();
   if (hash.startsWith("#/shows")) return renderShowsBrowse();
   if (hash.startsWith("#/scrobbles")) return renderScrobblesBrowse();
   if (hash.startsWith("#/songs")) return renderSongsBrowse();

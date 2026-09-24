@@ -199,7 +199,7 @@ def decide_suggestion(req):
 def start_sweep(req):
     kind = req.str("kind")
     # edition lookups are one request each and cache for good -- a bigger batch is fine there
-    limit = max(1, min(req.int("limit", 50), 1000 if kind in ("album-editions", "song-recordings") else 200))
+    limit = max(1, min(req.int("limit", 50), 1000 if kind in ("album-editions", "song-recordings") else 300 if kind == "pressings" else 200))
     job_id = uuid.uuid4().hex
     params = {}
     if req.body.get("artistId"):

@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Music Companion — Genres</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+  main.wide { max-width: 1400px; }
+  .cov { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; padding: 0; }
+  .cov > div { padding: 12px 16px; border-right: 1px solid var(--edge); }
+  .cov > div:last-child { border-right: none; }
+  .cov .n { font-family: var(--font-mono); font-size: 1.2rem; }
+  .cov .l { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+  .cov .bar { height: 3px; background: var(--surface-3); margin-top: 6px; border-radius: 2px; overflow: hidden; }
+  .cov .bar i { display: block; height: 100%; background: var(--ok); }
+  .sweeps { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .g-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 6px 10px; cursor: pointer; border-radius: var(--radius-sm); font-size: 0.86rem; }
+  .g-row:hover { background: var(--accent-wash); }
+  .g-row.current { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+  .g-row .mix { display: flex; height: 3px; grid-column: 1 / -1; border-radius: 2px; overflow: hidden; background: var(--surface-3); }
+  .g-row .mix i.musicbrainz { background: #c4b5fd; } .g-row .mix i.discogs { background: var(--accent-vinyl, #d9a441); } .g-row .mix i.manual { background: var(--ok); }
+  .g-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--edge); background: var(--bg-2); }
+  .g-head h2 { margin: 0; }
+  .alb { display: grid; grid-template-columns: 22px 44px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px 18px; border-bottom: 1px solid var(--edge); }
+  .alb.no-tick { grid-template-columns: 44px minmax(0, 1fr); }
+  .alb img, .alb .noart { width: 44px; height: 44px; object-fit: cover; background: var(--surface-3); display: block; }
+  .alb .t { font-weight: 600; }
+  .alb .genre-chips { margin-top: 4px; }
+  .why { font-size: 0.74rem; }
+  .inherit { padding: 12px 18px; border-bottom: 1px solid var(--edge); background: var(--bg-2); }
+  .search-wrap { padding: 14px 18px; border-bottom: 1px solid var(--edge); }
+  .search-wrap input { width: 100%; max-width: 520px; }
+</style>
+</head>
+<body>
+<header id="topnav"></header>
+<main class="wide">
+  <h1>Genres</h1>
+  <p class="subtitle">Genre tags on albums — from MusicBrainz (voted, applied automatically) and, for vinyl, Discogs styles. Artists inherit theirs from their albums. Remove a tag and it stays removed; hide or merge a genre and every future refresh follows. Everything here can be undone.</p>
+
+  <div class="card flush cov" id="coverage"></div>
+  <div class="card">
+    <div class="sweeps">
+      <label>Genres for the next <input type="number" id="g-limit" value="50" min="1" max="200" style="width:70px" /> artists</label>
+      <button class="primary" id="g-start">Fetch genres</button>
+      <span class="meta">MusicBrainz · one request per 100 albums · vinyl artists first</span>
+    </div>
+    <div class="sweeps" style="margin-top:10px">
+      <label>Pressing details for the next <input type="number" id="p-limit" value="222" min="1" max="300" style="width:70px" /> records</label>
+      <button id="p-start">Fetch from Discogs</button>
+      <span class="meta">country, date, matrix, pressing plant, tracklist, styles · ~2.6s each</span>
+    </div>
+    <div id="sweep"></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="genres">By genre</button>
+    <button data-tab="browse">Albums &amp; artists</button>
+    <button data-tab="untagged">Untagged</button>
+    <button data-tab="low">Low confidence</button>
+    <button data-tab="activity">Activity</button>
+  </div>
+
+  <section data-panel="genres" hidden>
+    <div class="card flush disco-shell">
+      <div class="disco-top"><input type="search" class="search-box" id="g-filter" placeholder="Filter genres…" /><span class="gsrc"><span><i class="musicbrainz"></i>MusicBrainz</span><span><i class="discogs"></i>Discogs</span><span><i class="manual"></i>yours</span></span></div>
+      <div class="disco-body">
+        <aside class="disco-side">
+          <div class="side-head"><h3>Genres</h3><span class="mono meta" id="g-count"></span></div>
+          <div class="side-list" id="g-list"><div class="meta" style="padding:8px 10px">Loading…</div></div>
+        </aside>
+        <div class="disco-main" id="g-view"><div class="empty">Pick a genre to see its albums — remove it from some, hide it everywhere, or merge it into another genre.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section data-panel="browse" hidden>
+    <div class="card flush">
+      <div class="search-wrap"><input type="text" id="b-q" placeholder="Search an artist or album…" /></div>
+      <div id="b-view"><div class="empty">Search for an artist to tag all their albums at once, or one album.</div></div>
+    </div>
+  </section>
+
+  <section data-panel="untagged" hidden>
+    <div class="card flush">
+      <div class="inbox-tools"><span class="meta" id="u-total"></span><span class="spacer"></span><label class="meta"><input type="checkbox" id="u-vinyl" /> vinyl only</label></div>
+      <div id="u-list"></div>
+    </div>
+  </section>
+
+  <section data-panel="low" hidden>
+    <div class="card flush">
+      <div class="inbox-tools"><span class="meta">MusicBrainz genres that came from a single vote — a glance, nothing waits on it.</span></div>
+      <div id="l-list"></div>
+    </div>
+  </section>
+
+  <section data-panel="activity" hidden><div class="card"><div id="activity"></div></div></section>
+</main>
+
+<script src="shared.js"></script>
+<script>
+mountNav("Genres");
+
+const cover = (a) => a.cover ? `<img src="/covers/${a.albumId}.jpg" alt="" loading="lazy" />` : `<div class="noart"></div>`;
+const albumMeta = (a) => `<a href="/albums.html#discography/${a.artistId}">${esc(a.artistName)}</a>${a.year ? ` · ${a.year}` : ""} · ${plural(a.plays, "play")}${a.vinyl ? ` · <span class="badge vinyl">vinyl</span>` : ""}`;
+
+function albumRow(a, { tick = false, extra = "" } = {}) {
+  const el = document.createElement("div");
+  el.className = "alb" + (tick ? "" : " no-tick");
+  el.innerHTML = `${tick ? `<input type="checkbox" data-id="${a.albumId}" />` : ""}${cover(a)}
+    <div><div class="t">${esc(a.title)}</div><div class="meta">${albumMeta(a)}${extra}</div><div data-role="chips"></div></div>`;
+  mountGenreChips(el.querySelector("[data-role='chips']"), a.albumId, a.genres || [], { onChange: () => reloadCurrent() });
+  return el;
+}
+
+// -- Coverage + sweeps ------------------------------------------------------------------------
+async function loadCoverage() {
+  const { ok, data } = await api("/api/genres/summary");
+  if (!ok) return;
+  const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+  const box = (n, l, bar) => `<div><div class="n">${n}</div><div class="l">${l}</div>${bar != null ? `<div class="bar"><i style="width:${bar}%"></i></div>` : ""}</div>`;
+  document.getElementById("coverage").innerHTML =
+    box(`${fmtNum(data.vinylTagged)}<span class="meta"> / ${fmtNum(data.vinylAlbums)}</span>`, "vinyl albums tagged", pct(data.vinylTagged, data.vinylAlbums))
+    + box(`${fmtNum(data.tagged)}<span class="meta"> / ${fmtNum(data.albums)}</span>`, "all albums tagged", pct(data.tagged, data.albums))
+    + box(fmtNum(data.genres), "genres in use")
+    + box(fmtNum(data.artistsToFetch), "artists not fetched yet")
+    + box(fmtNum(data.pressingsToFetch), "records without pressing details")
+    + box(fmtNum(data.rules), "hidden / merged genres");
+  document.getElementById("g-start").disabled = !data.artistsToFetch;
+  document.getElementById("p-start").disabled = !data.pressingsToFetch;
+}
+async function sweep(kind, limit, btn) {
+  btn.disabled = true;
+  await runSweep(document.getElementById("sweep"), kind, limit);
+  btn.disabled = false;
+  loadCoverage();
+  reloadCurrent();
+}
+document.getElementById("g-start").addEventListener("click", (e) => sweep("genres", parseInt(document.getElementById("g-limit").value, 10) || 50, e.target));
+document.getElementById("p-start").addEventListener("click", (e) => sweep("pressings", parseInt(document.getElementById("p-limit").value, 10) || 222, e.target));
+
+// -- By genre ---------------------------------------------------------------------------------
+let genreList = [], rules = [], currentGenre = null;
+async function loadGenres() {
+  const { ok, data } = await api("/api/genres/list");
+  if (!ok) return;
+  genreList = data.genres; rules = data.rules;
+  renderGenreList();
+  if (currentGenre && genreList.some((g) => g.genreId === currentGenre)) openGenre(currentGenre);
+  else if (currentGenre) { currentGenre = null; renderRules(); }
+  else renderRules();
+}
+function renderGenreList() {
+  const q = document.getElementById("g-filter").value.trim().toLowerCase();
+  const list = genreList.filter((g) => !q || g.name.includes(q));
+  document.getElementById("g-count").textContent = fmtNum(genreList.length);
+  const host = document.getElementById("g-list");
+  host.innerHTML = list.map((g) => {
+    const w = (n) => (100 * n) / g.albums;
+    return `<div class="g-row${g.genreId === currentGenre ? " current" : ""}" data-id="${g.genreId}"><span>${esc(g.name)}</span><span class="mono meta">${fmtNum(g.albums)}${g.vinyl ? ` <span style="color:var(--accent-vinyl)">· ${g.vinyl}◉</span>` : ""}</span>
+      <span class="mix"><i class="musicbrainz" style="width:${w(g.musicbrainz)}%"></i><i class="discogs" style="width:${w(g.discogs)}%"></i><i class="manual" style="width:${w(g.manual)}%"></i></span></div>`;
+  }).join("") || `<div class="meta" style="padding:8px 10px">${genreList.length ? "No match." : "No genres yet — fetch some above."}</div>`;
+  host.querySelectorAll(".g-row").forEach((r) => r.addEventListener("click", () => openGenre(+r.dataset.id)));
+}
+document.getElementById("g-filter").addEventListener("input", renderGenreList);
+
+function renderRules() {
+  const view = document.getElementById("g-view");
+  view.innerHTML = rules.length ? `<div class="g-head"><h2>Hidden &amp; merged</h2><span class="meta">every refresh follows these</span></div>
+    ${rules.map((r) => `<div class="alb no-tick" style="grid-template-columns: 1fr auto"><div><b>${esc(r.name)}</b> <span class="meta">${r.action === "hide" ? "hidden everywhere" : `merged into “${esc(r.targetName)}”`}</span></div>
+      <button class="small" data-clear="${r.genreId}">Restore</button></div>`).join("")}`
+    : `<div class="empty">Pick a genre to see its albums — remove it from some, hide it everywhere, or merge it into another genre.</div>`;
+  view.querySelectorAll("[data-clear]").forEach((b) => b.addEventListener("click", async () => {
+    const { ok, data } = await api("/api/genres/rule", { genreId: +b.dataset.clear, action: "clear" });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    toast("Restored — albums get it back at their next refresh", data.undo ? { undo: data.undo } : {});
+    loadGenres(); loadCoverage();
+  }));
+}
+
+async function openGenre(gid) {
+  currentGenre = gid;
+  renderGenreList();
+  const g = genreList.find((x) => x.genreId === gid);
+  const view = document.getElementById("g-view");
+  view.innerHTML = `<div class="g-head"><h2>${esc(g.name)}</h2>${g.mbid ? mbLink("genre", g.mbid) : ""}
+      <span class="meta">${plural(g.albums, "album")} · ${plural(g.artists, "artist")}</span><span class="spacer" style="flex:1"></span>
+      <input type="text" data-role="merge" placeholder="Merge into…" style="width:170px" />
+      <button class="small bad" data-role="hide">Hide everywhere</button></div>
+    <div class="inbox-tools"><label class="meta"><input type="checkbox" data-role="all" /> <span data-role="ticked">0 ticked</span></label>
+      <button class="small" data-role="remove" disabled>Remove from ticked albums</button></div>
+    <div data-role="albums"><div class="empty">Loading…</div></div>`;
+  const { ok, data } = await api(`/api/genres/albums?genreId=${gid}`);
+  if (!ok || currentGenre !== gid) return;
+  const host = view.querySelector("[data-role='albums']");
+  host.innerHTML = "";
+  data.albums.forEach((a) => host.appendChild(albumRow(a, { tick: true })));
+  const boxes = () => [...host.querySelectorAll("input[type=checkbox][data-id]")];
+  const all = view.querySelector("[data-role='all']");
+  const sync = () => {
+    const n = boxes().filter((b) => b.checked).length;
+    all.checked = n > 0 && n === boxes().length; all.indeterminate = n > 0 && n < boxes().length;
+    view.querySelector("[data-role='ticked']").textContent = `${fmtNum(n)} ticked`;
+    view.querySelector("[data-role='remove']").disabled = !n;
+  };
+  all.addEventListener("change", () => { boxes().forEach((b) => { b.checked = all.checked; }); sync(); });
+  host.onchange = (e) => { if (e.target.dataset.id) sync(); };
+  view.querySelector("[data-role='remove']").addEventListener("click", async () => {
+    const ids = boxes().filter((b) => b.checked).map((b) => +b.dataset.id);
+    const { ok: ok2, data: d2 } = await api("/api/genres/edit", { albumIds: ids, remove: [gid] });
+    if (!ok2) { toast(esc(d2.message), { error: true }); return; }
+    toast(`“${esc(g.name)}” removed from ${plural(d2.changed, "album")}`, d2.undo ? { undo: d2.undo } : {});
+    notifyChanged(); loadGenres(); loadCoverage();
+  });
+  view.querySelector("[data-role='hide']").addEventListener("click", async () => {
+    if (!confirm(`Hide “${g.name}” on every album, now and on every future refresh?`)) return;
+    const { ok: ok2, data: d2 } = await api("/api/genres/rule", { genreId: gid, action: "hide" });
+    if (!ok2) { toast(esc(d2.message), { error: true }); return; }
+    toast(`“${esc(g.name)}” hidden everywhere`, { undo: d2.undo });
+    currentGenre = null; notifyChanged(); loadGenres(); loadCoverage();
+  });
+  mountTypeahead(view.querySelector("[data-role='merge']"), {
+    fetchItems: async (q) => ((await api(`/api/genres/search?q=${encodeURIComponent(q)}`)).data.genres || []).filter((x) => x.genreId !== gid),
+    renderItem: (x) => `<span>${esc(x.name)}</span><span class="meta">${plural(x.albums, "album")}</span>`,
+    onPick: async (x) => {
+      const { ok: ok2, data: d2 } = await api("/api/genres/rule", { genreId: gid, action: "merge", targetId: x.genreId });
+      if (!ok2) { toast(esc(d2.message), { error: true }); return; }
+      toast(`“${esc(g.name)}” merged into “${esc(x.name)}”`, { undo: d2.undo });
+      currentGenre = x.genreId; notifyChanged(); loadGenres(); loadCoverage();
+    },
+  });
+  sync();
+}
+
+// -- Albums & artists -------------------------------------------------------------------------
+let browsing = null; // {kind: "artist"|"album", id}
+mountTypeahead(document.getElementById("b-q"), {
+  fetchItems: async (q) => {
+    const d = (await api(`/api/albums/search?q=${encodeURIComponent(q)}`)).data;
+    return [...(d.artists || []).slice(0, 5).map((a) => ({ ...a, kind: "artist" })), ...(d.albums || []).slice(0, 10).map((a) => ({ ...a, kind: "album" }))];
+  },
+  renderItem: (x) => x.kind === "artist" ? `<span><b>${esc(x.name)}</b> <span class="meta">artist</span></span>`
+    : `<span>${esc(x.title)} <span class="meta">· ${esc(x.artistName)}${x.year ? ` · ${x.year}` : ""}</span></span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`,
+  onPick: (x) => { browsing = { kind: x.kind, id: x.kind === "artist" ? x.artistId : x.albumId }; loadBrowse(); },
+});
+async function loadBrowse() {
+  const view = document.getElementById("b-view");
+  if (!browsing) return;
+  if (browsing.kind === "album") {
+    const { ok, data } = await api(`/api/genres/album?albumId=${browsing.id}`);
+    if (!ok) return;
+    view.innerHTML = "";
+    view.appendChild(albumRow(data, { extra: data.hidden.length ? ` · <span class="muted">removed: ${data.hidden.map((h) => esc(h.name)).join(", ")}</span>` : "" }));
+    return;
+  }
+  const { ok, data } = await api(`/api/genres/artist?artistId=${browsing.id}`);
+  if (!ok) return;
+  view.innerHTML = `<div class="inherit"><div class="meta" style="margin-bottom:6px"><b>${esc(data.name)}</b> inherits these from their albums (vinyl weighs more):</div>
+      <div class="genre-chips">${data.inherited.map((g) => `<span class="gchip" style="padding-right:8px">${esc(g.name)} <span class="meta">&nbsp;${g.albums}${g.vinylAlbums ? `·${g.vinylAlbums}◉` : ""}</span></span>`).join("") || `<span class="meta">none yet</span>`}</div>
+      <div style="margin-top:10px; display:flex; gap:8px; align-items:center"><input type="text" data-role="all-add" placeholder="+ genre on all ${data.albums.length} albums" style="width:260px" /></div></div>
+    <div data-role="albums"></div>`;
+  const host = view.querySelector("[data-role='albums']");
+  data.albums.forEach((a) => host.appendChild(albumRow(a)));
+  mountTypeahead(view.querySelector("[data-role='all-add']"), {
+    fetchItems: async (q) => {
+      const found = (await api(`/api/genres/search?q=${encodeURIComponent(q)}`)).data.genres || [];
+      return found.some((g) => g.name === q.trim().toLowerCase()) || !q.trim() ? found : [...found, { name: q.trim().toLowerCase(), albums: 0, isNew: true }];
+    },
+    renderItem: (g) => `<span>${esc(g.name)}</span><span class="meta">${g.isNew ? "new genre" : plural(g.albums, "album")}</span>`,
+    onPick: async (g) => {
+      const { ok: ok2, data: d2 } = await api("/api/genres/edit", { albumIds: data.albums.map((a) => a.albumId), add: [g.name] });
+      if (!ok2) { toast(esc(d2.message), { error: true }); return; }
+      toast(`Added “${esc(g.name)}” to ${plural(d2.changed, "album")}`, d2.undo ? { undo: d2.undo } : {});
+      notifyChanged(); loadBrowse(); loadCoverage();
+    },
+  });
+}
+
+// -- Untagged / Low confidence ----------------------------------------------------------------
+const REASONS = {
+  "no MusicBrainz id": "no MusicBrainz id — resolve it in Albums",
+  "not fetched yet": "its artist hasn't been fetched yet",
+  "still on an edition id": "still identified by one edition — convert it in Albums › Editions",
+  "no genres on MusicBrainz": "MusicBrainz has no genres for it",
+};
+async function loadUntagged() {
+  const vinyl = document.getElementById("u-vinyl").checked;
+  const { ok, data } = await api(`/api/genres/untagged${vinyl ? "?vinyl=1" : ""}`);
+  if (!ok) return;
+  document.getElementById("u-total").textContent = `${fmtNum(data.total)} album${data.total === 1 ? "" : "s"} without a genre${data.total > data.albums.length ? ` · showing ${fmtNum(data.albums.length)}` : ""}`;
+  const host = document.getElementById("u-list");
+  host.innerHTML = "";
+  data.albums.forEach((a) => host.appendChild(albumRow(a, { extra: ` · <span class="why warn-text">${esc(REASONS[a.reason] || a.reason)}</span>` })));
+  if (!data.albums.length) host.innerHTML = `<div class="empty">Every album has a genre.</div>`;
+}
+document.getElementById("u-vinyl").addEventListener("change", loadUntagged);
+async function loadLow() {
+  const { ok, data } = await api("/api/genres/low");
+  if (!ok) return;
+  const host = document.getElementById("l-list");
+  host.innerHTML = "";
+  data.albums.forEach((a) => host.appendChild(albumRow(a)));
+  if (!data.albums.length) host.innerHTML = `<div class="empty">Nothing here — every MusicBrainz genre has at least two votes.</div>`;
+}
+
+function reloadCurrent() {
+  const t = tabs.current();
+  if (t === "genres") loadGenres();
+  if (t === "browse") loadBrowse();
+  if (t === "untagged") loadUntagged();
+  if (t === "low") loadLow();
+  loadCoverage();
+}
+
+const tabs = mountTabs(document.getElementById("tabs"), {
+  genres: loadGenres,
+  browse: () => {},
+  untagged: loadUntagged,
+  low: loadLow,
+  activity: () => mountActivity(document.getElementById("activity"), { entityType: "album", limit: 60 }),
+});
+loadCoverage();
+document.addEventListener("mc:undone", reloadCurrent);
+</script>
+</body>
+</html>

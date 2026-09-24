@@ -41,6 +41,13 @@ PUBLIC_TABLES = [
     "setlist_songs",
     "notes",
     "alias_overrides",
+    "genres",
+    "album_genres",
+    "vinyl_details",
+]
+# Views are recreated from schema.sql (no rows to copy) -- also listed explicitly.
+PUBLIC_VIEWS = [
+    "artist_genres",
 ]
 
 
@@ -54,12 +61,15 @@ def public_schema_statements() -> list[str]:
     statements = [s.strip() for s in without_comments.split(";") if s.strip()]
     keep = []
     for stmt in statements:
-        match = re.search(r"CREATE (TABLE|INDEX) IF NOT EXISTS (\S+)", stmt)
+        match = re.search(r"CREATE (TABLE|INDEX|VIEW) IF NOT EXISTS (\S+)", stmt)
         if not match:
             continue
         kind, name = match.groups()
         if kind == "TABLE":
             if name in PUBLIC_TABLES:
+                keep.append(stmt)
+        elif kind == "VIEW":
+            if name in PUBLIC_VIEWS:
                 keep.append(stmt)
         else:  # INDEX -- check what table it's ON, not the index's own name
             on_match = re.search(r"\bON\s+(\w+)", stmt)
@@ -87,7 +97,8 @@ def sync_covers() -> int:
     return copied
 
 
-def build() -> None:
+def build(source_db: Path = SOURCE_DB, public_db: Path = PUBLIC_DB, covers: bool = True) -> None:
+    SOURCE_DB, PUBLIC_DB = source_db, public_db  # noqa: N806 -- overridable for a scratch test build
     if not SOURCE_DB.exists():
         raise SystemExit(f"{SOURCE_DB} doesn't exist yet -- run the ETL scripts first.")
 
@@ -129,9 +140,17 @@ def build() -> None:
     size_mb = size_bytes / (1024 * 1024)
     print(f"\nBuilt {PUBLIC_DB} -- {total_rows} rows total, {size_mb:.1f} MB")
 
-    covers_copied = sync_covers()
-    print(f"Synced covers/ -- {covers_copied} new/updated file(s)")
+    if covers:
+        covers_copied = sync_covers()
+        print(f"Synced covers/ -- {covers_copied} new/updated file(s)")
 
 
 if __name__ == "__main__":
-    build()
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--source", type=Path, default=SOURCE_DB, help="working database to publish from (testing only)")
+    parser.add_argument("--dest", type=Path, default=PUBLIC_DB, help="where to write the public database (testing only)")
+    args = parser.parse_args()
+    # a test build never touches the real site's covers
+    build(args.source, args.dest, covers=args.dest.resolve() == PUBLIC_DB.resolve())

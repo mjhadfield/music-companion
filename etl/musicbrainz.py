@@ -285,6 +285,22 @@ def browse_release_groups(artist_mbid: str, max_pages: int = 3) -> list[dict]:
     return groups
 
 
+def browse_release_group_genres(artist_mbid: str, max_pages: int = 3) -> list[dict]:
+    """Every release group credited to one artist, with its voted MusicBrainz genres -- one
+    request per 100 albums. -> [{mbid, title, primaryType, firstReleaseDate, genres: [{name, id, count}]}]"""
+    out: list[dict] = []
+    for page in range(max_pages):
+        data = _mb_get("release-group", {"artist": artist_mbid, "limit": 100, "offset": page * 100, "inc": "genres"})
+        batch = data.get("release-groups", [])
+        out += [{"mbid": rg["id"], "title": rg.get("title"), "primaryType": rg.get("primary-type"),
+                 "firstReleaseDate": rg.get("first-release-date") or None,
+                 "genres": [{"name": g.get("name"), "id": g.get("id"), "count": g.get("count")} for g in rg.get("genres") or []]}
+                for rg in batch]
+        if len(out) >= int(data.get("release-group-count", 0)) or not batch:
+            break
+    return out
+
+
 def lookup_discogs_release(release_id: int) -> list[dict]:
     """MusicBrainz's own URL relationships map a Discogs release page to the MB release(s) that
     link to it -- an exact, curated mapping, not a fuzzy guess. Returns [{releaseMbid,

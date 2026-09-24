@@ -188,6 +188,15 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
       if (i.kind === "merge") {
         what = `Merged ${i.entityType} <span class="who">${esc(i.absorbedName)}</span> into <span class="who">${esc(i.canonicalName)}</span>`
           + (movedSummary(i.rowsMoved) ? ` <span class="meta">— ${esc(movedSummary(i.rowsMoved))}</span>` : "");
+      } else if (i.changes._genres) {
+        const d = i.changes._genres;
+        const n = (k) => (d[k] || []).length;
+        what = `Genres on <span class="who">${esc(i.name)}</span>: ${[n("inserted") + n("updated") && `${n("inserted") + n("updated")} added`, n("deleted") && `${n("deleted")} removed`].filter(Boolean).join(", ") || "updated"}`;
+      } else if (i.changes._genreRule) {
+        const d = i.changes._genreRule;
+        what = d.action === "hide" ? `Hid genre <span class="who">${esc(i.name)}</span> everywhere`
+          : d.action === "merge" ? `Merged genre <span class="who">${esc(i.name)}</span> into another`
+          : `Restored genre <span class="who">${esc(i.name)}</span>`;
       } else if (i.changes._created) {
         what = `Added album <span class="who">${esc(i.name)}</span> from MusicBrainz ${i.changes._created.mbid ? mbLink("album", i.changes._created.mbid) : ""}`;
       } else if (i.changes._split) {
@@ -223,7 +232,7 @@ const COMPANION_URL = "http://192.168.0.66:8642/";
 
 function mountNav(active) {
   const header = document.getElementById("topnav");
-  const links = [["/", "Home"], ["/artists.html", "Artists"], ["/vinyl.html", "Vinyl"], ["/albums.html", "Albums"], ["/songs.html", "Songs"], ["/inbox.html", "Inbox"]];
+  const links = [["/", "Home"], ["/artists.html", "Artists"], ["/vinyl.html", "Vinyl"], ["/albums.html", "Albums"], ["/songs.html", "Songs"], ["/genres.html", "Genres"], ["/inbox.html", "Inbox"]];
   header.className = "topnav";
   header.innerHTML = `
     <a class="brand" href="/">Music <b>Maintenance</b></a>
@@ -396,6 +405,38 @@ function mountTickList(el, rows, { head, cols, buttons, onAction }) {
     b.disabled = false;
   }));
   sync();
+}
+
+// -- Genre chips --------------------------------------------------------------------------
+// An album's genres, editable: × removes (remembered -- a refresh won't bring it back), "+ genre"
+// adds one by hand (typeahead over known genres, or a new name). Every change undoable.
+// genres: [{genreId, name, source, votes}]. onChange() after an edit or its undo.
+const GENRE_SOURCE = { musicbrainz: "MusicBrainz", discogs: "Discogs style", manual: "added by you" };
+function mountGenreChips(el, albumId, genres, { onChange } = {}) {
+  el.classList.add("genre-chips");
+  el.innerHTML = `${genres.map((g) => `<span class="gchip ${g.source}" title="${esc(GENRE_SOURCE[g.source] || g.source)}${g.votes ? ` · ${g.votes} vote${g.votes === 1 ? "" : "s"}` : ""}">${esc(g.name)}<button data-remove="${g.genreId}" title="Remove from this album">×</button></span>`).join("")}
+    <span class="gadd"><input type="text" placeholder="+ genre" aria-label="Add a genre" /></span>`;
+  async function send(body, message) {
+    const { ok, data } = await api("/api/genres/edit", { albumId, ...body });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    if (data.undo) toast(message, { undo: { ...data.undo, onUndone: onChange } });
+    notifyChanged();
+    onChange?.();
+  }
+  el.querySelectorAll("[data-remove]").forEach((b) => b.addEventListener("click", () => {
+    const g = genres.find((x) => x.genreId === +b.dataset.remove);
+    send({ remove: [g.genreId] }, `Removed “${esc(g.name)}” — it won't come back on a refresh`);
+  }));
+  const input = el.querySelector(".gadd input");
+  mountTypeahead(input, {
+    fetchItems: async (q) => {
+      const found = (await api(`/api/genres/search?q=${encodeURIComponent(q)}`)).data.genres || [];
+      const exact = found.some((g) => g.name === q.trim().toLowerCase());
+      return [...found, ...(exact || !q.trim() ? [] : [{ genreId: null, name: q.trim().toLowerCase(), albums: 0, isNew: true }])];
+    },
+    renderItem: (g) => `<span>${esc(g.name)}</span><span class="meta">${g.isNew ? "new genre" : plural(g.albums, "album")}</span>`,
+    onPick: (g) => send({ add: [g.name] }, `Added “${esc(g.name)}”`),
+  });
 }
 
 // -- Keyboard review list -------------------------------------------------------------------
