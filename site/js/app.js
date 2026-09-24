@@ -77,8 +77,10 @@ function initTheme() {
   applyTheme(stored);
 
   document.getElementById("theme-toggle").addEventListener("click", () => {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const current = document.documentElement.dataset.theme || (prefersDark ? "dark" : "light");
+    // No system-preference fallback -- matches the token restructure (harmonised with Citadel):
+    // no data-theme attribute always means dark, unconditionally, there's no longer an
+    // @media(prefers-color-scheme:dark) bucket for "system says dark" to be distinct from.
+    const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     const next = current === "dark" ? "light" : "dark";
     applyTheme(next);
     try {
@@ -240,7 +242,10 @@ function renderHome() {
       (SELECT count(*) FROM scrobbles) AS scrobbles,
       (SELECT count(*) FROM setlists) AS setlists,
       (SELECT count(*) FROM songs) AS songs,
-      (SELECT count(*) FROM venues) AS venues
+      (SELECT count(*) FROM venues) AS venues,
+      (SELECT count(DISTINCT label) FROM vinyl_holdings WHERE label IS NOT NULL AND label != '') AS labels,
+      (SELECT count(DISTINCT aa.artist_id) FROM vinyl_holdings v JOIN album_artists aa ON aa.album_id = v.album_id) AS vinyl_bands,
+      (SELECT count(DISTINCT artist_id) FROM setlists) AS live_bands
   `)[0];
 
   const mostPlayedWindow = MOST_PLAYED_WINDOWS[mostPlayedState.window];
@@ -252,12 +257,12 @@ function renderHome() {
   `);
 
   const recentVinyl = query(`
-    SELECT al.id AS album_id, al.title, ar.name AS artist_name, v.date_added, v.format
+    SELECT al.id AS album_id, al.cover_status, al.title, ar.name AS artist_name, v.date_added, v.format
     FROM vinyl_holdings v
     JOIN albums al ON al.id = v.album_id
     JOIN artists ar ON ar.id = al.artist_id
     WHERE v.date_added IS NOT NULL AND v.date_added != ''
-    ORDER BY v.date_added DESC LIMIT 6
+    ORDER BY v.date_added DESC LIMIT 8
   `);
 
   const g = GRANULARITIES[homeState.granularity];
@@ -269,13 +274,31 @@ function renderHome() {
   `);
 
   app.innerHTML = `
-    <div class="stat-grid">
-      ${statCard("", stats.songs.toLocaleString(), "Unique Songs Listened", "#/songs")}
-      ${statCard("", stats.artists.toLocaleString(), "Total Artists", "#/artists")}
-      ${statCard("live", stats.setlists, "Shows attended", "#/shows")}
-      ${statCard("live", stats.venues, "Different venues", "#/venues")}
-      ${statCard("vinyl", stats.vinyl, "Records owned", "#/vinyl")}
-      ${statCard("scrobble", stats.scrobbles.toLocaleString(), "Total tracks played", "#/scrobbles")}
+    <div class="stat-groups">
+      <section class="stat-group stat-group--scrobble">
+        <h2 class="hud">Global Stats</h2>
+        <div class="stat-grid">
+          ${statCard("scrobble", stats.scrobbles.toLocaleString(), "Total songs played", "#/scrobbles")}
+          ${statCard("scrobble", stats.songs.toLocaleString(), "Unique tracks", "#/songs")}
+          ${statCard("scrobble", stats.artists.toLocaleString(), "Total artists", "#/artists")}
+        </div>
+      </section>
+      <section class="stat-group stat-group--live">
+        <h2 class="hud">Live Shows</h2>
+        <div class="stat-grid">
+          ${statCard("live", stats.setlists, "Shows attended", "#/shows")}
+          ${statCard("live", stats.venues, "Different venues", "#/venues")}
+          ${statCard("live", stats.live_bands, "Unique bands", "#/shows")}
+        </div>
+      </section>
+      <section class="stat-group stat-group--vinyl">
+        <h2 class="hud">Physical Media</h2>
+        <div class="stat-grid">
+          ${statCard("vinyl", stats.vinyl, "Records owned", "#/vinyl")}
+          ${statCard("vinyl", stats.labels, "Record labels", "#/vinyl")}
+          ${statCard("vinyl", stats.vinyl_bands, "Unique bands", "#/vinyl")}
+        </div>
+      </section>
     </div>
 
     <div class="section">
@@ -296,25 +319,27 @@ function renderHome() {
 
     <div class="section">
       <h2>Latest record buys</h2>
-      ${recentVinyl.map((v) => `
-        <div class="list-item" onclick="location.hash='#/album/${v.album_id}'">
-          <div>
-            <div class="list-title">${esc(v.title)}</div>
-            <div class="list-sub">${esc(v.artist_name)} · ${esc(v.format || "")}</div>
+      <div class="vinyl-tile-grid">
+        ${recentVinyl.map((v) => `
+          <div class="vinyl-tile" data-album-id="${v.album_id}">
+            <img class="vinyl-tile-cover" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" alt="" loading="lazy" />
+            <div class="vinyl-tile-title">${esc(v.title)}</div>
+            <div class="vinyl-tile-sub">${esc(v.artist_name)}</div>
+            <div class="vinyl-tile-meta">${esc(v.format || "")} · ${esc((v.date_added || "").slice(0, 10))}</div>
           </div>
-          <div class="list-right">${esc((v.date_added || "").slice(0, 10))}</div>
-        </div>
-      `).join("") || '<div class="subtle">No dated additions yet.</div>'}
+        `).join("") || '<div class="subtle">No dated additions yet.</div>'}
+      </div>
     </div>
   `;
 
-  renderChartToolbar(document.getElementById("home-chart-toolbar"), homeState, renderHome);
+  renderChartToolbar(document.getElementById("home-chart-toolbar"), homeState, renderHome, { center: true });
   renderTimeWindowTabs(
     document.getElementById("most-played-tabs"),
     MOST_PLAYED_WINDOWS,
     MOST_PLAYED_WINDOW_ORDER,
     mostPlayedState.window,
-    (key) => { mostPlayedState.window = key; renderHome(); }
+    (key) => { mostPlayedState.window = key; renderHome(); },
+    { center: true }
   );
   renderBarChart(
     document.getElementById("home-chart"),
@@ -335,6 +360,10 @@ function renderHome() {
       },
     }
   );
+  app.querySelectorAll("img.vinyl-tile-cover").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus));
+  app.querySelectorAll(".vinyl-tile[data-album-id]").forEach((el) => {
+    el.addEventListener("click", () => { location.hash = `#/album/${el.dataset.albumId}`; });
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -927,7 +956,7 @@ function renderArtist(id) {
   const maxAlbumPlays = topAlbums.length ? topAlbums[0].plays : 1;
 
   const vinylRows = query(`
-    SELECT DISTINCT al.id AS album_id, al.mbid, al.title, al.year, v.format, v.media_condition
+    SELECT DISTINCT al.id AS album_id, al.cover_status, al.title, al.year, v.format, v.media_condition
     FROM vinyl_holdings v
     JOIN album_artists aa ON aa.album_id = v.album_id
     JOIN albums al ON al.id = v.album_id
@@ -972,7 +1001,7 @@ function renderArtist(id) {
       <h2>On the shelf</h2>
       ${vinylRows.length ? vinylRows.map((v) => `
         <div class="vinyl-card" data-album-id="${v.album_id}" style="cursor:pointer">
-          <img class="cover-thumb" data-mbid="${v.mbid || ""}" alt="" loading="lazy" />
+          <img class="cover-thumb" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" alt="" loading="lazy" />
           <div class="vinyl-body">
             <div class="title">${esc(v.title)}${v.year ? ` <span class="subtle">(${v.year})</span>` : ""}</div>
             <div class="meta">${esc(v.format || "")}${v.media_condition ? " · " + esc(v.media_condition) : ""}</div>
@@ -998,7 +1027,7 @@ function renderArtist(id) {
     ` : ""}
   `;
 
-  app.querySelectorAll("img.cover-thumb").forEach((img) => attachCoverArt(img, img.dataset.mbid));
+  app.querySelectorAll("img.cover-thumb").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus));
   app.querySelectorAll(".vinyl-card[data-album-id]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/album/${el.dataset.albumId}`; }));
 
   // Badges jump to the matching browse page, pre-filtered to this artist
@@ -1267,7 +1296,7 @@ function renderAlbum(id) {
   app.innerHTML = `
     <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
     <div class="album-header">
-      <img class="album-cover-large" data-mbid="${album.mbid || ""}" alt="" />
+      <img class="album-cover-large" data-album-id="${album.id}" data-cover-status="${album.cover_status || ""}" alt="" />
       <div>
         <h1>${esc(album.title)}</h1>
         <div class="subtle"><span class="link-text" onclick="location.hash='#/artist/${album.artist_id}'">${esc(album.artist_name)}</span>${album.year ? ` · ${album.year}` : ""}</div>
@@ -1303,7 +1332,7 @@ function renderAlbum(id) {
   `;
 
   const img = app.querySelector("img.album-cover-large");
-  if (img) attachCoverArt(img, album.mbid);
+  if (img) attachCoverArt(img, album.id, album.cover_status);
   app.querySelectorAll("[data-song-id]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/song/${el.dataset.songId}`; }));
 }
 
@@ -1469,6 +1498,29 @@ function render() {
 // ---------------------------------------------------------------------
 // Search
 // ---------------------------------------------------------------------
+/** Bottom tab bar for phones (CSS-gated to small viewports, see style.css) -- reflects the
+ * current hash route via aria-current, and the Search tab just focuses the existing topbar
+ * search input rather than duplicating search UI. */
+function setupTabbar() {
+  const bar = document.querySelector(".tabbar");
+  if (!bar) return;
+  bar.hidden = false;
+  document.getElementById("tabbar-search").addEventListener("click", (e) => {
+    e.preventDefault();
+    document.getElementById("search-input").focus();
+    document.getElementById("search-input").scrollIntoView({ behavior: "smooth" });
+  });
+  function reflectRoute() {
+    const hash = location.hash || "#/";
+    const route = hash === "#/" ? "home" : hash.startsWith("#/vinyl") ? "vinyl" : hash.startsWith("#/shows") ? "shows" : null;
+    bar.querySelectorAll("a[data-route]").forEach((a) => {
+      if (a.dataset.route === route) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
+    });
+  }
+  window.addEventListener("hashchange", reflectRoute);
+  reflectRoute();
+}
+
 function setupSearch() {
   const input = document.getElementById("search-input");
   const results = document.getElementById("search-results");
@@ -1581,8 +1633,33 @@ function updateLoadingProgress(loaded, total) {
   }
 }
 
+const CITADEL_ORIGIN = "http://192.168.0.66:8080";
+
+/** True when this page is running inside Citadel's #music iframe rather than opened
+ * directly in its own tab -- drives whether the local theme toggle is shown at all. */
+function isEmbedded() {
+  return window.self !== window.top;
+}
+
+/** Embedded: theme is driven entirely by Citadel's own toggle (initial value via a
+ * ?theme= query param, live changes via postMessage) -- the local toggle button is
+ * removed outright so it can never be clicked and fight the parent. Standalone: the
+ * existing self-contained initTheme() (localStorage + matchMedia fallback) is untouched. */
+function initEmbeddedTheme() {
+  document.getElementById("theme-toggle")?.remove();
+  const initial = new URLSearchParams(location.search).get("theme");
+  if (initial === "light" || initial === "dark") applyTheme(initial);
+  window.addEventListener("message", (event) => {
+    if (event.origin !== CITADEL_ORIGIN) return;
+    if (event.data?.type === "citadel-theme" && (event.data.theme === "light" || event.data.theme === "dark")) {
+      applyTheme(event.data.theme);
+      if (db) render(); // db not loaded yet (e.g. message arrives mid-boot) -- nothing on screen to redraw
+    }
+  });
+}
+
 async function boot() {
-  initTheme();
+  if (isEmbedded()) initEmbeddedTheme(); else initTheme();
   try {
     // Independent downloads -- run them side by side rather than making
     // the (much bigger) database wait behind the small WASM runtime.
@@ -1609,29 +1686,19 @@ async function boot() {
     document.getElementById("footer-status").textContent =
       `Database loaded (${(buffer.byteLength / 1e6).toFixed(1)} MB), queried entirely in your browser.`;
 
-    showWelcomeScreen();
+    startApp();
   } catch (err) {
     app.innerHTML = `<div class="error-box">Couldn't load the database.<br><span class="subtle">${esc(err.message)}</span></div>`;
     console.error(err);
   }
 }
 
-/** One-time pause between "database loaded" and actually showing the
- * app -- introduces the site before handing over to the home page. */
-function showWelcomeScreen() {
-  app.innerHTML = `
-    <div class="welcome-screen">
-      <div class="welcome-card">
-        <p class="welcome-text">This site is an archive of my music history.<br><br>Every song I've listened to on Spotify, every show I've been to, every record in my collection.<br><br>Have a look around, almost everything is clickable.</p>
-        <button id="welcome-ok" class="welcome-ok-btn">Okay</button>
-      </div>
-    </div>
-  `;
-  document.getElementById("welcome-ok").addEventListener("click", () => {
-    setupSearch();
-    window.addEventListener("hashchange", render);
-    render();
-  });
+/** Wires up the app and shows the page the URL asks for (home by default). */
+function startApp() {
+  setupSearch();
+  setupTabbar();
+  window.addEventListener("hashchange", render);
+  render();
 }
 
 boot();

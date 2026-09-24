@@ -14,13 +14,16 @@ Usage:
     python etl/build_public_db.py
 """
 import re
+import shutil
 import sqlite3
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = ROOT / "schema.sql"
-SOURCE_DB = ROOT / "data" / "music.sqlite"
+SOURCE_DB = ROOT / "data" / "music.sqlite"  # deliberately NOT common.DB_PATH: only the real DB is ever published
 PUBLIC_DB = ROOT / "site" / "public" / "music.sqlite"
+SOURCE_COVERS = ROOT / "data" / "covers"
+PUBLIC_COVERS = ROOT / "site" / "public" / "covers"
 
 # Every table except staging_* -- listed explicitly (rather than pattern-
 # matched) so a new table added to schema.sql without a decision made here
@@ -65,6 +68,25 @@ def public_schema_statements() -> list[str]:
     return keep
 
 
+def sync_covers() -> int:
+    """Copy any cover art fetched since the last build into the public, actually-served
+    directory -- covers become live on the site only when a build happens, same as every other
+    row change (nothing to VACUUM here, they're just files, not database rows)."""
+    if not SOURCE_COVERS.is_dir():
+        return 0
+    PUBLIC_COVERS.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in SOURCE_COVERS.iterdir():
+        if not src.is_file():
+            continue
+        dest = PUBLIC_COVERS / src.name
+        if dest.exists() and dest.stat().st_mtime >= src.stat().st_mtime:
+            continue
+        shutil.copy2(src, dest)
+        copied += 1
+    return copied
+
+
 def build() -> None:
     if not SOURCE_DB.exists():
         raise SystemExit(f"{SOURCE_DB} doesn't exist yet -- run the ETL scripts first.")
@@ -80,7 +102,11 @@ def build() -> None:
     conn.execute("ATTACH DATABASE ? AS src", (str(SOURCE_DB),))
     total_rows = 0
     for table in PUBLIC_TABLES:
-        cur = conn.execute(f"INSERT INTO {table} SELECT * FROM src.{table}")
+        # Named columns, not SELECT * -- a positional copy silently shuffles values between
+        # columns whenever the working database's column order differs from schema.sql's
+        # (ALTER TABLE ADD COLUMN always appends, wherever schema.sql declares it).
+        cols = ", ".join(r[1] for r in conn.execute(f"PRAGMA main.table_info({table})"))
+        cur = conn.execute(f"INSERT INTO {table} ({cols}) SELECT {cols} FROM src.{table}")
         total_rows += cur.rowcount
         print(f"  {table}: {cur.rowcount} rows")
     conn.commit()
@@ -102,6 +128,9 @@ def build() -> None:
 
     size_mb = size_bytes / (1024 * 1024)
     print(f"\nBuilt {PUBLIC_DB} -- {total_rows} rows total, {size_mb:.1f} MB")
+
+    covers_copied = sync_covers()
+    print(f"Synced covers/ -- {covers_copied} new/updated file(s)")
 
 
 if __name__ == "__main__":

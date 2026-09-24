@@ -27,36 +27,55 @@
     </div>
   </aside>
 
-  <main class="card">
-    <div class="card__in">
-      <div class="card__head"><span class="hud">Query</span><span class="mono" style="font-size:11px;color:var(--silver-dim)">Ctrl/⌘+Enter to run</span></div>
-      <div class="card__body">
-        <div class="editor__wrap">
-          <textarea id="sql" spellcheck="false" autocomplete="off" autocapitalize="off"
-            placeholder="SELECT a.name, COUNT(*) AS plays&#10;FROM scrobbles s JOIN artists a ON a.id = s.artist_id&#10;GROUP BY a.id ORDER BY plays DESC LIMIT 20"></textarea>
-          <div class="ac" id="ac" hidden></div>
+  <div class="workspace">
+    <div class="toolbar-row">
+      <button class="btn btn--go" id="run">Run</button>
+      <button class="btn btn--danger" id="clear" type="button">Clear</button>
+      <select class="select" id="limit">
+        <option value="500" selected>500 rows</option>
+        <option value="10000">10,000 rows</option>
+        <option value="500000">500,000 rows</option>
+      </select>
+      <button class="btn" id="csv" disabled>Download CSV</button>
+      <div class="presets" id="presets"></div>
+      <span class="status" id="status"></span>
+    </div>
+
+    <section class="card query-card">
+      <div class="card__in">
+        <div class="card__head"><span class="hud">Query</span><span class="card__tools"><span class="mono" style="font-size:11px;color:var(--silver-dim)">Ctrl/⌘+Enter to run</span><button class="btn btn--icon" data-max aria-label="Maximise" aria-expanded="false" title="Maximise"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></span></div>
+        <div class="card__body">
+          <div class="editor__wrap">
+            <textarea id="sql" spellcheck="false" autocomplete="off" autocapitalize="off"
+              placeholder="SELECT a.name, COUNT(*) AS plays&#10;FROM scrobbles s JOIN artists a ON a.id = s.artist_id&#10;GROUP BY a.id ORDER BY plays DESC LIMIT 20"></textarea>
+            <div class="ac" id="ac" hidden></div>
+          </div>
+          <div class="error" id="error" hidden></div>
         </div>
-        <div class="toolbar">
-          <button class="btn btn--go" id="run">Run</button>
-          <select class="select" id="limit">
-            <option value="100">100 rows</option>
-            <option value="500" selected>500 rows</option>
-            <option value="1000">1,000 rows</option>
-            <option value="5000">5,000 rows</option>
-          </select>
-          <button class="btn" id="csv" disabled>Download CSV</button>
-          <span class="status" id="status"></span>
+      </div>
+    </section>
+
+    <section class="card results-card">
+      <div class="card__in">
+        <div class="card__head"><span class="hud">Results</span><button class="btn btn--icon" data-max aria-label="Maximise" aria-expanded="false" title="Maximise"><svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>
+        <div class="card__body">
+          <div class="results" id="results"><div class="empty">Run a query to see results here.</div></div>
         </div>
-        <div class="presets" id="presets"></div>
-        <div class="error" id="error" hidden></div>
-        <div class="results" id="results"></div>
-        <div class="recent" id="recent-card" hidden>
+      </div>
+    </section>
+
+    <section class="card recent-card" id="recent-card" hidden>
+      <div class="card__in">
+        <button class="card__head recent__head" type="button" id="recent-toggle" aria-expanded="false" aria-controls="recent-body">
           <span class="hud">Recent</span>
+          <svg class="i recent__chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <div class="card__body" id="recent-body" hidden>
           <ul class="recent__list" id="recent"></ul>
         </div>
       </div>
-    </div>
-  </main>
+    </section>
+  </div>
 </div>
 
 <script src="app.js"></script>

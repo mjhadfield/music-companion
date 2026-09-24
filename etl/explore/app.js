@@ -13,6 +13,34 @@ const status = $('#status'), errorEl = $('#error'), results = $('#results');
 let schema = {};          // table name -> { columns, foreign_keys, row_count }
 let lastResult = null;    // the most recent successful query's {columns, rows, ...}, for CSV export
 
+// ---- maximise: the Query and Results cards can each expand to fill the workspace (query+results+recent's own
+// area) without covering the Tables sidebar, which lives outside .workspace entirely. -----------------------
+const EXPAND_D = 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5', SHRINK_D = 'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5';
+const workspace = $('.workspace');
+
+function setMax(card, on) {
+  card.classList.toggle('is-max', on);
+  workspace.classList.toggle('has-max', on);
+  const btn = card.querySelector('[data-max]');
+  btn.setAttribute('aria-expanded', String(on));
+  btn.setAttribute('aria-label', on ? 'Restore' : 'Maximise');
+  btn.title = on ? 'Restore' : 'Maximise';
+  btn.querySelector('path').setAttribute('d', on ? SHRINK_D : EXPAND_D);
+}
+
+document.addEventListener('click', e => {
+  const btn = e.target.closest('[data-max]');
+  if (btn) { setMax(btn.closest('.card'), !btn.closest('.card').classList.contains('is-max')); return; }
+  if (workspace.classList.contains('has-max') && !e.target.closest('.card')) {
+    setMax(workspace.querySelector('.card.is-max'), false);   // click on the dimmed backdrop
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const max = workspace.querySelector('.card.is-max');
+  if (max) setMax(max, false);
+});
+
 // ---- schema sidebar -----------------------------------------------------------------------------------------
 
 function fmtBytes(n) {
@@ -221,6 +249,14 @@ ac.addEventListener('click', e => {
 
 // ---- running a query ------------------------------------------------------------------------------------------
 
+/** Back to the just-opened look: no results, no error, no status, CSV disabled. Shared by the preset buttons
+ *  (a fresh preset invalidates whatever was on screen before it) and by Clear, which also empties the editor. */
+function resetResults() {
+  results.innerHTML = '<div class="empty">Run a query to see results here.</div>';
+  errorEl.hidden = true; errorEl.textContent = '';
+  status.textContent = ''; lastResult = null; csvBtn.disabled = true;
+}
+
 function renderResults(data) {
   if (!data.rows.length) {
     results.innerHTML = '<div class="empty">No rows.</div>';
@@ -267,6 +303,13 @@ async function run() {
 
 runBtn.addEventListener('click', run);
 
+$('#clear').addEventListener('click', () => {
+  sql.value = '';
+  closeAc();
+  resetResults();
+  sql.focus();
+});
+
 csvBtn.addEventListener('click', () => {
   if (!lastResult) return;
   const cell = v => (v === null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
@@ -294,7 +337,7 @@ $('#presets').addEventListener('click', e => {
   const b = e.target.closest('.preset');
   if (!b) return;
   sql.value = PRESETS[Number(b.dataset.i)].sql;
-  results.innerHTML = ''; errorEl.hidden = true; status.textContent = ''; lastResult = null; csvBtn.disabled = true;
+  resetResults();
   sql.focus();
 });
 
@@ -328,6 +371,14 @@ $('#recent').addEventListener('click', e => {
   if (!li) return;
   const q = loadRecent()[Number(li.dataset.i)];
   if (q != null) { sql.value = q; sql.focus(); }
+});
+
+// Collapsed by default -- clicking the header expands/collapses it, same disclosure pattern as a schema table.
+const recentToggle = $('#recent-toggle'), recentBody = $('#recent-body');
+recentToggle.addEventListener('click', () => {
+  const open = recentToggle.getAttribute('aria-expanded') === 'true';
+  recentToggle.setAttribute('aria-expanded', String(!open));
+  recentBody.hidden = open;
 });
 
 // ---- boot -------------------------------------------------------------------------------------------------------

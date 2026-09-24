@@ -167,7 +167,7 @@ function humanBucketLabel(granularity, key) {
  * into `container`, reading/writing `state.granularity` and
  * `state.periodFilter` ({key, label} | null) in place, calling
  * `onChange()` after either changes. */
-function renderChartToolbar(container, state, onChange) {
+function renderChartToolbar(container, state, onChange, { center = false } = {}) {
   const tabs = GRANULARITY_ORDER.map((g) => `
     <button class="gtab ${state.granularity === g ? "active" : ""}" data-g="${g}">${GRANULARITIES[g].label}</button>
   `).join("");
@@ -175,7 +175,7 @@ function renderChartToolbar(container, state, onChange) {
     ? `<button class="clear-filter-pill">${chartEsc(state.periodFilter.label)} <span aria-hidden="true">&times;</span></button>`
     : "";
 
-  container.innerHTML = `<div class="chart-toolbar"><div class="granularity-tabs">${tabs}</div>${filterPill}</div>`;
+  container.innerHTML = `<div class="chart-toolbar${center ? " chart-toolbar--center" : ""}"><div class="granularity-tabs">${tabs}</div>${filterPill}</div>`;
 
   container.querySelectorAll(".gtab").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -195,11 +195,12 @@ function renderChartToolbar(container, state, onChange) {
  * Year/All rather than charts.js's own Day/Month/Year/All). `windows` is
  * an object keyed by window id with a `.label`; `order` lists those ids
  * in display order. */
-function renderTimeWindowTabs(container, windows, order, activeKey, onSelect) {
+function renderTimeWindowTabs(container, windows, order, activeKey, onSelect, { center = false } = {}) {
   const tabs = order.map((k) => `
     <button class="gtab ${k === activeKey ? "active" : ""}" data-k="${k}">${chartEsc(windows[k].label)}</button>
   `).join("");
   container.innerHTML = `<div class="granularity-tabs">${tabs}</div>`;
+  container.classList.toggle("tabs-only--center", center);
   container.querySelectorAll(".gtab").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.dataset.k === activeKey) return;

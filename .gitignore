@@ -28,10 +28,9 @@ data/*.tar.gz
 # reject, but ignored as a backstop in case one is ever left behind.
 data/.refresh_backups/
 
-# Pre-merge snapshots the artist/album/song maintenance UI takes before
-# any merge (reassigning FKs and deleting the absorbed row) -- kept
-# indefinitely as a manual undo path, so ignored rather than cleaned up
-# automatically.
+# Legacy: full-database copies the maintenance UI used to take before every
+# merge (replaced in Sept 2026 by per-merge undo journals in merge_log plus
+# one session snapshot in data/.snapshots/ -- see etl/maintenance/merge.py).
 data/.merge_backups/
 
 # site/public/music.sqlite (the slim public build) is INTENTIONALLY
@@ -47,3 +46,6 @@ site/build/
 
 # Editors / OS
 .DS_Store
+
+# Session snapshots the maintenance server takes before its first write (see etl/maintenance/merge.py).
+data/.snapshots/

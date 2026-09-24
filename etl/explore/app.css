@@ -74,6 +74,70 @@ a { color: inherit; }
 .shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 18px; padding: 18px 22px 40px; align-items: start; min-height: calc(100vh - 60px); }
 @media (max-width: 900px) { .shell { grid-template-columns: 1fr; } }
 
+/* ---- workspace: a slim toolbar strip on top, query (narrow, tall) + results (wide) filling the rest of the
+   available height side by side, recent (collapsed by default) spanning beneath both ----------------------- */
+.workspace {
+  position: relative;   /* anchors a maximised card (position: absolute) to this box, not the viewport --
+                            so maximising never covers the Tables sidebar, only this area */
+  display: grid;
+  grid-template-columns: minmax(360px, 480px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;   /* toolbar / query+results / recent -- the middle row is the
+    only flexible one, so query+results actually grow to fill the window instead of just sizing to their own
+    content, while the toolbar and recent (collapsed, most of the time) stay exactly as tall as they need */
+  grid-template-areas: "toolbar toolbar" "query results" "recent recent";
+  gap: 14px;
+  min-height: calc(100vh - 100px);   /* matches .schema's own sticky height, so a maximised card (taken out of
+                                         flow) always has a full-height box to expand into, not just whatever
+                                         height the remaining in-flow cards happen to add up to */
+}
+.toolbar-row { grid-area: toolbar; }
+.query-card { grid-area: query; display: flex; min-height: 0; }
+.query-card .card__in { flex: 1; min-height: 0; }
+.results-card { grid-area: results; min-width: 0; min-height: 0; display: flex; }
+.results-card .card__in { flex: 1; min-width: 0; min-height: 0; }
+.recent-card { grid-area: recent; }
+@media (max-width: 1200px) {
+  .workspace { grid-template-columns: 1fr; grid-template-rows: auto auto auto auto; grid-template-areas: "toolbar" "query" "results" "recent"; }
+  .query-card, .results-card { min-height: 360px; }
+}
+
+.query-card .card__body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.query-card .editor__wrap { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+#sql { flex: 1; }
+
+.results-card .card__body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.results-card .results { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 0; }
+.results-card .tablewrap { flex: 1; min-height: 0; max-height: none; }
+.results-card .empty { margin: auto; }   /* the "run a query" placeholder centres in the now much taller card, rather than sitting pinned to the top */
+
+/* ---- toolbar row: Run / row limit / CSV / presets / status, one strip above Query and Results, so neither
+   card spends its own height on controls any more -------------------------------------------------------- */
+.toolbar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.toolbar-row .status { margin-left: auto; }
+
+/* ---- maximise: expands one card to fill the whole workspace box (query+results+recent's combined area),
+   leaving the Tables sidebar untouched since it sits outside .workspace entirely -------------------------- */
+.workspace.has-max::before {
+  content: ""; position: absolute; inset: 0; z-index: 15;
+  background: rgba(5, 4, 8, .78); backdrop-filter: blur(6px);
+}
+.card.is-max {
+  grid-area: auto;   /* an absolutely positioned grid child keeps sizing itself against its *original* grid
+    area, not the whole grid container, for as long as it still has a placement -- without this, "inset: 16px"
+    below resolves against the query/results row's own (content-sized) height, not the full workspace box */
+  position: absolute; inset: 16px; z-index: 20;   /* not flush with .workspace's own edges, so the dimmed
+    backdrop stays visible (and clickable, to close) in the margin around it -- matches Citadel's own maximised-
+    card look, which insets the same way rather than going flush to the viewport */
+  display: flex;
+}
+.card.is-max .card__in { flex: 1; min-height: 0; }
+.card.is-max .card__body { flex: 1; min-height: 0; }
+/* .results-card .results/.tablewrap (further down) already flex to fill the card whether or not it's
+   maximised, so nothing extra is needed here for the Results card specifically. */
+.card__tools { display: flex; align-items: center; gap: 10px; }
+.btn--icon { padding: 6px; }
+.i { width: 14px; height: 14px; flex: none; }
+
 /* ---- card (chamfered, matches the dashboard) ------------------------------ */
 .card {
   --c: var(--chamfer);
@@ -130,8 +194,7 @@ a { color: inherit; }
 .ac__item.is-active, .ac__item:hover { background: var(--accent-wash); color: #fff; }
 .ac__kind { width: 14px; flex: none; text-align: center; color: var(--accent-soft); font-size: 10px; }
 
-/* ---- toolbar ---------------------------------------------------------------- */
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+/* ---- buttons / controls (used in .toolbar-row above, and elsewhere) --------------------------------------- */
 .btn {
   display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
   padding: 7px 12px; background: transparent; color: var(--silver); border: 1px solid var(--edge); cursor: pointer;
@@ -141,11 +204,13 @@ a { color: inherit; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn--go { color: var(--accent-soft); border-color: var(--edge-strong); }
 .btn--go:hover { box-shadow: 0 0 16px rgba(139, 92, 246, .3); }
+.btn--danger { color: #ffb3c0; border-color: rgba(244, 63, 94, .45); }   /* same red as .error, below */
+.btn--danger:hover { color: #ffb3c0; border-color: rgba(244, 63, 94, .7); background: rgba(244, 63, 94, .1); box-shadow: 0 0 16px rgba(244, 63, 94, .25); }
 .select { padding: 7px 10px; font: 11px var(--font-mono); letter-spacing: .06em; color: var(--silver); background: rgba(0, 0, 0, .38); border: 1px solid var(--edge); }
-.toolbar .status { font-family: var(--font-mono); font-size: 11.5px; color: var(--silver-mute); margin-left: auto; }
-.toolbar .status b { color: var(--silver-hi); font-weight: 500; }
+.status { font-family: var(--font-mono); font-size: 11.5px; color: var(--silver-mute); }
+.status b { color: var(--silver-hi); font-weight: 500; }
 
-.presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .preset { padding: 5px 9px; font-family: var(--font-mono); font-size: 11px; color: var(--silver-mute); background: none; border: 1px solid var(--edge); cursor: pointer; }
 .preset:hover { color: var(--accent-soft); border-color: var(--edge-strong); }
 
@@ -154,17 +219,38 @@ a { color: inherit; }
 .results { margin-top: 14px; }
 .results__note { font-family: var(--font-mono); font-size: 11.5px; color: var(--warn); margin-bottom: 8px; }
 .tablewrap { overflow: auto; max-height: 60vh; border: 1px solid var(--edge); }
-table.grid { border-collapse: collapse; width: 100%; font-size: 12.5px; }
-table.grid th, table.grid td { padding: 6px 10px; border-bottom: 1px solid var(--edge); text-align: left; white-space: nowrap; max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
+/* border-collapse doesn't play well with a sticky <thead> (a well-known cross-browser quirk: the sticky header's
+   collapsed borders can drift out of sync with the scrolling body, which is what "headers don't line up with
+   content" actually was) -- border-spacing: 0 gets the same hairline-grid look without that failure mode.
+   table-layout is left at its default (auto): each column is exactly as wide as its widest cell demands, no
+   artificial per-cell cap, so a column starts right where the previous one's longest value ends. */
+table.grid { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; }
+table.grid th, table.grid td { padding: 6px 10px; border-bottom: 1px solid var(--edge); text-align: left; white-space: nowrap; }
 table.grid thead th { position: sticky; top: 0; background: var(--surface-3); color: var(--silver-hi); font-family: var(--font-mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; z-index: 1; border-bottom: 1px solid var(--edge-strong); }
 table.grid tbody tr:hover { background: var(--accent-wash); }
 table.grid td.num { text-align: right; font-family: var(--font-mono); }
 table.grid td.null { color: var(--silver-dim); font-style: italic; }
 .empty { padding: 28px 10px; text-align: center; color: var(--silver-dim); font-size: 13px; }
 
-.recent { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--edge); }
-.recent__list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto; }
-.recent__list li { padding: 5px 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--silver-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-radius: 2px; }
+/* Flex/grid items default to a minimum width of their own content ("min-width: auto"), which quietly defeats
+   white-space: nowrap + text-overflow: ellipsis -- a long, unwrapped query string just forces the list (and
+   the whole card) wider instead of clipping, and the next entry ends up right underneath it. min-width: 0 on
+   both the flex container and each item is the standard fix. A border between entries (rather than a bare 2px
+   gap) also makes each one's edges unambiguous now that they're not clipped down to a tidy fixed width. */
+.recent__list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; max-height: 220px; overflow: auto; min-width: 0; }
+.recent__list li {
+  padding: 7px 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--silver-mute);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  cursor: pointer; border-top: 1px solid var(--edge);
+}
+.recent__list li:first-child { border-top: 0; }
 .recent__list li:hover { background: var(--accent-wash); color: var(--silver-hi); }
+
+/* Collapsed by default -- a real <button> for the head (not just a styled div) so it's keyboard-operable,
+   reset back to .card__head's own look since buttons carry their own UA styling otherwise. */
+.recent__head { width: 100%; background: none; border: 0; cursor: pointer; font: inherit; color: inherit; }
+.recent__head:hover .hud { color: var(--silver-hi); }
+.recent__chevron { color: var(--silver-dim); transition: transform .15s var(--ease); }
+.recent__head[aria-expanded="true"] .recent__chevron { transform: rotate(90deg); }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }

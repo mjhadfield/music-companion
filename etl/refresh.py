@@ -48,6 +48,7 @@ def snapshot(conn):
             )
         },
         "artist_names": {r[0] for r in conn.execute("SELECT name FROM artists")},
+        "max_run_id": conn.execute("SELECT coalesce(max(id), 0) FROM import_runs").fetchone()[0],
     }
 
 
@@ -157,6 +158,20 @@ def report(conn, before: dict) -> None:
         "SELECT count(*) FROM albums WHERE id > ?", (before["max_album_id"],)
     ).fetchone()[0]
     print(f"\nNew albums discovered: {new_albums}")
+
+    # The import inbox: everything this run created or couldn't place with certainty.
+    rows = conn.execute("""
+        SELECT kind, count(*), sum(reviewed_at IS NULL) FROM import_events
+        WHERE run_id > ? GROUP BY kind ORDER BY kind
+    """, (before["max_run_id"],)).fetchall()
+    linked = sum(n for kind, n, _ in rows if kind == "edition_linked")
+    pending = {kind: todo for kind, _, todo in rows if todo}
+    if linked:
+        print(f"\nAlbum editions matched to an album: {linked}")
+    print(f"\nImport inbox: {sum(pending.values())} to review"
+          + (" (" + ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in pending.items()) + ")" if pending else ""))
+    if pending:
+        print("    Review at http://localhost:8643/inbox.html")
 
 
 def main() -> None:

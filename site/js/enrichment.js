@@ -1,12 +1,11 @@
 /*
  * Enrichment beyond our own personal-stats data: an artist bio + genre
- * tags pulled live from MusicBrainz + Wikipedia, and album cover art
- * from the Cover Art Archive. All client-side, no backend, no API key --
- * all three services support CORS for exactly this kind of use.
+ * tags pulled live from MusicBrainz + Wikipedia. Client-side, no backend,
+ * no API key -- both services support CORS for exactly this kind of use.
  *
- * Fetched lazily, one artist/album at a time, only when its page is
- * actually viewed -- never pre-fetched in bulk, so there's no rate-limit
- * concern against MusicBrainz's "be gentle" unauthenticated-API etiquette.
+ * Fetched lazily, one artist at a time, only when its page is actually
+ * viewed -- never pre-fetched in bulk, so there's no rate-limit concern
+ * against MusicBrainz's "be gentle" unauthenticated-API etiquette.
  * Results are cached in localStorage for 30 days.
  *
  * MusicBrainz (keyed by the MBID we already resolved during the Last.fm
@@ -15,9 +14,11 @@
  * the other, preferring MusicBrainz's title when it comes back in time;
  * MusicBrainz gets a capped timeout since it's the slower/rate-limited
  * of the two, so a bad response from it never stalls the whole lookup.
- * Cover art works the same way off whichever MBID an album has (could be
- * a release or a release-group id depending on where it came from; the
- * <img> tries both).
+ *
+ * Album cover art is NOT looked up here (or live, at all, anymore) -- it's
+ * fetched once server-side by the maintenance tool (etl/covers.py) and
+ * stored locally under site/public/covers/{albumId}.jpg, shipped as part
+ * of the public build like everything else. See attachCoverArt() below.
  */
 
 const ENRICH_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
@@ -126,22 +127,13 @@ async function getArtistEnrichment(artist) {
   }
 }
 
-/** Wire an <img> to the Cover Art Archive, trying /release/ then
- * /release-group/ (we don't always know which kind of MBID we have),
- * removing itself from the DOM if neither has art. */
-function attachCoverArt(imgEl, mbid) {
-  if (!mbid) {
+/** Point an <img> at an album's locally-cached cover (public/covers/{albumId}.jpg), or
+ * remove it from the DOM if this album doesn't have one yet -- the maintenance tool's Vinyl
+ * Holdings page is where that gets fixed, not this page fetching it live. */
+function attachCoverArt(imgEl, albumId, coverStatus) {
+  if (coverStatus !== "ok") {
     imgEl.remove();
     return;
   }
-  imgEl.addEventListener(
-    "error",
-    function onFirstError() {
-      imgEl.removeEventListener("error", onFirstError);
-      imgEl.addEventListener("error", () => imgEl.remove(), { once: true });
-      imgEl.src = `https://coverartarchive.org/release-group/${mbid}/front-250`;
-    },
-    { once: true }
-  );
-  imgEl.src = `https://coverartarchive.org/release/${mbid}/front-250`;
+  imgEl.src = `public/covers/${albumId}.jpg`;
 }

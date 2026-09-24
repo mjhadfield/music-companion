@@ -3,700 +3,756 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Music Companion — Vinyl Holdings</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<title>Music Companion — Vinyl</title>
+<link rel="stylesheet" href="shared.css" />
 <style>
-  /* Same dark palette as the other maintenance pages -- local-only tool, no light mode. */
-  :root {
-    --bg: #0d0a10;
-    --bg-elevated: #17121c;
-    --border: #332a3d;
-    --text: #f1ecf5;
-    --text-dim: #a89bb5;
-    --text-muted: #7d7188;
-    --accent-vinyl: #b8822a;
-    --accent-scrobble: #d43e78;
-    --accent-live: #8b4fd6;
-    --accent: #8b4fd6;
-    --warn: #e2a33e;
-    --danger: #c0453f;
-    --font-display: "Oswald", "Arial Narrow", -apple-system, sans-serif;
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); line-height: 1.5; }
-  a { color: var(--accent); }
-  main { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; }
-  .page-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
-  h1 { font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.03em; font-size: 1.6rem; margin: 0; }
-  h3 {
-    font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.03em;
-    font-size: 0.78rem; color: var(--text-dim); margin: 0 0 8px;
-  }
-  .back-link { font-size: 0.85rem; white-space: nowrap; }
-  .subtitle { color: var(--text-dim); font-size: 0.9rem; margin: 0 0 16px; }
+  main.wide { max-width: 1400px; }
 
-  .card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; margin-bottom: 24px; }
+  /* Health strip: one tile per check, click to filter to the records failing it. */
+  .health { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; margin-bottom: 18px; padding: 0; }
+  .health .tile { padding: 12px 14px; border-right: 1px solid var(--edge); cursor: pointer; background: none; border-top: none; border-bottom: none; border-left: none; border-radius: 0; text-align: left; }
+  .health .tile:last-child { border-right: none; }
+  .health .tile:hover { background: var(--accent-wash); }
+  .health .tile[aria-pressed="true"] { background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); }
+  .health .t-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+  .health .t-num { font-family: var(--font-mono); font-size: 1.15rem; color: var(--text); }
+  .health .t-num small { font-size: 0.72rem; color: var(--text-muted); }
+  .health .t-bar { height: 3px; background: var(--surface-3); margin-top: 6px; border-radius: 2px; overflow: hidden; }
+  .health .t-bar i { display: block; height: 100%; background: var(--ok); }
+  .health .t-todo { font-size: 0.72rem; color: var(--warn); }
 
-  .queue-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .queue-controls label { font-size: 0.85rem; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
-  #queue-progress { color: var(--text-dim); font-size: 0.85rem; }
+  .vtools { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+  .vtools .search { flex: 1; min-width: 220px; }
+  .vtools .group { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #bulk-panel .block-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 10px 14px; background: var(--bg-2); border-bottom: 1px solid var(--edge); }
+  #bulk-panel table td { padding: 6px 8px; font-size: 0.84rem; }
 
-  button {
-    font-family: var(--font-body); border: 1px solid var(--border); background: var(--bg);
-    color: var(--text); border-radius: 7px; padding: 7px 14px; font-size: 0.85rem; cursor: pointer;
-  }
-  button:hover:not(:disabled) { border-color: var(--accent); }
-  button:disabled { opacity: 0.5; cursor: default; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary:hover:not(:disabled) { filter: brightness(1.12); }
-  button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  /* Grid of records */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
+  .rec { position: relative; background: var(--surface-2); border: 1px solid var(--edge); border-radius: var(--radius-sm); cursor: pointer; overflow: hidden; transition: border-color .15s var(--ease), transform .15s var(--ease); }
+  .rec:hover { border-color: var(--edge-strong); transform: translateY(-1px); }
+  .rec.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .rec .art { aspect-ratio: 1; background: var(--surface); display: grid; place-items: center; overflow: hidden; }
+  .rec .art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .rec .body { padding: 9px 11px 10px; }
+  .rec .r-title { font-weight: 600; font-size: 0.9rem; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .rec .r-press { font-size: 0.76rem; color: var(--accent-vinyl); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rec .r-artist { font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rec .r-years { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+  .rec .r-years .warn-text { color: var(--warn); }
+  .pips { display: flex; gap: 3px; margin-top: 8px; }
+  .pip { flex: 1; height: 4px; border-radius: 2px; background: var(--surface-3); }
+  .pip.ok { background: var(--ok); } .pip.warn { background: var(--warn); } .pip.bad { background: var(--bad); } .pip.unknown { background: var(--silver-dim); opacity: 0.5; }
+  .pip.na { background: rgba(52, 211, 153, 0.35); }
+  .rec .flag { position: absolute; top: 8px; right: 8px; }
+  .rec .flag .badge { background: rgba(7, 6, 10, 0.85); }
+  .placeholder-art { width: 62%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, var(--surface-3) 0 14%, #050408 15% 17%, #111 18% 100%); box-shadow: inset 0 0 0 1px var(--edge), inset 0 0 0 8px #0b0b0f, inset 0 0 0 9px var(--edge); }
+  .grid-empty { grid-column: 1 / -1; }
 
-  input[type="text"] {
-    background: var(--bg); color: var(--text); border: 1px solid var(--border);
-    border-radius: 7px; padding: 7px 10px; font-size: 0.88rem;
-  }
-
-  table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 0.9rem; vertical-align: top; }
-  th { color: var(--text-dim); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
-  td .meta { color: var(--text-dim); font-size: 0.78rem; }
-  td.status { white-space: nowrap; }
-  td.status .missing { color: var(--warn); }
-  td.status .dupes { color: var(--accent); }
-  td.status .clean { color: var(--text-dim); }
-  td.actions { text-align: right; white-space: nowrap; }
-  #queue-tbody tr:last-of-type td { border-bottom: none; }
-  #queue-empty { color: var(--text-dim); font-size: 0.88rem; padding: 8px; display: none; }
-
-  .resolve-row td { background: var(--bg); border-bottom: 1px solid var(--border); padding: 16px 18px; }
-  .resolve-section { margin-bottom: 16px; }
-  .resolve-section:last-child { margin-bottom: 0; }
-  .resolve-row input[type="text"] { width: 260px; }
-  .inline-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-
-  .mb-candidate, .conflict-banner, .merge-confirm {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px;
-    background: var(--bg-elevated); font-size: 0.85rem;
-  }
-  .mb-candidate .meta, .conflict-banner .meta, .merge-confirm .meta { color: var(--text-dim); font-size: 0.78rem; }
-  .conflict-banner { border-color: var(--warn); }
-  .conflict-banner .headline { color: var(--warn); }
-  .merge-confirm.stack { flex-direction: column; align-items: stretch; gap: 10px; }
-  .merge-confirm.stack .actions-row { display: flex; gap: 8px; }
-  .merge-row {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px;
-    background: var(--bg); font-size: 0.85rem;
-  }
-  .merge-row .state { font-size: 0.78rem; color: var(--text-dim); white-space: nowrap; }
-  .merge-row .state.done { color: var(--accent-scrobble); }
-  .merge-row .state.error { color: var(--danger); }
-
-  .dup-candidate {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-top: 8px;
-    background: var(--bg-elevated); font-size: 0.85rem;
-  }
-  .dup-candidate-main { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
-  .dup-check { flex-shrink: 0; margin-top: 3px; width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
-
-  .search-wrap { position: relative; }
-  .search-results {
-    position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5;
-    background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px;
-    max-height: 240px; overflow-y: auto;
-  }
-  .search-result-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-    padding: 8px 12px; cursor: pointer; font-size: 0.85rem;
-  }
-  .search-result-row:hover { background: var(--bg); }
-  .search-result-row .meta { color: var(--text-dim); font-size: 0.76rem; }
-
-  .status-line { font-size: 0.82rem; margin-top: 8px; }
-  .status-line.error { color: var(--danger); }
-  .status-line.ok { color: var(--accent-scrobble); }
-
-  #action-log { list-style: none; margin: 0; padding: 0; font-size: 0.85rem; }
-  #action-log li { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--text-dim); }
-  #action-log li:last-child { border-bottom: none; }
-  #action-log li .who { color: var(--text); }
-
-  #log-section { display: none; }
-  #log-status {
-    font-family: var(--font-display); text-transform: uppercase; letter-spacing: 0.04em;
-    font-size: 0.85rem; color: var(--text-dim); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
-  }
-  .spinner { width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #log {
-    background: #0a0810; border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px;
-    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 0.82rem; white-space: pre-wrap;
-    word-break: break-word; max-height: 60vh; overflow-y: auto;
-  }
-  .log-line { padding: 1px 0; }
-  .log-line.header { color: var(--accent); font-weight: 700; margin-top: 6px; }
-  .log-line.warn { color: var(--warn); font-weight: 600; }
-  .log-line.dim { color: var(--text-muted); }
+  /* Drawer */
+  #drawer { position: fixed; top: 53px; right: 0; bottom: 0; width: min(720px, 100vw); z-index: 30; display: flex; flex-direction: column;
+            background: var(--surface-2); border-left: 1px solid var(--edge-strong); box-shadow: -18px 0 40px rgba(0, 0, 0, 0.55); transform: translateX(105%); transition: transform .2s var(--ease); }
+  #drawer.open { transform: none; }
+  .d-bar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--surface-3); border-bottom: 1px solid var(--edge); }
+  .d-bar .pos { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim); }
+  .d-body { flex: 1; overflow-y: auto; padding: 16px 18px 40px; }
+  .d-head { display: grid; grid-template-columns: 150px 1fr; gap: 16px; margin-bottom: 14px; }
+  .d-head .cover { width: 150px; height: 150px; object-fit: cover; border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--surface); display: grid; place-items: center; }
+  .d-head h2 { font-size: 1.15rem; text-transform: none; letter-spacing: 0; margin: 0 0 2px; }
+  .d-head .credits { font-size: 0.9rem; }
+  .d-head .facts { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; font-size: 0.82rem; }
+  .sec { border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--surface); margin-top: 12px; overflow: hidden; }
+  .sec > .sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--edge); }
+  .sec > .sec-head h3 { margin: 0; }
+  .sec > .sec-body { padding: 10px 12px; font-size: 0.86rem; }
+  .checklist { list-style: none; margin: 0; padding: 0; }
+  .checklist li { display: grid; grid-template-columns: 18px 130px 1fr auto; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--edge); }
+  .checklist li:last-child { border-bottom: none; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); } .dot.unknown { background: var(--silver-dim); }
+  .dot.na { background: none; box-shadow: inset 0 0 0 2px rgba(52, 211, 153, 0.55); }
+  .checklist .c-label { font-size: 0.78rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 10px; margin: 0; }
+  .kv dt { color: var(--text-dim); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .kv dd { margin: 0; }
+  .fmt-tags { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  .badge.reissue { color: #93c5fd; border-color: rgba(147, 197, 253, 0.45); }
+  .badge.colour { color: var(--accent-soft); }
+  .notes { white-space: pre-wrap; background: var(--bg); border: 1px solid var(--edge); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 0.84rem; }
+  .stars { color: var(--accent-vinyl); letter-spacing: 1px; }
+  .link-card { border: 1px solid var(--edge); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); margin-bottom: 8px; }
+  .link-card .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
+  .inline-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .inline-edit input[type="text"] { flex: 1; min-width: 220px; }
+  .inline-edit input[type="number"] { width: 90px; }
+  .big-cover { width: 220px; height: 220px; object-fit: cover; border: 1px solid var(--edge); border-radius: var(--radius-sm); }
+  .d-body .resolve input[type="text"] { width: 240px; }
+  @media (max-width: 700px) { .d-head { grid-template-columns: 1fr; } .checklist li { grid-template-columns: 18px 1fr; } .checklist li .c-text, .checklist li .c-fix { grid-column: 2; } }
 </style>
 </head>
 <body>
-<main>
-  <div class="page-head">
-    <h1>Vinyl Holdings</h1>
-    <a href="/" class="back-link">← Maintenance home</a>
-  </div>
-  <p class="subtitle">Vinyl is the master copy -- work each holding top-down: confirm its artist has the right MusicBrainz id, then fold any likely-duplicate album records into the one this vinyl actually points at.</p>
+<header id="topnav"></header>
+<main class="wide">
+  <h1>Vinyl</h1>
+  <p class="subtitle">Every record on the shelf, fully identified: the right artist, the album as originally released (its first year and plain title — even when the copy is a 2021 reissue), and this exact pressing linked to its MusicBrainz release.</p>
 
-  <div class="card">
-    <div class="queue-controls">
-      <label><input type="checkbox" id="show-all" /> Show all vinyl, not just what needs attention</label>
-      <button id="refresh-btn">Refresh</button>
-      <span id="queue-progress"></span>
+  <div class="card flush health" id="health"></div>
+
+  <div class="card" style="padding:14px 16px">
+    <div class="vtools">
+      <input type="search" class="search" id="q" placeholder="Filter by artist, title, label, catalogue number, notes…" />
+      <div class="group">
+        <label class="meta">Sort <select id="sort">
+          <option value="attention">Needs attention first</option>
+          <option value="artist">Artist</option>
+          <option value="added">Recently added</option>
+          <option value="year">Original year</option>
+          <option value="title">Title</option>
+        </select></label>
+      </div>
+      <div class="group" id="extra-filters">
+        <button class="chip filter-chip" data-extra="suggestion" aria-pressed="false">Has MusicBrainz link to review</button>
+        <button class="chip filter-chip" data-extra="multi" aria-pressed="false">Several pressings</button>
+        <button class="chip filter-chip" data-extra="reissue" aria-pressed="false">Reissues</button>
+        <button class="chip filter-chip" data-extra="notes" aria-pressed="false">Has notes</button>
+      </div>
+      <span class="meta" id="shown"></span>
     </div>
-  </div>
-
-  <div class="card">
-    <table>
-      <thead><tr><th>Artist</th><th>Album</th><th>Status</th><th></th></tr></thead>
-      <tbody id="queue-tbody"></tbody>
-    </table>
-    <div id="queue-empty">Nothing needs attention -- every vinyl holding's artist has an mbid and no likely duplicates turned up.</div>
-  </div>
-
-  <div class="card" id="action-log-card" style="display:none">
-    <h3>Recent actions</h3>
-    <ul id="action-log"></ul>
-  </div>
-
-  <div class="card">
-    <button id="build-btn">Rebuild public database →</button>
-    <div id="log-section">
-      <div id="log-status"><span id="spinner" class="spinner"></span> <span id="log-status-text">Running…</span></div>
-      <div id="log"></div>
+    <div class="vtools" style="margin-top:12px; padding-top:12px; border-top:1px solid var(--edge)">
+      <div class="group">
+        <label class="meta">Check <input type="number" id="sweep-limit" value="50" min="1" max="250" style="width:64px" /> records against MusicBrainz</label>
+        <button class="primary small" id="sweep-btn">Check</button>
+      </div>
+      <span class="spacer" style="flex:1"></span>
+      <div class="group">
+        <button class="small" id="bulk-links">Review confirmed pressing links</button>
+        <button class="small" id="bulk-years">Review original years</button>
+        <button class="small" id="bulk-covers">Fetch missing covers</button>
+      </div>
     </div>
+    <div id="sweep-box"></div>
+    <div id="bulk-panel"></div>
   </div>
+
+  <div class="grid" id="grid"><div class="empty grid-empty">Loading…</div></div>
 </main>
 
+<aside id="drawer" aria-hidden="true">
+  <div class="d-bar">
+    <button class="small" id="d-prev" title="Previous (k)">‹ <kbd>k</kbd></button>
+    <button class="small" id="d-next" title="Next (j)"><kbd>j</kbd> ›</button>
+    <span class="pos" id="d-pos"></span>
+    <span class="spacer" style="flex:1"></span>
+    <a class="small btn" id="d-albums" href="#">Open in Albums</a>
+    <button class="small" id="d-close" title="Close (Esc)">✕ <kbd>esc</kbd></button>
+  </div>
+  <div class="d-body" id="d-body"></div>
+</aside>
+
 <script src="shared.js"></script>
+<script src="album-ui.js"></script>
+<script src="artist-ui.js"></script>
 <script>
-const showAllCheckbox = document.getElementById("show-all");
-const refreshBtn = document.getElementById("refresh-btn");
-const queueProgress = document.getElementById("queue-progress");
-const queueTbody = document.getElementById("queue-tbody");
-const queueEmpty = document.getElementById("queue-empty");
-const actionLogCard = document.getElementById("action-log-card");
-const actionLog = document.getElementById("action-log");
-const buildBtn = document.getElementById("build-btn");
-const logSection = document.getElementById("log-section");
-const logEl = document.getElementById("log");
-const logStatusText = document.getElementById("log-status-text");
+mountNav("Vinyl");
 
-// Same starting point as album-duplicates.html's bulk review -- pairs at
-// or above this score start pre-ticked, everything else starts unticked.
-const AUTO_TICK_SCORE = 97;
+const CHECKS = [
+  ["artist", "Artist MBID"], ["album", "Album MBID"], ["pressing", "Pressing linked"], ["identity", "Verified"],
+  ["year", "Original year"], ["title", "Clean title"], ["cover", "Cover art"], ["versions", "No duplicates"],
+];
+let all = [];           // /api/vinyl/holdings
+let shown = [];         // after filter + sort (drawer j/k walks this)
+let checkFilter = null; // a CHECKS key: show records where that check isn't ok
+const extra = new Set();
+let openId = null;
 
-// The scorer behind every candidate's "similarity" matches on shared
-// words, not word order or extra distinguishing words -- it scores "Van
-// Halen II (Remastered)" vs "Van Halen (Remastered)" at 100, same as it
-// scores a genuine duplicate like "X" vs "X (Deluxe Edition)". A raw
-// score threshold alone can't tell those apart, which matters once it's
-// driving an auto-tick. This strips only known edition-marker words, then
-// requires what's left to match exactly -- see album-duplicates.html's
-// identical check for the full reasoning and worked examples.
-const EDITION_MARKER_WORDS = ["deluxe", "remaster", "edition", "anniversary"];
-const EDITION_BRACKET_RE = new RegExp(
-  `[\\(\\[][^)\\]]*\\b(${EDITION_MARKER_WORDS.join("|")})\\w*\\b[^)\\]]*[\\)\\]]`, "gi"
-);
+const check = (h, key) => h.checks.find((c) => c.key === key);
+const done = (c) => c.status === "ok" || c.status === "na"; // "na": nothing to do (e.g. MusicBrainz doesn't list the pressing)
+const artUrl = (h) => h.album.coverStatus === "ok" ? `/covers/${h.album.albumId}.jpg` : null;
+const stars = (n) => n ? `<span class="stars" title="${n}/5">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>` : "";
 
-function normalizeForAutoTick(title) {
-  return title.replace(EDITION_BRACKET_RE, " ").replace(/\s+/g, " ").trim().toLowerCase();
+function fmtTags(h) {
+  const f = h.formatInfo;
+  return `<span class="fmt-tags">${f.media ? `<span class="badge">${esc(f.media)}</span>` : ""}${f.tags.map((t) =>
+    `<span class="badge ${t.kind === "reissue" ? "reissue" : t.kind === "colour" ? "colour" : t.kind === "warn" ? "warn" : ""}" title="${esc(t.code)}">${esc(t.label)}</span>`).join("")}</span>`;
+}
+function pressingKind(h) {
+  if (h.formatInfo.reissue) return `<span class="badge reissue">Reissue${h.pressingYear ? ` ${h.pressingYear}` : ""}</span>`;
+  if (h.pressingYear && h.originalYear && h.pressingYear === h.originalYear) return `<span class="badge high">Original pressing</span>`;
+  return h.pressingYear ? `<span class="badge">Pressed ${h.pressingYear}</span>` : "";
 }
 
-function safeToAutoTick(titleA, titleB) {
-  return normalizeForAutoTick(titleA) === normalizeForAutoTick(titleB);
-}
+// -- Loading + health strip ---------------------------------------------------------------------
 
-// Text alone can't settle "is this really the same release" -- a direct
-// link next to each side's title is what actually lets you check.
-function mbAlbumLink(mbid) {
-  return mbid
-    ? ` <a href="https://musicbrainz.org/release-group/${esc(mbid)}" target="_blank" rel="noopener">mbid ↗</a>`
-    : "";
-}
-
-let allRows = [];               // raw /api/vinyl/queue rows
-let candidatesByAlbumId = null; // Map<albumId, {other, score}[]>
-let openPanelVinylId = null;
-
-function logAction(text) {
-  actionLogCard.style.display = "block";
-  const li = document.createElement("li");
-  li.innerHTML = text;
-  actionLog.insertBefore(li, actionLog.firstChild);
-  while (actionLog.children.length > 5) actionLog.removeChild(actionLog.lastChild);
-}
-
-function buildCandidateMap(candidates) {
-  const map = new Map();
-  const add = (albumId, other, score) => {
-    if (!map.has(albumId)) map.set(albumId, []);
-    map.get(albumId).push({ other, score });
-  };
-  for (const c of candidates) {
-    add(c.a.albumId, c.b, c.score);
-    add(c.b.albumId, c.a, c.score);
-  }
-  for (const list of map.values()) list.sort((a, b) => b.score - a.score);
-  return map;
-}
-
-async function loadQueue() {
-  openPanelVinylId = null;
-  queueTbody.innerHTML = "";
-  queueProgress.textContent = "Loading…";
-
-  const [vinylRes, dupRes] = await Promise.all([
-    fetch("/api/vinyl/queue"),
-    fetch("/api/albums/duplicate-candidates?minScore=90&limit=5000"),
-  ]);
-  const vinylData = await vinylRes.json();
-  const dupData = await dupRes.json();
-  if (!vinylRes.ok) {
-    queueProgress.textContent = vinylData.error || "Something went wrong.";
-    return;
-  }
-  allRows = vinylData.rows;
-  candidatesByAlbumId = buildCandidateMap(dupRes.ok ? dupData.candidates : []);
-
+async function load(keepOpen = true) {
+  const { ok, data } = await api("/api/vinyl/holdings");
+  if (!ok) { document.getElementById("grid").innerHTML = `<div class="empty grid-empty">${esc(data.message)}</div>`; return; }
+  all = data.holdings;
+  renderHealth(data.summary);
   render();
+  updateBulkButtons();
+  if (keepOpen && openId && all.some((h) => h.vinylId === openId)) openDrawer(openId, { scroll: false });
 }
 
-function rowNeedsAttention(row) {
-  return !row.artistMbid || (candidatesByAlbumId.get(row.albumId) || []).length > 0;
+let lastSummary = {};
+function renderHealth(summary) {
+  lastSummary = summary;
+  const total = all.length;
+  const complete = all.filter((h) => h.checks.every(done)).length;
+  const tiles = [`<button class="tile" data-check="" aria-pressed="${checkFilter === null && !extra.size}">
+      <div class="t-label">Fully complete</div><div class="t-num">${complete}<small> / ${total}</small></div>
+      <div class="t-bar"><i style="width:${total ? (100 * complete) / total : 0}%"></i></div></button>`];
+  for (const [key, label] of CHECKS) {
+    const s = summary[key] || {};
+    const okN = (s.ok || 0) + (s.na || 0), todo = total - okN;
+    tiles.push(`<button class="tile" data-check="${key}" aria-pressed="${checkFilter === key}" title="Show records where “${label}” isn't done">
+      <div class="t-label">${label}</div><div class="t-num">${okN}<small> / ${total}</small></div>
+      <div class="t-bar"><i style="width:${total ? (100 * okN) / total : 0}%"></i></div>
+      <div class="t-todo">${todo ? `${todo} to do` : "&nbsp;"}</div></button>`);
+  }
+  const el = document.getElementById("health");
+  el.innerHTML = tiles.join("");
+  el.querySelectorAll(".tile").forEach((t) => t.addEventListener("click", () => {
+    const k = t.dataset.check || null;
+    checkFilter = checkFilter === k ? null : k;
+    if (!k) { extra.clear(); document.querySelectorAll("#extra-filters .filter-chip").forEach((c) => c.setAttribute("aria-pressed", "false")); }
+    renderHealth(lastSummary);
+    render();
+  }));
+}
+
+// -- Grid ---------------------------------------------------------------------------------------
+
+function matches(h, q) {
+  if (!q) return true;
+  const hay = [h.album.title, h.rawTitle, h.artist.name, h.rawArtist, h.label, h.catalogNumber, h.notes, h.format].join(" ").toLowerCase();
+  return q.split(/\s+/).every((w) => hay.includes(w));
 }
 
 function render() {
-  queueTbody.innerHTML = "";
-  const showAll = showAllCheckbox.checked;
-  const rows = showAll ? allRows : allRows.filter(rowNeedsAttention);
-  const missingCount = allRows.filter((r) => !r.artistMbid).length;
-  const dupeCount = allRows.filter((r) => (candidatesByAlbumId.get(r.albumId) || []).length > 0).length;
-
-  queueProgress.textContent = `${allRows.length} vinyl holdings — ${missingCount} missing artist mbid, ${dupeCount} with likely album duplicates`;
-  queueEmpty.style.display = rows.length ? "none" : "block";
-  for (const row of rows) {
-    queueTbody.appendChild(renderQueueRow(row));
-  }
-}
-
-function renderQueueRow(row) {
-  const tr = document.createElement("tr");
-  tr.dataset.vinylId = row.vinylId;
-  const dupeCount = (candidatesByAlbumId.get(row.albumId) || []).length;
-  let statusHtml;
-  if (!row.artistMbid) {
-    statusHtml = `<span class="missing">⚠ missing artist mbid</span>`;
-  } else if (dupeCount) {
-    statusHtml = `<span class="dupes">${dupeCount} likely duplicate${dupeCount === 1 ? "" : "s"}</span>`;
-  } else {
-    statusHtml = `<span class="clean">✓ clean</span>`;
-  }
-  tr.innerHTML = `
-    <td>${esc(row.artistName)}</td>
-    <td>${esc(row.albumTitle)}${row.format ? `<div class="meta">${esc(row.format)}${row.label ? ` · ${esc(row.label)}` : ""}</div>` : ""}</td>
-    <td class="status">${statusHtml}</td>
-    <td class="actions"><button data-role="resolve">Resolve</button></td>
-  `;
-  tr.querySelector("[data-role='resolve']").addEventListener("click", () => togglePanel(row));
-  return tr;
-}
-
-function togglePanel(row) {
-  const existingPanel = queueTbody.querySelector(`tr.resolve-row[data-for="${row.vinylId}"]`);
-  if (existingPanel) {
-    existingPanel.remove();
-    openPanelVinylId = null;
-    return;
-  }
-  const oldPanel = queueTbody.querySelector("tr.resolve-row");
-  if (oldPanel) oldPanel.remove();
-
-  openPanelVinylId = row.vinylId;
-  const tr = queueTbody.querySelector(`tr[data-vinyl-id="${row.vinylId}"]`);
-  tr.after(buildResolvePanel(row));
-}
-
-function buildResolvePanel(row) {
-  const tr = document.createElement("tr");
-  tr.className = "resolve-row";
-  tr.dataset.for = row.vinylId;
-  const td = document.createElement("td");
-  td.colSpan = 4;
-  td.innerHTML = `
-    <div class="resolve-section" data-role="mbid-section">
-      <h3>Artist MusicBrainz id</h3>
-      <div data-role="mbid-body"></div>
-    </div>
-    <div class="resolve-section" data-role="dupe-section">
-      <h3>Likely duplicate albums</h3>
-      <div data-role="dupe-body"></div>
-    </div>
-  `;
-  tr.appendChild(td);
-
-  renderMbidSection(td, row);
-  renderDupeSection(td, row);
-  return tr;
-}
-
-// -- Artist mbid assignment -- ported from artists.html's resolve panel,
-// scoped to the one artist this vinyl holding is credited to.
-
-function renderMbidSection(panelTd, row) {
-  const body = panelTd.querySelector("[data-role='mbid-body']");
-  if (row.artistMbid) {
-    body.innerHTML = `<div class="status-line ok">✓ already has an mbid (${esc(row.artistMbid)}).</div>`;
-    return;
-  }
-  body.innerHTML = `
-    <div class="inline-form">
-      <input type="text" data-role="mb-query" value="${esc(row.artistName)}" />
-      <button data-role="mb-search">Search</button>
-    </div>
-    <div data-role="mb-results"></div>
-    <div class="inline-form" style="margin-top:10px">
-      <input type="text" data-role="manual-mbid" placeholder="e.g. 5b11f4ce-a62d-471e-81fc-a69a8278c7da" />
-      <button data-role="manual-assign">Assign</button>
-    </div>
-    <div data-role="conflict-slot"></div>
-    <div data-role="status" class="status-line"></div>
-  `;
-  wireMbSearch(body, row);
-  wireManualAssign(body, row);
-  runMbSearch(body, row.artistName, row);
-}
-
-function setMbidStatus(body, text, kind) {
-  const el = body.querySelector("[data-role='status']");
-  el.textContent = text || "";
-  el.className = "status-line" + (kind ? ` ${kind}` : "");
-}
-
-function wireMbSearch(body, row) {
-  body.querySelector("[data-role='mb-search']").addEventListener("click", () => {
-    runMbSearch(body, body.querySelector("[data-role='mb-query']").value.trim(), row);
+  const q = document.getElementById("q").value.trim().toLowerCase();
+  const sort = document.getElementById("sort").value;
+  shown = all.filter((h) => matches(h, q)
+    && (!checkFilter || !done(check(h, checkFilter)))
+    && (!extra.has("suggestion") || h.suggestions.length)
+    && (!extra.has("multi") || h.otherPressings.length)
+    && (!extra.has("reissue") || h.formatInfo.reissue)
+    && (!extra.has("notes") || (h.notes || "").trim()));
+  const by = {
+    attention: (a, b) => b.score - a.score || a.artist.name.localeCompare(b.artist.name),
+    artist: (a, b) => a.artist.name.localeCompare(b.artist.name) || (a.album.year || 0) - (b.album.year || 0),
+    added: (a, b) => (b.dateAdded || "").localeCompare(a.dateAdded || ""),
+    year: (a, b) => (a.originalYear || a.album.year || 9999) - (b.originalYear || b.album.year || 9999),
+    title: (a, b) => a.album.title.localeCompare(b.album.title),
+  }[sort];
+  shown.sort(by);
+  document.getElementById("shown").textContent = `${shown.length} of ${all.length} records`;
+  const grid = document.getElementById("grid");
+  if (!shown.length) { grid.innerHTML = `<div class="empty grid-empty">Nothing matches — every record passes this check.</div>`; return; }
+  grid.innerHTML = shown.map((h) => {
+    const art = artUrl(h);
+    const yr = check(h, "year");
+    const years = `${h.album.year ?? "—"}${yr.status === "warn" ? ` <span class="warn-text" title="${esc(yr.text)}">(orig. ${h.originalYear})</span>` : ""}${h.pressingYear && h.pressingYear !== (h.originalYear || h.album.year) ? ` · pressed ${h.pressingYear}` : ""}`;
+    return `<div class="rec ${h.vinylId === openId ? "current" : ""}" data-id="${h.vinylId}" tabindex="0">
+      <div class="art">${art ? `<img src="${art}" alt="" loading="lazy" />` : `<div class="placeholder-art"></div>`}</div>
+      ${h.suggestions.length ? `<div class="flag"><span class="badge medium">MB link to review</span></div>` : ""}
+      <div class="body">
+        <div class="r-title">${esc(h.album.title)}</div>
+        ${h.pressingTitle ? `<div class="r-press" title="This record's own title">${esc(h.pressingTitle)}</div>` : ""}
+        <div class="r-artist">${esc(h.credits.map((c) => c.name).join(", "))}</div>
+        <div class="r-years">${years}</div>
+        <div class="pips">${h.checks.map((c) => `<span class="pip ${c.status}" title="${esc(c.label)}: ${esc(c.text)}"></span>`).join("")}</div>
+      </div>
+    </div>`;
+  }).join("");
+  grid.querySelectorAll(".rec").forEach((el) => {
+    el.addEventListener("click", () => openDrawer(parseInt(el.dataset.id, 10)));
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") openDrawer(parseInt(el.dataset.id, 10)); });
   });
 }
 
-async function runMbSearch(body, query, row) {
-  const resultsEl = body.querySelector("[data-role='mb-results']");
-  if (!query) { resultsEl.innerHTML = ""; return; }
-  resultsEl.innerHTML = `<div class="status-line">Searching…</div>`;
-  const res = await fetch(`/api/artists/mb-search?q=${encodeURIComponent(query)}`);
-  const data = await res.json();
-  if (!res.ok) {
-    resultsEl.innerHTML = `<div class="status-line error">${esc(data.error || "Search failed.")}</div>`;
-    return;
-  }
-  if (!data.candidates.length) {
-    resultsEl.innerHTML = `<div class="status-line">No matches.</div>`;
-    return;
-  }
-  resultsEl.innerHTML = "";
-  for (const c of data.candidates) {
-    const div = document.createElement("div");
-    div.className = "mb-candidate";
-    const years = c.beginDate ? ` · ${esc(c.beginDate)}–${c.ended ? esc(c.endDate || "") : ""}` : "";
-    div.innerHTML = `
-      <span>
-        <strong>${esc(c.name)}</strong>${c.disambiguation ? ` <span class="meta">(${esc(c.disambiguation)})</span>` : ""}
-        <div class="meta">
-          ${esc(c.type || "")}${c.country ? ` · ${esc(c.country)}` : ""}${years} · score ${c.score}
-          · <a href="https://musicbrainz.org/artist/${esc(c.mbid)}" target="_blank" rel="noopener">view on MusicBrainz ↗</a>
+document.getElementById("q").addEventListener("input", render);
+document.getElementById("sort").addEventListener("change", render);
+document.querySelectorAll("#extra-filters .filter-chip").forEach((b) => b.addEventListener("click", () => {
+  const k = b.dataset.extra;
+  extra.has(k) ? extra.delete(k) : extra.add(k);
+  b.setAttribute("aria-pressed", String(extra.has(k)));
+  render();
+}));
+
+// -- Drawer -------------------------------------------------------------------------------------
+
+const drawer = document.getElementById("drawer");
+const dBody = document.getElementById("d-body");
+let drawerSeq = 0;
+
+function closeDrawer() {
+  drawer.classList.remove("open");
+  drawer.setAttribute("aria-hidden", "true");
+  document.querySelector(`.rec[data-id="${openId}"]`)?.classList.remove("current");
+  openId = null;
+}
+
+function step(delta) {
+  if (!shown.length) return;
+  const i = shown.findIndex((h) => h.vinylId === openId);
+  const next = shown[Math.max(0, Math.min(shown.length - 1, (i < 0 ? 0 : i + delta)))];
+  if (next) openDrawer(next.vinylId);
+}
+
+// After any change: reload the collection (merges/moves can change other records too) and redraw.
+async function refresh() { notifyChanged(); await load(true); }
+
+async function openDrawer(vid, { scroll = true } = {}) {
+  openId = vid;
+  const mine = ++drawerSeq;
+  document.querySelectorAll(".rec.current").forEach((el) => el.classList.remove("current"));
+  const card = document.querySelector(`.rec[data-id="${vid}"]`);
+  card?.classList.add("current");
+  if (scroll) card?.scrollIntoView({ block: "nearest" });
+  drawer.classList.add("open");
+  drawer.setAttribute("aria-hidden", "false");
+  const idx = shown.findIndex((h) => h.vinylId === vid);
+  document.getElementById("d-pos").textContent = idx >= 0 ? `${idx + 1} / ${shown.length}` : "not in the current filter";
+  const { ok, data } = await api(`/api/vinyl/holding?id=${vid}`);
+  if (mine !== drawerSeq) return;
+  if (!ok) { dBody.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const scrollTop = dBody.scrollTop;
+  renderDrawer(data);
+  if (!scroll) dBody.scrollTop = scrollTop; // a refresh after an action keeps your place
+  else dBody.scrollTop = 0;
+}
+
+function sec(title, bodyHtml, { right = "", role = "" } = {}) {
+  return `<div class="sec" ${role ? `data-sec="${role}"` : ""}><div class="sec-head"><h3>${title}</h3>${right}</div><div class="sec-body">${bodyHtml}</div></div>`;
+}
+
+function renderDrawer(h) {
+  const a = h.album;
+  document.getElementById("d-albums").href = `/albums.html#discography/${h.artist.artistId}`;
+  const art = artUrl(h);
+  const rg = h.rg;
+  const rgLine = rg ? `${esc([rg.primaryType, ...(rg.secondaryTypes || [])].filter(Boolean).join("/"))}${rg.firstReleaseDate ? ` · first released ${esc(rg.firstReleaseDate)}` : ""}` : "";
+  const credits = h.credits.map((c) => `${esc(c.name)} ${c.mbid ? mbLink("artist", c.mbid) : `<button class="badge warn" data-jump="artist" title="Resolve below">no mbid</button>`}`).join(" · ");
+  const missingArtists = h.credits.filter((c) => !c.mbid);
+
+  const checklist = `<ul class="checklist">${h.checks.map((c) => `
+    <li><span class="dot ${c.status}"></span><span class="c-label">${esc(c.label)}</span><span class="c-text">${esc(c.text)}</span>
+    <span class="c-fix">${fixButton(h, c)}</span></li>`).join("")}</ul>`;
+
+  dBody.innerHTML = `
+    <div class="d-head">
+      ${art ? `<img class="cover" src="${art}?t=${Date.now()}" alt="" />` : `<div class="cover"><div class="placeholder-art"></div></div>`}
+      <div>
+        <h2>${esc(a.title)}</h2>
+        ${h.pressingTitle ? `<div class="meta" style="color:var(--accent-vinyl)">This record: <b>${esc(h.pressingTitle)}</b></div>` : ""}
+        <div class="credits">${credits}</div>
+        <div class="facts">
+          <div>${a.year ? `<b>${a.year}</b>` : `<span class="badge warn">no year</span>`} ${h.originalYear && h.originalYear !== a.year ? `<span class="warn-text">· originally ${h.originalYear}</span>` : ""} ${pressingKind(h)}</div>
+          <div>${a.mbid ? `${mbLink("album", a.mbid, "release group " + a.mbid.slice(0, 8))} <span class="meta">${rgLine}</span>` : `<span class="badge bad">no album MBID</span>`}</div>
+          <div class="meta">${plural(a.scrobbleCount, "scrobble")}${a.mergedIn ? ` · ${plural(a.mergedIn, "version")} merged in` : ""}${h.otherPressings.length ? ` · ${plural(h.otherPressings.length + 1, "pressing")} owned` : ""}</div>
         </div>
-      </span>
-      <button data-role="mb-assign">Assign</button>
-    `;
-    div.querySelector("[data-role='mb-assign']").addEventListener("click", () => assignMbid(body, row, c.mbid));
-    resultsEl.appendChild(div);
-  }
-}
-
-function wireManualAssign(body, row) {
-  body.querySelector("[data-role='manual-assign']").addEventListener("click", () => {
-    const mbid = body.querySelector("[data-role='manual-mbid']").value.trim();
-    if (!mbid) { setMbidStatus(body, "Enter an mbid first.", "error"); return; }
-    assignMbid(body, row, mbid);
-  });
-}
-
-async function assignMbid(body, row, mbid) {
-  setMbidStatus(body, "Assigning…");
-  const res = await fetch("/api/artists/assign-mbid", {
-    method: "POST",
-    body: JSON.stringify({ artistId: row.artistId, mbid }),
-  });
-  const data = await res.json();
-
-  if (res.status === 409) {
-    renderMbidConflict(body, row, data.conflictingArtist, data.message);
-    return;
-  }
-  if (!res.ok) {
-    setMbidStatus(body, data.error || "Something went wrong.", "error");
-    return;
-  }
-
-  logAction(`Assigned mbid to <span class="who">${esc(row.artistName)}</span>`);
-  onArtistMbidResolved(row, mbid);
-}
-
-function renderMbidConflict(body, row, conflictingArtist, message) {
-  const slot = body.querySelector("[data-role='conflict-slot']");
-  slot.innerHTML = "";
-  const div = document.createElement("div");
-  div.className = "conflict-banner";
-  div.innerHTML = `
-    <span>
-      <div class="headline">${esc(message || "That mbid is already in use.")}</div>
-      <div class="meta">Merge "${esc(row.artistName)}" into "${esc(conflictingArtist.name)}"?</div>
-    </span>
-    <span>
-      <button data-role="conflict-merge" class="primary">Merge</button>
-      <button data-role="conflict-cancel">Cancel</button>
-    </span>
+      </div>
+    </div>
+    ${sec("Completeness", checklist)}
+    ${missingArtists.length ? sec(`Artist identity <span class="meta">(${missingArtists.length} without an MBID)</span>`, `<div data-role="artists"></div>`, { role: "artist" }) : ""}
+    ${sec("This pressing", pressingHtml(h), { right: h.discogsReleaseId ? discogsLink(h.discogsReleaseId, "Discogs release") : "" })}
+    ${sec("MusicBrainz link for this pressing", `<div data-role="link"></div>`, { role: "link" })}
+    ${sec("Title & year", `<div data-role="titleyear"></div>`, { role: "titleyear" })}
+    ${sec("Cover art", `<div data-role="cover"></div>`, { role: "cover" })}
+    ${h.versionProfiles.length ? sec(`Other versions of this album <span class="meta">(${h.versionProfiles.length})</span>`, `<div data-role="versions"></div>`, { role: "versions" }) : ""}
+    ${h.otherPressingDetails.length ? sec(`Your other pressings of this album <span class="meta">— each keeps its own card; plays count once, toward the album</span>`, otherPressingsHtml(h)) : ""}
+    ${sec("Album identity", `<button class="small" data-role="open-identity">Search / change the album's MusicBrainz identity…</button><div data-role="identity"></div>`, { role: "identity" })}
+    ${sec("Move this pressing", `<div class="meta" style="margin-bottom:6px">If this record is attached to the wrong album, move it to the right one (same artist).</div><input type="text" data-role="move-q" placeholder="Search ${esc(h.artist.name)}'s albums…" style="width:100%" /><div data-role="move-slot"></div>`, { role: "move" })}
   `;
-  div.querySelector("[data-role='conflict-merge']").addEventListener("click", async () => {
-    setMbidStatus(body, "Merging…");
-    const res = await fetch("/api/artists/merge", {
-      method: "POST",
-      body: JSON.stringify({ absorbedId: row.artistId, canonicalId: conflictingArtist.artistId }),
+  const $ = (r) => dBody.querySelector(`[data-role='${r}']`);
+  if (missingArtists.length) renderArtistSection($("artists"), missingArtists);
+  renderLinkSection($("link"), h);
+  renderTitleYear($("titleyear"), h);
+  renderCover($("cover"), h);
+  if (h.versionProfiles.length) {
+    $("versions").appendChild(mergeTable([h.albumProfile, ...h.versionProfiles], { checkedAll: true, primary: a.albumId, onMerged: refresh }));
+  }
+  $("open-identity").addEventListener("click", (e) => {
+    e.target.remove();
+    renderAlbumResolve($("identity"), h.albumProfile, { reason: "vinyl identity", onDone: refresh });
+  });
+  wireMove(h);
+  wireCreditAliasButtons(dBody, refresh);
+  dBody.querySelectorAll("[data-otherpressing]").forEach((el) => el.addEventListener("click", () => openDrawer(parseInt(el.dataset.otherpressing, 10))));
+  dBody.querySelectorAll("[data-jump]").forEach((b) => b.addEventListener("click", () => {
+    const target = dBody.querySelector(`[data-sec="${b.dataset.jump}"]`);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (b.dataset.jump === "identity") dBody.querySelector("[data-role='open-identity']")?.click();
+    if (b.dataset.jump === "artist") dBody.querySelector("[data-role='open-artist']")?.click();
+  }));
+}
+
+// The quick fix next to each checklist line: either a direct action or a jump to its section.
+function fixButton(h, c) {
+  if (done(c)) return "";
+  switch (c.fix) {
+    case "year": return keyBtn("y", `Use ${h.originalYear}`, "good", 'data-act="use-year"');
+    case "title": return keyBtn("t", `Use “${esc(h.album.baseTitle)}”`, "", 'data-act="clean-title"');
+    case "suggestion": return `<button class="small" data-jump="link">Review ↓</button>`;
+    case "lookup": return `<button class="small" data-jump="link">Look up ↓</button>`;
+    case "cover": return `<button class="small" data-jump="cover">Fix ↓</button>`;
+    case "versions": return `<button class="small" data-jump="versions">Review ↓</button>`;
+    case "identity": return `<button class="small" data-jump="identity">Fix ↓</button>`;
+    case "credit": return `${creditAliasButton(c.credit)} <button class="small" data-jump="identity">Wrong album ↓</button>`;
+    default:
+      if (c.key === "artist") return keyBtn("i", "Resolve ↓", "", 'data-jump="artist"');
+      if (c.key === "album") return `<button class="small" data-jump="identity">Set ↓</button>`;
+      return "";
+  }
+}
+
+function pressingHtml(h) {
+  return `<dl class="kv">
+    <dt>Format</dt><dd>${fmtTags(h)}</dd>
+    <dt>Label</dt><dd>${esc(h.label || "—")}${h.catalogNumber ? ` · <span class="mono">${esc(h.catalogNumber)}</span>` : ""}</dd>
+    <dt>Released</dt><dd>${h.pressingYear || "—"}${h.discogs?.country ? ` · ${esc(h.discogs.country)}` : ""}${h.discogs?.masterId ? ` · <a class="mb" href="https://www.discogs.com/master/${h.discogs.masterId}" target="_blank" rel="noopener">Discogs master ↗</a>` : ""}</dd>
+    <dt>Condition</dt><dd>${esc(h.mediaCondition || "—")} <span class="meta">(media)</span>${h.sleeveCondition ? ` · ${esc(h.sleeveCondition)} <span class="meta">(sleeve)</span>` : ""}</dd>
+    <dt>Rating</dt><dd>${stars(h.rating) || "—"}</dd>
+    <dt>Added</dt><dd>${esc(fmtDate(h.dateAdded))}</dd>
+    <dt>As imported</dt><dd>${esc(h.rawArtist)} — ${esc(h.rawTitle)}</dd>
+    <dt>MusicBrainz</dt><dd>${h.mbReleaseId ? `${mbLink("release", h.mbReleaseId, "release " + h.mbReleaseId.slice(0, 8))}${h.pressingRg ? ` <span class="meta">of “${esc(h.pressingRg.title)}”</span>` : ""}` : `<span class="muted">not linked yet</span>`}</dd>
+  </dl>
+  ${(h.notes || "").trim() ? `<div style="margin-top:10px"><div class="meta" style="margin-bottom:4px">Your notes</div><div class="notes">${esc(h.notes)}</div></div>` : ""}`;
+}
+
+function otherPressingsHtml(h) {
+  return h.otherPressingDetails.map((o) => `
+    <div class="candidate"><div>${o.pressingTitle ? `<b>${esc(o.pressingTitle)}</b> ` : ""}${fmtTags(o)} ${o.pressingYear ? `<span class="meta">pressed ${o.pressingYear}</span>` : ""}
+      <div class="meta">${esc(o.label || "")}${o.catalogNumber ? ` · ${esc(o.catalogNumber)}` : ""} · added ${esc(fmtDate(o.dateAdded))} ${o.mbReleaseId ? mbLink("release", o.mbReleaseId) : ""}</div></div>
+      <div class="actions">${discogsLink(o.discogsReleaseId, "Discogs")}<button class="small" data-otherpressing="${o.vinylId}">Open</button></div></div>`).join("");
+}
+
+// -- Artist identity (credited artists without an MBID) ---------------------------------------
+// The same toolkit as the Artists page -- what was scrobbled, MusicBrainz search with each top
+// result's discography checked against your albums (this record included), manual id, merge
+// into an artist you already have -- right here, since a vinyl-only artist with 0-1 scrobbles is
+// otherwise hard to find.
+
+function renderArtistSection(el, artists) {
+  el.innerHTML = artists.map((c, i) => `
+    <div class="link-card" data-artist="${c.artistId}">
+      <div style="display:flex; justify-content:space-between; gap:10px; align-items:center">
+        <div><b>${esc(c.name)}</b> <span class="badge warn">no mbid</span></div>
+        <div style="display:flex; gap:6px">
+          <button class="small primary" data-role="${i === 0 ? "open-artist" : "open-artist-x"}">Resolve here</button>
+          <a class="small btn" href="/artists.html#missing/${c.artistId}">On the Artists page →</a>
+        </div>
+      </div>
+      <div data-role="artist-slot"></div>
+    </div>`).join("");
+  el.querySelectorAll("[data-artist]").forEach((card) => {
+    const c = artists.find((x) => x.artistId === parseInt(card.dataset.artist, 10));
+    const btn = card.querySelector("[data-role^='open-artist']");
+    btn.addEventListener("click", () => {
+      btn.remove();
+      renderArtistResolve(card.querySelector("[data-role='artist-slot']"), { artistId: c.artistId, name: c.name }, { reason: "vinyl", onDone: refresh });
     });
-    const data = await res.json();
-    if (!res.ok) {
-      setMbidStatus(body, data.error || "Something went wrong.", "error");
+  });
+}
+
+// -- MusicBrainz link for the pressing -------------------------------------------------------
+
+function renderLinkSection(el, h) {
+  const a = h.album;
+  if (h.mbReleaseId && !h.suggestions.length) {
+    const prg = h.pressingRg;
+    const mismatch = prg && a.mbid && prg.mbid !== a.mbid;
+    el.innerHTML = `<div>Linked to ${mbLink("release", h.mbReleaseId, "MusicBrainz release " + h.mbReleaseId.slice(0, 8))}${prg ? ` — release group ${mbLink("album", prg.mbid)} “${esc(prg.title)}” (${esc(prg.firstReleaseDate || "?")})` : ""}.</div>
+      ${mismatch ? `<div class="notice bad" style="margin-top:8px">That release group isn't the album's (${mbLink("album", a.mbid)}). Either the album's identity is wrong (fix it under “Album identity”) or this pressing is on the wrong album (use “Move this pressing”).</div>` : ""}`;
+    return;
+  }
+  if (!h.suggestions.length) {
+    const fullyChecked = h.discogsChecked && h.discogsDetailsChecked;
+    const txt = !h.discogsReleaseId ? "This holding has no Discogs release id to look up."
+      : fullyChecked ? (h.discogsLinks.length ? "The MusicBrainz link for this Discogs release was rejected."
+          : "Neither MusicBrainz nor the Discogs master give an exact match for this record — use “Album identity” below to search instead.")
+      : "Ask MusicBrainz which release this exact Discogs pressing is — and if it doesn't know the pressing, which album its Discogs master is. Exact, curated mappings, never a guess.";
+    el.innerHTML = `<div class="meta">${esc(txt)}</div>${h.discogsReleaseId && !fullyChecked ? `<div style="margin-top:8px">${keyBtn("l", "Look up on MusicBrainz", "primary", 'data-act="lookup"')}</div>` : ""}`;
+    el.querySelector("[data-act='lookup']")?.addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      el.insertAdjacentHTML("beforeend", `<div class="status-line">Asking MusicBrainz…</div>`);
+      const { ok, data } = await api("/api/vinyl/discogs-lookup", { holdingId: h.vinylId });
+      if (!ok) { toast(esc(data.message), { error: true }); return; }
+      toast(data.suggestionsMade ? "MusicBrainz knows this pressing — review the link" : "MusicBrainz has no link for this Discogs release");
+      refresh();
+    });
+    return;
+  }
+  el.innerHTML = "";
+  h.suggestions.forEach((s, i) => el.appendChild(linkCard(h, s, i === 0)));
+}
+
+function actionBtn(key, label, cls, attrs) {
+  return key ? keyBtn(key, label, cls, attrs) : `<button class="small ${cls}" ${attrs}>${label}</button>`;
+}
+
+function linkCard(h, s, first) {
+  const a = h.album;
+  const ev = s.evidence, rg = ev.rg || {};
+  const types = [rg.primaryType, ...(rg.secondaryTypes || [])].filter(Boolean).join("/");
+  const rgYear = (rg.firstReleaseDate || "").slice(0, 4);
+  const titleDiffers = rg.title && rg.title !== a.title;
+  const div = document.createElement("div");
+  div.className = "link-card";
+  const master = ev.kind === "master";
+  let explain, actions;
+  if (ev.relation === "confirms") {
+    explain = master
+      ? `<span class="ok-text">Confirms the album's identity</span> — MusicBrainz doesn't list this exact pressing, but its Discogs master is this release group.`
+      : `<span class="ok-text">Confirms the album's identity</span> — this pressing is a release of the same release group.`;
+    actions = actionBtn(first ? "a" : "", master ? "Confirm album identity" : "Link this pressing", "good", 'data-act="none"');
+  } else if (ev.relation === "sets") {
+    explain = `The album has no MBID yet — accepting gives it this release group${rgYear ? ` and its original year ${rgYear}` : ""}.`;
+    actions = actionBtn(first ? "a" : "", master ? "Set album identity" : "Link pressing & set album identity", "good", 'data-act="identity"')
+      + (titleDiffers ? ` <label class="meta"><input type="checkbox" data-role="use-title" ${a.editionTags.length ? "checked" : ""}/> also rename to “${esc(rg.title)}”</label>` : "");
+  } else {
+    explain = `<span class="bad-text">Doesn't match.</span> This pressing belongs to a different release group than the album's current MBID (${mbLink("album", a.mbid)}). Which one is wrong?`;
+    actions = `<button class="small" data-act="identity">The album's MBID is wrong — use this one</button>
+      <button class="small" data-act="find-move">This pressing is on the wrong album — move it</button>`;
+  }
+  const rgHtml = `<b>${esc(rg.title || "?")}</b> ${mbLink("album", rg.mbid)} <span class="meta">${esc(types)}${rg.firstReleaseDate ? ` · first released ${esc(rg.firstReleaseDate)}` : ""} · ${esc(rg.artistCredit || "")}</span>`;
+  div.innerHTML = `
+    <div>${master
+      ? `<span class="badge accent">via Discogs master</span> <a class="mb" href="https://www.discogs.com/master/${ev.masterId}" target="_blank" rel="noopener">master ${ev.masterId} ↗</a> <span class="meta">is</span> ${rgHtml}`
+      : `<b>${esc(ev.releaseTitle || s.label)}</b> ${mbLink("release", ev.releaseMbid, "release")} <span class="meta">is a release of</span> ${rgHtml}`}</div>
+    ${ev.artistMatches === false ? `<div class="warn-text meta">⚠ MusicBrainz credits it to “${esc(rg.artistCredit)}”, not ${esc(h.artist.name)}</div>` : ""}
+    <div class="meta" style="margin-top:4px">${explain}</div>
+    <div class="actions">${actions}${actionBtn(first ? "r" : "", "Reject", "bad", 'data-act="reject"')}</div>
+    <div data-role="slot"></div>`;
+  const slot = div.querySelector("[data-role='slot']");
+
+  async function accept(albumAction, extraBody = {}) {
+    div.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    const useTitle = div.querySelector("[data-role='use-title']")?.checked || false;
+    const res = await api("/api/vinyl/link-release", { holdingId: h.vinylId, suggestionId: s.id, albumAction, useTitle, ...extraBody });
+    if (res.status === 409 && res.data.conflictingAlbum) {
+      div.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      slot.innerHTML = `<div class="notice warn" style="margin-top:8px"><div class="headline">${esc(res.data.message)}</div>
+        <div class="meta">They're the same album — merge them, keeping whichever you want as the primary (it takes this release group and original year). Then link the pressing.</div><div data-role="cmp"></div></div>`;
+      renderAlbumCompare(slot.querySelector("[data-role='cmp']"), a.albumId, res.data.conflictingAlbum.albumId, {
+        keys: false, defaultKeep: "a", identity: { mbid: res.data.identity.mbid, year: res.data.identity.year }, onMerged: refresh,
+      });
       return;
     }
-    logAction(`Merged <span class="who">${esc(row.artistName)}</span> into <span class="who">${esc(conflictingArtist.name)}</span>`);
-    // The absorbed artist is gone -- this vinyl's album now hangs off the
-    // canonical artist, which already has the mbid we were trying to set.
-    row.artistId = conflictingArtist.artistId;
-    onArtistMbidResolved(row, conflictingArtist.mbid || null);
+    if (!res.ok) { div.querySelectorAll("button").forEach((b) => (b.disabled = false)); toast(esc(res.data.message), { error: true }); return; }
+    const what = master ? (albumAction === "identity" ? "Set the album's identity for" : albumAction === "move" ? "Moved" : "Confirmed the identity of")
+      : (albumAction === "identity" ? "Linked the pressing and set the album's identity for" : albumAction === "move" ? "Moved and linked" : "Linked the pressing of");
+    toast(`${what} <b>${esc(a.title)}</b>`,
+      { undo: res.data.editIds.length ? { kind: "edit", id: res.data.editIds } : undefined });
+    refresh();
+  }
+  div.querySelector("[data-act='none']")?.addEventListener("click", () => accept("none"));
+  div.querySelector("[data-act='identity']")?.addEventListener("click", () => accept("identity"));
+  div.querySelector("[data-act='find-move']")?.addEventListener("click", async () => {
+    const { ok, data } = await api(`/api/albums/discography?artistId=${h.artist.artistId}`);
+    const target = ok && data.albums.find((x) => x.mbid === rg.mbid);
+    slot.innerHTML = target
+      ? `<div class="notice" style="margin-top:8px"><div>Your album <b>${esc(target.title)}</b> ${mbLink("album", target.mbid)} already has that release group.</div>
+          <div class="actions" style="margin-top:6px"><button class="small good" data-role="do-move">Move this pressing there and link it</button></div></div>`
+      : `<div class="notice warn" style="margin-top:8px">None of ${esc(h.artist.name)}'s albums has that release group yet. If the album itself is wrong, use “The album's MBID is wrong”; otherwise move the pressing by hand below.</div>`;
+    slot.querySelector("[data-role='do-move']")?.addEventListener("click", () => accept("move", { moveToAlbumId: target.albumId }));
   });
-  div.querySelector("[data-role='conflict-cancel']").addEventListener("click", () => { slot.innerHTML = ""; setMbidStatus(body, ""); });
-  slot.appendChild(div);
-  setMbidStatus(body, "");
+  div.querySelector("[data-act='reject']").addEventListener("click", async () => {
+    const res = await api("/api/suggestions/decide", { id: s.id, action: "reject" });
+    if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+    toast("Link rejected — it won't be suggested again");
+    refresh();
+  });
+  return div;
 }
 
-// Refreshes every in-memory row sharing this artist (a vinyl artist is
-// rarely credited on just one holding) so the table/status/dupe-gating
-// all reflect the new mbid without a full reload.
-function onArtistMbidResolved(row, mbid) {
-  for (const r of allRows) {
-    if (r.artistId === row.artistId) r.artistMbid = mbid;
-  }
-  render();
-  const reopened = allRows.find((r) => r.vinylId === row.vinylId);
-  // render() may have filtered this row out of the "needs attention" view
-  // (mbid resolved + no duplicate candidates) -- only reopen if its row is
-  // actually still in the table.
-  if (reopened && queueTbody.querySelector(`tr[data-vinyl-id="${reopened.vinylId}"]`)) {
-    togglePanel(reopened);
-  }
-}
+// -- Title & year --------------------------------------------------------------------------------
 
-// -- Likely duplicate albums -- same tick/review/merge-all pattern as
-// album-duplicates.html's bulk review, except canonical is always fixed
-// to this vinyl's own album (vinyl is the master copy, never absorbed).
-
-function renderDupeSection(panelTd, row) {
-  const body = panelTd.querySelector("[data-role='dupe-body']");
-  if (!row.artistMbid) {
-    body.innerHTML = `<div class="status-line">Assign this artist's MusicBrainz id first.</div>`;
-    return;
-  }
-  const candidates = candidatesByAlbumId.get(row.albumId) || [];
-  if (!candidates.length) {
-    body.innerHTML = `<div class="status-line">No likely duplicates found for this album.</div>`;
-    return;
-  }
-
-  body.innerHTML = `
-    <div class="status-line">This vinyl's album: <strong>${esc(row.albumTitle)}</strong>${mbAlbumLink(row.albumMbid)}</div>
-    <div id="dupe-list-${row.vinylId}"></div>
-    <div class="queue-controls" style="margin-top:10px">
-      <span data-role="dupe-selected-count"></span>
-      <button data-role="dupe-review" class="primary">Review selected →</button>
+function renderTitleYear(el, h) {
+  const a = h.album;
+  el.innerHTML = `
+    <div class="inline-edit">
+      <input type="text" data-role="title" value="${esc(a.title)}" />
+      <input type="number" data-role="year" value="${a.year ?? ""}" placeholder="year" />
+      <button class="small primary" data-role="save">Save</button>
     </div>
-    <div data-role="dupe-confirm"></div>
-  `;
-  const list = body.querySelector(`#dupe-list-${row.vinylId}`);
-  const selectedCountEl = body.querySelector("[data-role='dupe-selected-count']");
-  const reviewBtn = body.querySelector("[data-role='dupe-review']");
-  const confirmEl = body.querySelector("[data-role='dupe-confirm']");
+    <div class="meta" style="margin-top:6px">
+      The album is the work, not this copy: use the <b>original</b> release's title and first-release year${h.originalYear ? ` (MusicBrainz: ${h.originalYear}${h.rg ? `, “${esc(h.rg.title)}”` : ""})` : ""}.
+      ${h.pressingYear ? `This pressing is from ${h.pressingYear} — that stays on the pressing, not the album.` : ""}
+    </div>`;
+  const save = async (changes) => {
+    const res = await api("/api/albums/edit", { albumId: a.albumId, ...changes, reason: "vinyl title/year" });
+    if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+    if (!res.data.editId) { toast("Nothing changed"); return; }
+    toast(`Updated <b>${esc(res.data.title)}</b>`, { undo: { kind: "edit", id: res.data.editId } });
+    refresh();
+  };
+  el.querySelector("[data-role='save']").addEventListener("click", () => {
+    const title = el.querySelector("[data-role='title']").value.trim();
+    const year = el.querySelector("[data-role='year']").value.trim();
+    save({ title: title !== a.title ? title : undefined, year: year && parseInt(year, 10) !== a.year ? parseInt(year, 10) : undefined });
+  });
+  el.querySelectorAll("input").forEach((i) => i.addEventListener("keydown", (e) => { if (e.key === "Enter") el.querySelector("[data-role='save']").click(); }));
+  // checklist quick fixes
+  dBody.querySelector("[data-act='use-year']")?.addEventListener("click", () => save({ year: h.originalYear }));
+  dBody.querySelector("[data-act='clean-title']")?.addEventListener("click", () => save({ title: a.baseTitle }));
+}
 
-  const entries = candidates.map((cand) => {
-    const wrap = document.createElement("div");
-    const autoTicked = cand.score >= AUTO_TICK_SCORE && safeToAutoTick(row.albumTitle, cand.other.title);
-    wrap.innerHTML = `
-      <div class="dup-candidate">
-        <label class="dup-candidate-main">
-          <input type="checkbox" class="dup-check" ${autoTicked ? "checked" : ""} />
-          <span>
-            <strong>${esc(cand.other.title)}</strong>${mbAlbumLink(cand.other.mbid)}
-            <span class="meta">(${cand.other.scrobbleCount.toLocaleString()} scrobbles, ${cand.other.vinylCount.toLocaleString()} vinyl)</span>
-            <div class="meta">similarity ${cand.score}${row.albumMbid && cand.other.mbid && row.albumMbid !== cand.other.mbid ? " · ⚠ has its own distinct MusicBrainz id" : ""}</div>
-          </span>
-        </label>
-        <span class="actions">
-          <button data-role="dismiss">Not a duplicate</button>
-        </span>
+// -- Cover ---------------------------------------------------------------------------------------
+
+function renderCover(el, h) {
+  const a = h.album;
+  const has = a.coverStatus === "ok";
+  el.innerHTML = `
+    <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap">
+      ${has ? `<img class="big-cover" src="/covers/${a.albumId}.jpg?t=${Date.now()}" alt="" />` : ""}
+      <div style="flex:1; min-width:240px">
+        <div class="meta">${has ? "The album's cover (the original release's art, shared by every pressing)." : a.coverStatus === "none" ? "The Cover Art Archive had nothing for this release group — paste a direct image link instead." : "No cover fetched yet."}</div>
+        <div class="inline-form" style="margin-top:8px">
+          ${keyBtn("c", has ? "Re-fetch from MusicBrainz" : "Fetch from MusicBrainz", "", `data-act="fetch" ${a.mbid ? "" : "disabled title=\"Needs an album MBID first\""}`)}
+        </div>
+        <div class="inline-form" style="margin-top:8px"><input type="text" data-role="url" placeholder="https://… (a direct image link)" style="flex:1; min-width:220px" /><button class="small" data-act="url">Use this image</button></div>
       </div>
-    `;
-    const checkbox = wrap.querySelector("input[type='checkbox']");
-    checkbox.addEventListener("change", updateToolbar);
-    wrap.querySelector("[data-role='dismiss']").addEventListener("click", async () => {
-      await fetch("/api/albums/dismiss-duplicate", {
-        method: "POST",
-        body: JSON.stringify({ aId: row.albumId, bId: cand.other.albumId }),
+    </div>`;
+  el.querySelector("[data-act='fetch']").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const { ok, data } = await api("/api/albums/fetch-cover", { albumId: a.albumId });
+    if (!ok) { toast(esc(data.message), { error: true }); btn.disabled = false; return; }
+    toast(data.found ? `Cover art saved for <b>${esc(a.title)}</b>` : "The Cover Art Archive has no art for this release group", { error: !data.found });
+    refresh();
+  });
+  el.querySelector("[data-act='url']").addEventListener("click", async () => {
+    const url = el.querySelector("[data-role='url']").value.trim();
+    if (!url) return;
+    const { ok, data } = await api("/api/albums/set-cover", { albumId: a.albumId, url });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    toast(`Cover art saved for <b>${esc(a.title)}</b>`);
+    refresh();
+  });
+}
+
+// -- Move pressing ------------------------------------------------------------------------------
+
+let moveTypeahead = null;
+function wireMove(h) {
+  moveTypeahead?.destroy(); // the drawer is re-rendered per record -- drop the previous popover
+  const input = dBody.querySelector("[data-role='move-q']");
+  const slot = dBody.querySelector("[data-role='move-slot']");
+  let albums = null;
+  moveTypeahead = mountTypeahead(input, {
+    fetchItems: async (q) => {
+      if (!albums) albums = (await api(`/api/albums/discography?artistId=${h.artist.artistId}`)).data.albums || [];
+      const ql = q.toLowerCase();
+      return albums.filter((x) => x.albumId !== h.album.albumId && x.title.toLowerCase().includes(ql)).slice(0, 15);
+    },
+    renderItem: (x) => `<span>${esc(x.title)} ${x.year ? `<span class="meta">(${x.year})</span>` : ""} ${x.mbid ? `<span class="badge ok">mbid</span>` : ""}</span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`,
+    onPick: (x) => {
+      slot.innerHTML = `<div class="notice" style="margin-top:8px">Move this pressing from <b>${esc(h.album.title)}</b> to <b>${esc(x.title)}</b>${x.year ? ` (${x.year})` : ""} ${x.mbid ? mbLink("album", x.mbid) : ""}?
+        <div style="margin-top:6px; display:flex; gap:6px"><button class="small danger" data-role="go">Move it</button><button class="small" data-role="cancel">Cancel</button></div></div>`;
+      slot.querySelector("[data-role='cancel']").addEventListener("click", () => { slot.innerHTML = ""; });
+      slot.querySelector("[data-role='go']").addEventListener("click", async () => {
+        const res = await api("/api/vinyl/move", { holdingId: h.vinylId, albumId: x.albumId });
+        if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+        toast(`Moved the pressing to <b>${esc(res.data.albumTitle)}</b>`, { undo: { kind: "edit", id: res.data.editId } });
+        refresh();
       });
-      wrap.remove();
-      removeCandidate(row.albumId, cand.other.albumId);
-      updateToolbar();
-    });
-    list.appendChild(wrap);
-    return { cand, wrap, checkbox };
-  });
-
-  function updateToolbar() {
-    const selected = entries.filter((e) => e.wrap.isConnected && e.checkbox.checked);
-    selectedCountEl.textContent = `${selected.length} selected`;
-    reviewBtn.disabled = !selected.length;
-  }
-  updateToolbar();
-
-  reviewBtn.addEventListener("click", async () => {
-    const selected = entries.filter((e) => e.wrap.isConnected && e.checkbox.checked);
-    if (!selected.length) return;
-    await runDupeMerge(confirmEl, row, selected, entries, updateToolbar);
+    },
   });
 }
 
-// The map holds both directions of every pair (see buildCandidateMap), so
-// a dismiss/merge has to strip both -- otherwise the pair could still turn
-// up from the other album's own vinyl row before the next full reload.
-function removeCandidate(albumId, otherAlbumId) {
-  for (const [a, b] of [[albumId, otherAlbumId], [otherAlbumId, albumId]]) {
-    const list = candidatesByAlbumId.get(a) || [];
-    candidatesByAlbumId.set(a, list.filter((c) => c.other.albumId !== b));
-  }
-}
+// -- Keyboard -----------------------------------------------------------------------------------
 
-async function runDupeMerge(confirmEl, row, selected, allEntries, updateToolbar) {
-  confirmEl.innerHTML = `<div class="status-line">Loading…</div>`;
-  const [canonical, ...absorbedDetails] = await Promise.all([
-    fetch(`/api/albums/detail?id=${row.albumId}`).then((r) => r.json()),
-    ...selected.map((e) => fetch(`/api/albums/detail?id=${e.cand.other.albumId}`).then((r) => r.json())),
-  ]);
-  const rows = selected.map((e, i) => ({ entry: e, detail: absorbedDetails[i], status: "pending", error: null }));
-
-  function paint() {
-    const rowsHtml = rows.map(({ detail, status, error }) => {
-      const conflict = detail.mbid && canonical.mbid && detail.mbid !== canonical.mbid;
-      const stateHtml = { pending: "", merging: "Merging…", done: "✓ merged", error: `✗ ${esc(error || "failed")}` }[status];
-      return `
-        <div class="merge-row">
-          <span>
-            <strong>${esc(detail.title)}</strong>${mbAlbumLink(detail.mbid)}
-            <span class="meta">(${detail.scrobbleCount.toLocaleString()} scrobbles, ${detail.vinylCount.toLocaleString()} vinyl)</span>
-            ${conflict ? `<div class="meta" style="color:var(--warn)">⚠ has its own distinct MusicBrainz id — will be discarded from this row</div>` : ""}
-          </span>
-          <span class="state ${status}">${stateHtml}</span>
-        </div>
-      `;
-    }).join("");
-
-    confirmEl.innerHTML = `
-      <div class="merge-confirm stack">
-        <div><strong>Merging ${rows.length} album${rows.length === 1 ? "" : "s"} into</strong> ${esc(canonical.artistName)} — ${esc(canonical.title)}${mbAlbumLink(canonical.mbid)} <span class="meta">(this vinyl's album)</span></div>
-        ${rowsHtml}
-        <div class="meta">Cannot be undone from here — a backup is kept automatically for each merge.</div>
-        <div class="actions-row">
-          <button data-role="do-merge-all" class="danger">Merge all</button>
-          <button data-role="cancel-merge">Cancel</button>
-        </div>
-      </div>
-    `;
-    confirmEl.querySelector("[data-role='cancel-merge']").addEventListener("click", () => { confirmEl.innerHTML = ""; });
-    confirmEl.querySelector("[data-role='do-merge-all']").addEventListener("click", runAll);
-  }
-
-  async function runAll() {
-    confirmEl.querySelectorAll("button").forEach((b) => (b.disabled = true));
-    for (const r of rows) {
-      r.status = "merging";
-      paint();
-      try {
-        const res = await fetch("/api/albums/merge", {
-          method: "POST",
-          body: JSON.stringify({ absorbedId: r.entry.cand.other.albumId, canonicalId: row.albumId }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Something went wrong.");
-        const moved = Object.entries(data.rowsMoved)
-          .filter(([k, v]) => v > 0 && !k.includes("collisions_dropped"))
-          .map(([k, v]) => `${v} ${k.replace(/_/g, " ")}`)
-          .join(", ");
-        logAction(`Merged <span class="who">${esc(data.absorbedTitle)}</span> into <span class="who">${esc(data.canonicalTitle)}</span>${moved ? ` — moved ${esc(moved)}` : ""}`);
-        r.status = "done";
-        r.entry.wrap.remove();
-        removeCandidate(row.albumId, r.entry.cand.other.albumId);
-      } catch (err) {
-        r.status = "error";
-        r.error = err.message;
-      }
-      paint();
-    }
-    updateToolbar();
-  }
-
-  paint();
-}
-
-// -- Wiring ---------------------------------------------------------------
-
-refreshBtn.addEventListener("click", loadQueue);
-showAllCheckbox.addEventListener("change", render);
-
-buildBtn.addEventListener("click", async () => {
-  buildBtn.disabled = true;
-  logEl.innerHTML = "";
-  document.getElementById("spinner").style.display = "";
-  logStatusText.textContent = "Rebuilding public database…";
-  logStatusText.style.color = "";
-  logSection.style.display = "block";
-
-  const res = await fetch("/build", { method: "POST" });
-  const data = await res.json();
-  if (!res.ok) {
-    logStatusText.textContent = data.error || "Something went wrong.";
-    buildBtn.disabled = false;
+document.getElementById("d-close").addEventListener("click", closeDrawer);
+document.getElementById("d-prev").addEventListener("click", () => step(-1));
+document.getElementById("d-next").addEventListener("click", () => step(1));
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "Escape" && openId) { closeDrawer(); return; }
+  if (!openId) {
+    if (e.key === "j" && shown.length) { openDrawer(shown[0].vinylId); e.preventDefault(); }
     return;
   }
-  pollJob(data.jobId, logEl, (result) => {
-    document.getElementById("spinner").style.display = "none";
-    logStatusText.textContent = result.returncode === 0 ? "Done" : `Exited with code ${result.returncode}`;
-    logStatusText.style.color = result.returncode === 0 ? "var(--accent-scrobble)" : "var(--accent-live)";
-    buildBtn.disabled = false;
-  });
+  if (e.key === "j") { step(1); e.preventDefault(); return; }
+  if (e.key === "k") { step(-1); e.preventDefault(); return; }
+  const btn = dBody.querySelector(`[data-key="${CSS.escape(e.key)}"]:not(:disabled)`);
+  if (btn) { btn.click(); e.preventDefault(); }
 });
 
-loadQueue();
+// -- Bulk actions (always reviewed first) -----------------------------------------------------
+
+const bulkPanel = document.getElementById("bulk-panel");
+function updateBulkButtons() {
+  const links = all.filter((h) => !h.mbReleaseId && h.suggestions.some((s) => s.evidence.relation === "confirms")).length;
+  const years = new Set(all.filter((h) => check(h, "year").fix === "year" && check(h, "identity").status === "ok").map((h) => h.album.albumId)).size;
+  const covers = new Set(all.filter((h) => h.album.mbid && !h.album.coverStatus).map((h) => h.album.albumId)).size;
+  const set = (id, label, n) => { const b = document.getElementById(id); b.textContent = `${label} (${n})`; b.disabled = !n; };
+  set("bulk-links", "Review confirmed pressing links", links);
+  set("bulk-years", "Review original years", years);
+  set("bulk-covers", "Fetch missing covers", covers);
+}
+
+async function openBulk(action, title, blurb) {
+  const { ok, data } = await api(`/api/vinyl/bulk-preview?action=${action}`);
+  if (!ok) { toast(esc(data.message), { error: true }); return; }
+  const rows = data.rows;
+  bulkPanel.innerHTML = `<div class="sec" style="margin-top:12px">
+    <div class="block-head"><div><b>${esc(title)}</b> <span class="meta">${esc(blurb)}</span></div>
+      <div style="display:flex; gap:6px"><button class="small good" data-role="apply">Apply ${rows.length}</button><button class="small" data-role="cancel">Cancel</button></div></div>
+    <div class="table-scroll" style="max-height:360px; overflow-y:auto"><table class="data"><thead><tr><th><input type="checkbox" data-role="all" checked /></th><th>Artist</th><th>Album</th><th>Change</th><th>Pressing</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr><td><input type="checkbox" data-i="${i}" checked /></td><td>${esc(r.artist)}</td><td>${esc(r.title)}</td>
+      <td>${esc(r.detail)} ${r.releaseMbid ? mbLink("release", r.releaseMbid) : ""}</td><td class="meta">${esc(r.format || "")}${r.pressingYear ? ` · ${r.pressingYear}` : ""}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const boxes = () => [...bulkPanel.querySelectorAll("input[data-i]")];
+  const apply = bulkPanel.querySelector("[data-role='apply']");
+  const recount = () => {
+    const n = boxes().filter((b) => b.checked).length;
+    apply.textContent = `Apply ${n}`; apply.disabled = !n;
+    const all = bulkPanel.querySelector("[data-role='all']");
+    all.checked = n === boxes().length; all.indeterminate = n > 0 && n < boxes().length;
+  };
+  bulkPanel.querySelector("[data-role='all']").addEventListener("change", (e) => { boxes().forEach((b) => (b.checked = e.target.checked)); recount(); });
+  boxes().forEach((b) => b.addEventListener("change", recount));
+  bulkPanel.querySelector("[data-role='cancel']").addEventListener("click", () => { bulkPanel.innerHTML = ""; });
+  apply.addEventListener("click", async () => {
+    const chosen = boxes().filter((b) => b.checked).map((b) => rows[parseInt(b.dataset.i, 10)]);
+    apply.disabled = true;
+    const res = await api("/api/vinyl/bulk", { action, rows: chosen });
+    if (!res.ok) { toast(esc(res.data.message), { error: true }); apply.disabled = false; return; }
+    bulkPanel.innerHTML = "";
+    toast(`Applied ${res.data.applied} change${res.data.applied === 1 ? "" : "s"}`, { undo: res.data.editIds.length ? { kind: "edit", id: res.data.editIds } : undefined, timeout: 20000 });
+    refresh();
+  });
+}
+
+document.getElementById("bulk-links").addEventListener("click", () => openBulk("link-confirmations", "Link confirmed pressings",
+  "MusicBrainz says each of these pressings is a release of the album's own release group — linking changes nothing else."));
+document.getElementById("bulk-years").addEventListener("click", () => openBulk("original-years", "Set original years",
+  "Only albums whose identity is verified: the year becomes the release group's first-release year."));
+document.getElementById("bulk-covers").addEventListener("click", async (e) => {
+  const targets = [...new Map(all.filter((h) => h.album.mbid && !h.album.coverStatus).map((h) => [h.album.albumId, h])).values()];
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  let found = 0;
+  for (let i = 0; i < targets.length; i++) {
+    btn.textContent = `Fetching… ${i + 1}/${targets.length}`;
+    const { ok, data } = await api("/api/albums/fetch-cover", { albumId: targets[i].album.albumId });
+    if (ok && data.found) found++;
+    await new Promise((r) => setTimeout(r, 250)); // polite to the Cover Art Archive
+  }
+  toast(`Fetched covers — found ${found} of ${targets.length}`);
+  refresh();
+});
+
+document.getElementById("sweep-btn").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  await runSweep(document.getElementById("sweep-box"), "vinyl-check", parseInt(document.getElementById("sweep-limit").value, 10) || 50);
+  btn.disabled = false;
+  refresh();
+});
+
+document.addEventListener("mc:undone", () => load(true));
+load(false);
 </script>
 </body>
 </html>

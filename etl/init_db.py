@@ -12,9 +12,11 @@ import argparse
 import sqlite3
 from pathlib import Path
 
+from common import DB_PATH
+from migrations import migrate
+
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = ROOT / "schema.sql"
-DB_PATH = ROOT / "data" / "music.sqlite"
 
 
 def build(fresh: bool = False) -> None:
@@ -29,6 +31,7 @@ def build(fresh: bool = False) -> None:
     try:
         conn.executescript(schema_sql)
         conn.commit()
+        migrate(conn)  # no-ops on a fresh build (schema.sql already has it all), just records them
     finally:
         conn.close()
 

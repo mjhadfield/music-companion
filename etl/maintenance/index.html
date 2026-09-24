@@ -4,261 +4,70 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music Companion — Maintenance</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="shared.css" />
 <style>
-  /* Same "Master Of Reality" dark palette as the main site -- this tool
-     is only ever used by one person locally, so no light mode needed. */
-  :root {
-    --bg: #0d0a10;
-    --bg-elevated: #17121c;
-    --border: #332a3d;
-    --text: #f1ecf5;
-    --text-dim: #a89bb5;
-    --text-muted: #7d7188;
-    --accent-vinyl: #b8822a;
-    --accent-scrobble: #d43e78;
-    --accent-live: #8b4fd6;
-    --accent: #8b4fd6;
-    --warn: #e2a33e;
-    --danger: #c0453f;
-    --font-display: "Oswald", "Arial Narrow", -apple-system, sans-serif;
-    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-body);
-    line-height: 1.5;
-  }
-  main {
-    max-width: 720px;
-    margin: 0 auto;
-    padding: 40px 24px 80px;
-  }
-  h1 {
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    font-size: 1.6rem;
-    margin: 0 0 4px;
-  }
-  h2 {
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    font-size: 1rem;
-    margin: 0 0 4px;
-  }
-  section { margin-bottom: 34px; }
-  .subtitle { color: var(--text-dim); font-size: 0.9rem; margin: 0 0 16px; }
-  a { color: var(--accent); }
-  .link-card h3 {
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    font-size: 0.92rem;
-    margin: 0 0 8px;
-  }
-  .link-card p { margin: 0 0 14px; }
-  .btn-link {
-    display: inline-block;
-    padding: 9px 16px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 0.82rem;
-    text-decoration: none;
-  }
-  .btn-link:hover { border-color: var(--accent); color: var(--accent); }
+  main { max-width: 960px; }
+  section { margin-bottom: 30px; }
 
-  .card {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 22px 24px;
-    margin-bottom: 24px;
-  }
-  .source-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 0;
-    border-bottom: 1px solid var(--border);
-  }
+  .source-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
   .source-row:last-of-type { border-bottom: none; }
-  .source-row label {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-weight: 600;
-    cursor: pointer;
-    flex: 1;
-  }
-  .source-row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
-  .source-row select {
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 7px;
-    padding: 6px 10px;
-    font-size: 0.85rem;
-    max-width: 260px;
-  }
+  .source-row label { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; flex: 1; }
+  .source-row input[type="checkbox"] { width: 17px; height: 17px; cursor: pointer; }
+  .source-row select { max-width: 260px; }
   .source-row select:disabled { opacity: 0.4; }
-  .source-tag {
-    font-size: 0.68rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 2px 8px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-  }
-  .source-tag.vinyl { color: var(--accent-vinyl); }
-  .source-tag.scrobble { color: var(--accent-scrobble); }
-  .source-tag.live { color: var(--accent-live); }
 
-  #run-btn {
-    display: block;
-    width: 100%;
-    margin-top: 18px;
-    padding: 12px;
-    border: none;
-    border-radius: 8px;
-    background: var(--accent);
-    color: #fff;
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-size: 0.92rem;
-    cursor: pointer;
-  }
-  #run-btn:hover:not(:disabled) { filter: brightness(1.12); }
-  #run-btn:disabled { opacity: 0.5; cursor: default; }
-
-  #error-box {
-    color: var(--accent-live);
-    font-size: 0.85rem;
-    margin-top: 12px;
-    display: none;
-  }
-
+  #run-btn { display: block; width: 100%; margin-top: 18px; padding: 12px; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.92rem; }
+  #error-box { color: var(--accent-live); font-size: 0.85rem; margin-top: 12px; display: none; }
   #log-section { display: none; }
-  #log-status {
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 0.85rem;
-    color: var(--text-dim);
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .spinner {
-    width: 13px; height: 13px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  #log {
-    background: #0a0810;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 18px;
-    font-family: "SF Mono", Menlo, Consolas, monospace;
-    font-size: 0.82rem;
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-  .log-line { padding: 1px 0; }
-  .log-line.header { color: var(--accent); font-weight: 700; margin-top: 6px; }
-  .log-line.warn { color: var(--warn); font-weight: 600; }
-  .log-line.dim { color: var(--text-muted); }
 
   #decision-row { display: none; gap: 12px; margin-top: 18px; }
-  .decision-btn {
-    flex: 1;
-    padding: 11px;
-    border-radius: 8px;
-    border: none;
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-size: 0.86rem;
-    cursor: pointer;
-  }
+  .decision-btn { flex: 1; padding: 11px; border: none; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.86rem; }
   .decision-btn:hover { filter: brightness(1.12); }
   .decision-btn.accept { background: var(--accent-vinyl); color: #fff; }
   .decision-btn.reject { background: var(--danger); color: #fff; }
-
-  #decision-result {
-    display: none;
-    margin-top: 16px;
-    padding: 12px 16px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    font-size: 0.88rem;
-  }
+  #decision-result { display: none; margin-top: 16px; padding: 12px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.88rem; }
   #decision-result.accepted { border-color: var(--accent-vinyl); color: var(--accent-vinyl); }
   #decision-result.rejected { border-color: var(--danger); color: var(--danger); }
+  #build-btn { display: none; margin-top: 10px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.8rem; }
 
-  #build-btn {
-    display: none;
-    margin-top: 10px;
-    padding: 9px 16px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-  #build-btn:hover { border-color: var(--accent); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+  .tile { display: block; text-decoration: none; color: var(--text); margin: 0; padding: 18px 18px 16px; }
+  .tile:hover::before { box-shadow: inset 0 0 0 1px var(--accent); }
+  .tile h3 { color: var(--text); font-size: 0.92rem; margin-bottom: 10px; }
+  .tile .stat { display: flex; justify-content: space-between; gap: 8px; font-size: 0.84rem; color: var(--text-dim); padding: 2px 0; }
+  .tile .stat b { font-family: var(--font-mono); font-weight: 400; color: var(--text); }
+  .tile .stat b.warn { color: var(--warn); }
+  .tile .stat b.accent { color: var(--accent-soft); }
+  .tile .go { margin-top: 10px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent-soft); }
+  .tile.soon { opacity: 0.55; pointer-events: none; }
 </style>
 </head>
 <body>
+<header id="topnav"></header>
 <main>
-  <h1>Maintenance</h1>
-
   <section>
-    <h2>Updates</h2>
-    <p class="subtitle">Pull fresh data, review what's new, publish when ready.</p>
+    <h1>Updates</h1>
+    <p class="subtitle">Pull fresh data, review what's new, keep or discard it — then publish when ready.</p>
 
     <div class="card">
       <div class="source-row">
-        <label><input type="checkbox" id="chk-lastfm" /> Last.fm scrobbles <span class="source-tag scrobble">incremental</span></label>
+        <label><input type="checkbox" id="chk-lastfm" /> Last.fm scrobbles <span class="badge accent">incremental</span></label>
       </div>
       <div class="source-row">
-        <label><input type="checkbox" id="chk-setlistfm" /> Setlist.fm shows <span class="source-tag live">full re-pull</span></label>
+        <label><input type="checkbox" id="chk-setlistfm" /> Setlist.fm shows <span class="badge bad">full re-pull</span></label>
       </div>
       <div class="source-row">
-        <label><input type="checkbox" id="chk-discogs" /> Discogs collection <span class="source-tag vinyl">CSV import</span></label>
+        <label><input type="checkbox" id="chk-discogs" /> Discogs collection <span class="badge vinyl">CSV import</span></label>
         <select id="discogs-file" disabled></select>
       </div>
 
-      <button id="run-btn">Run Refresh</button>
+      <button id="run-btn" class="primary">Run Refresh</button>
       <div id="error-box"></div>
     </div>
 
     <div id="log-section" class="card">
-      <div id="log-status"><span id="spinner" class="spinner"></span> <span id="log-status-text">Running…</span></div>
-      <div id="log"></div>
+      <div class="job-status"><span id="spinner" class="spinner"></span> <span id="log-status-text">Running…</span></div>
+      <div id="log" class="log"></div>
 
       <div id="decision-row">
         <button id="accept-btn" class="decision-btn accept">✓ Accept changes</button>
@@ -270,53 +79,45 @@
   </section>
 
   <section>
-    <h2>Artists</h2>
-    <p class="subtitle">Resolve MusicBrainz ids and merge duplicate artist records.</p>
-
-    <div class="card link-card">
-      <h3>Find Artist MBIDs</h3>
-      <p class="subtitle">Fuzzy-search MusicBrainz, enter an id by hand, or merge into an artist you already have -- for artists with no MusicBrainz id yet.</p>
-      <a class="btn-link" href="/artists.html">Open →</a>
-    </div>
-
-    <div class="card link-card">
-      <h3>Tidy Duplicates</h3>
-      <p class="subtitle">Merge duplicate artist records -- e.g. "Toots and The Maytals" vs "Toots & The Maytals" -- manually, or via a fuzzy scan that suggests likely pairs.</p>
-      <a class="btn-link" href="/duplicates.html">Open →</a>
+    <h2>Clean up</h2>
+    <p class="subtitle">Artist MBIDs first — everything else (albums, vinyl, songs) only ever merges within one artist.</p>
+    <div class="tiles" id="tiles">
+      <a class="card tile" href="/artists.html"><h3>Artists</h3><div class="stats" data-for="artists"></div><div class="go">Open →</div></a>
+      <a class="card tile" href="/vinyl.html"><h3>Vinyl holdings</h3><div class="stats" data-for="vinyl"></div><div class="go">Open →</div></a>
+      <a class="card tile" href="/albums.html"><h3>Albums</h3><div class="stats" data-for="albums"></div><div class="go">Open →</div></a>
+      <a class="card tile" href="/songs.html"><h3>Songs</h3><div class="stats" data-for="songs"></div><div class="go">Open →</div></a>
+      <a class="card tile" href="/inbox.html"><h3>Import inbox</h3><div class="stats" data-for="imports"></div><div class="go">Open →</div></a>
     </div>
   </section>
 
   <section>
-    <h2>Albums</h2>
-    <p class="subtitle">Same idea, for albums -- unify different releases ("Remastered" vs. "Special Edition" vs. the original pressing) so scrobbles and vinyl holdings count against one record instead of splitting across several.</p>
-
-    <div class="card link-card">
-      <h3>Find Album MBIDs</h3>
-      <p class="subtitle">Fuzzy-search MusicBrainz release groups, enter an id by hand, or merge into an album you already have -- for albums with no MusicBrainz id yet.</p>
-      <a class="btn-link" href="/albums.html">Open →</a>
-    </div>
-
-    <div class="card link-card">
-      <h3>Tidy Album Duplicates</h3>
-      <p class="subtitle">Merge duplicate album records -- e.g. different pressings of the same release -- manually, or via a fuzzy scan (scoped to each artist's own discography) that suggests likely pairs.</p>
-      <a class="btn-link" href="/album-duplicates.html">Open →</a>
-    </div>
-  </section>
-
-  <section>
-    <h2>Vinyl Holdings</h2>
-    <p class="subtitle">Vinyl is the master copy. Work each holding top-down: confirm its artist's MusicBrainz id, then fold any likely-duplicate album records into the one it actually points at.</p>
-
-    <div class="card link-card">
-      <h3>Review Vinyl Holdings</h3>
-      <p class="subtitle">A combined queue -- artists still missing an mbid, and albums with likely duplicates -- scoped to what you actually own on vinyl.</p>
-      <a class="btn-link" href="/vinyl.html">Open →</a>
+    <div class="card">
+      <div class="card-head"><h2>Recent activity</h2><span class="spacer"></span><span class="meta">every merge and edit can be undone</span></div>
+      <div id="activity"></div>
     </div>
   </section>
 </main>
 
 <script src="shared.js"></script>
 <script>
+mountNav("Home");
+mountActivity(document.getElementById("activity"), { limit: 15 });
+
+async function loadOverview() {
+  const { ok, data } = await api("/api/overview");
+  if (!ok) return;
+  const stat = (label, n, cls = "") => `<div class="stat"><span>${label}</span><b class="${n ? cls : ""}">${fmtNum(n)}</b></div>`;
+  const fill = (key, html) => { document.querySelector(`[data-for="${key}"]`).innerHTML = html; };
+  fill("artists", stat("Played, no MBID", data.artists.missingMbid, "warn") + stat("Suggestions to review", data.artists.pendingSuggestions, "accent") + stat("Total", data.artists.total));
+  fill("vinyl", stat("Holdings", data.vinyl.total) + stat("No album MBID", data.vinyl.missingAlbumMbid, "warn") + stat("No cover art", data.vinyl.missingCover, "warn"));
+  fill("albums", stat("No MBID", data.albums.missingMbid, "warn") + stat("Merged so far", data.albums.merged) + stat("Total", data.albums.total));
+  fill("imports", stat("To review", data.imports.pending, "accent") + `<div class="stat"><span>Last import</span><b>${esc(fmtDate(data.imports.lastRun))}</b></div>`);
+  fill("songs", stat("Live songs, no album yet", data.songs.liveTodo, "warn") + stat("Setlist-only songs", data.songs.setlistOnly) + stat("Total", data.songs.total));
+}
+loadOverview();
+document.addEventListener("mc:changed", loadOverview);
+
+// -- Updates (unchanged behaviour) -----------------------------------------------------------
 const chkLastfm = document.getElementById("chk-lastfm");
 const chkSetlistfm = document.getElementById("chk-setlistfm");
 const chkDiscogs = document.getElementById("chk-discogs");
@@ -325,7 +126,6 @@ const runBtn = document.getElementById("run-btn");
 const errorBox = document.getElementById("error-box");
 const logSection = document.getElementById("log-section");
 const logEl = document.getElementById("log");
-const logStatus = document.getElementById("log-status");
 const logStatusText = document.getElementById("log-status-text");
 const decisionRow = document.getElementById("decision-row");
 const acceptBtn = document.getElementById("accept-btn");
@@ -350,20 +150,17 @@ loadImports();
 
 chkDiscogs.addEventListener("change", () => { discogsFile.disabled = !chkDiscogs.checked; });
 
-// esc/appendLines/pollJob now live in shared.js.
-
 function onJobDone(jobId, triggerBtn, data) {
   document.getElementById("spinner").style.display = "none";
   logStatusText.textContent = data.returncode === 0 ? "Done" : `Exited with code ${data.returncode}`;
-  logStatusText.style.color = data.returncode === 0 ? "var(--accent-scrobble)" : "var(--accent-live)";
+  logStatusText.style.color = data.returncode === 0 ? "var(--ok)" : "var(--accent-live)";
   triggerBtn.disabled = false;
-  // A successful refresh (as opposed to the follow-up "rebuild public
-  // db" job) is the one point where there's an actual decision to
-  // make -- everything else just reports what happened.
+  // A successful refresh is the one point where there's a keep/discard decision to make.
   if (data.kind === "refresh" && data.returncode === 0 && !data.decision) {
     currentRefreshJobId = jobId;
     decisionRow.style.display = "flex";
   }
+  notifyChanged();
 }
 
 function resetLogPanel(statusText) {
@@ -380,23 +177,15 @@ function resetLogPanel(statusText) {
 
 runBtn.addEventListener("click", async () => {
   errorBox.style.display = "none";
-  const body = {
-    lastfm: chkLastfm.checked,
-    setlistfm: chkSetlistfm.checked,
-    discogsFile: chkDiscogs.checked ? discogsFile.value : null,
-  };
-
+  const body = { lastfm: chkLastfm.checked, setlistfm: chkSetlistfm.checked, discogsFile: chkDiscogs.checked ? discogsFile.value : null };
   runBtn.disabled = true;
-  const res = await fetch("/run", { method: "POST", body: JSON.stringify(body) });
-  const data = await res.json();
-
-  if (!res.ok) {
-    errorBox.textContent = data.error || "Something went wrong.";
+  const { ok, data } = await api("/run", body);
+  if (!ok) {
+    errorBox.textContent = data.message || "Something went wrong.";
     errorBox.style.display = "block";
     runBtn.disabled = false;
     return;
   }
-
   resetLogPanel("Running…");
   pollJob(data.jobId, logEl, (result) => onJobDone(data.jobId, runBtn, result));
 });
@@ -404,22 +193,16 @@ runBtn.addEventListener("click", async () => {
 async function decide(action) {
   acceptBtn.disabled = true;
   rejectBtn.disabled = true;
-  const res = await fetch(`/decision/${currentRefreshJobId}`, {
-    method: "POST",
-    body: JSON.stringify({ action }),
-  });
-  const data = await res.json();
+  const { ok, data } = await api(`/decision/${currentRefreshJobId}`, { action });
   decisionRow.style.display = "none";
   acceptBtn.disabled = false;
   rejectBtn.disabled = false;
-
-  if (!res.ok) {
+  if (!ok) {
     decisionResult.className = "rejected";
-    decisionResult.textContent = data.error || "Something went wrong.";
+    decisionResult.textContent = data.message || "Something went wrong.";
     decisionResult.style.display = "block";
     return;
   }
-
   if (data.decision === "accepted") {
     decisionResult.className = "accepted";
     decisionResult.textContent = "Changes kept in data/music.sqlite.";
@@ -429,22 +212,22 @@ async function decide(action) {
     decisionResult.textContent = "Changes discarded -- data/music.sqlite restored to how it was before this run.";
   }
   decisionResult.style.display = "block";
+  notifyChanged();
 }
 
 acceptBtn.addEventListener("click", () => decide("accept"));
 rejectBtn.addEventListener("click", () => {
-  if (confirm("Discard everything this run just pulled? data/music.sqlite will be restored to before this run.")) {
-    decide("reject");
-  }
+  if (confirm("Discard everything this run just pulled? data/music.sqlite will be restored to before this run.")) decide("reject");
 });
 
 buildBtn.addEventListener("click", async () => {
   buildBtn.disabled = true;
-  const res = await fetch("/build", { method: "POST" });
-  const data = await res.json();
-  if (!res.ok) {
+  const { ok, data } = await api("/build", {});
+  if (!ok) {
     decisionResult.className = "rejected";
-    decisionResult.textContent = data.error || "Something went wrong.";
+    decisionResult.textContent = data.message || "Something went wrong.";
+    decisionResult.style.display = "block";
+    buildBtn.disabled = false;
     return;
   }
   resetLogPanel("Rebuilding public database…");

@@ -1,78 +1,70 @@
 /*
- * Two themes, each keyed to an album cover rather than a generic
- * light/dark pair:
- *   - Light = Gojira's "From Mars To Sirius" -- sun-bleached parchment,
- *     the rust-orange of its creature, a deep-sea teal, dried-blood
- *     maroon.
- *   - Dark  = Black Sabbath's "Master Of Reality" -- flat black with
- *     that iconic bubble-lettering violet as the hero color.
- * No blue anywhere in either. Every categorical triple below is run
- * through the dataviz skill's scripts/validate_palette.js against
- * this file's actual surfaces (light #faf4e6, dark #17121c) -- same
- * discipline as the charts, since these colors ARE the chart colors.
+ * Tokens harmonised with Citadel (the LAN dashboard this page is embedded in as an iframe) --
+ * same values as Citadel's own web/css/tokens.css, ported verbatim rather than approximated.
+ * The vinyl/scrobble/live category triad is this project's own addition, layered on top the
+ * same way Citadel layers --ok/--warn/--bad status colours on its one main --accent.
  */
-:root {
-  --bg: #f2e8d5;
-  --bg-elevated: #faf4e6;
-  --border: #ddcda8;
-  --text: #2a2015;
-  --text-dim: #6b5c44;
-  --text-muted: #93876c;
-  --accent-vinyl: #b5541f;
-  --accent-scrobble: #0d8a6a;
-  --accent-live: #8a2e2e;
-  --accent: #b5541f;
-  --gridline: #e3d6b8;
-  --glow: rgba(181, 84, 31, 0.13);
-  --shadow: 0 1px 2px rgba(60, 40, 10, 0.08), 0 5px 22px rgba(60, 40, 10, 0.07);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0d0a10;
-    --bg-elevated: #17121c;
-    --border: #332a3d;
-    --text: #f1ecf5;
-    --text-dim: #a89bb5;
-    --text-muted: #7d7188;
-    --accent-vinyl: #b8822a;
-    --accent-scrobble: #d43e78;
-    --accent-live: #8b4fd6;
-    --accent: #8b4fd6;
-    --gridline: #292231;
-    --glow: rgba(139, 79, 214, 0.2);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 5px 26px rgba(60, 10, 90, 0.3);
-  }
-}
-
-:root[data-theme="dark"] {
-  --bg: #0d0a10;
-  --bg-elevated: #17121c;
-  --border: #332a3d;
-  --text: #f1ecf5;
-  --text-dim: #a89bb5;
-  --text-muted: #7d7188;
-  --accent-vinyl: #b8822a;
-  --accent-scrobble: #d43e78;
-  --accent-live: #8b4fd6;
-  --accent: #8b4fd6;
-  --gridline: #292231;
-  --glow: rgba(139, 79, 214, 0.2);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 5px 26px rgba(60, 10, 90, 0.3);
-}
+@font-face { font-family: "Chakra Petch"; font-weight: 400; font-display: swap; src: url("../fonts/ChakraPetch-400.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 500; font-display: swap; src: url("../fonts/ChakraPetch-500.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 600; font-display: swap; src: url("../fonts/ChakraPetch-600.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap; src: url("../fonts/ChakraPetch-700.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("../fonts/JetBrainsMono-Regular.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap; src: url("../fonts/JetBrainsMono-Bold.ttf") format("truetype"); }
 
 :root {
-  --font-display: "Oswald", "Arial Narrow", -apple-system, sans-serif;
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --bg: #07060a; --bg-2: #0b0910; --surface: #0e0b14; --surface-2: #151021; --surface-3: #1c1530;
+  --accent: #8b5cf6; --accent-hi: #a855f7; --accent-soft: #c4b5fd; --accent-deep: #4c1d95; --accent-wash: rgba(139, 92, 246, 0.10);
+  --silver-hi: #e6e9ee; --silver: #c9ced6; --silver-mute: #9aa1ad; --silver-dim: #6b7280;
+  --edge: rgba(201, 206, 214, 0.13); --edge-strong: rgba(168, 85, 247, 0.45);
+  --ok: #34d399; --warn: #f5b454; --bad: #f43f5e;
+  --well: rgba(0, 0, 0, 0.38); --vignette: rgba(0, 0, 0, 0.45);
+
+  --accent-vinyl: #d9a441;    /* new: warm brass/gold, distinct from violet+silver -- "physical/analog" */
+  --accent-scrobble: #8b5cf6; /* = --accent: scrobbles are the everyday/default category */
+  --accent-live: #f43f5e;     /* = --bad's rose-red, repurposed here as "hot/live" energy, not an error */
+
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --chamfer: 14px; --gap: 16px; --radius-sm: 2px; --ease: cubic-bezier(.2, .7, .2, 1);
+
+  /* Back-compat aliases: every existing var(--bg-elevated)/var(--border)/var(--text)/var(--font-body)/
+     var(--shadow) call site below keeps rendering correctly under the new palette. */
+  --bg-elevated: var(--surface-2); --border: var(--edge); --text: var(--silver-hi);
+  --text-dim: var(--silver-mute); --text-muted: var(--silver-dim); --gridline: var(--edge);
+  --glow: var(--accent-wash); --shadow: 0 1px 2px rgba(0,0,0,.45), 0 5px 26px rgba(76,29,149,.25);
+  --font-body: var(--font-display);
+}
+
+:root[data-theme="light"] {
+  --bg: #f2e8d5; --bg-2: #f5ecdd; --surface: #f8f0e2; --surface-2: #faf4e6; --surface-3: #fdf9f0;
+  --accent: #b5541f; --accent-hi: #d9691f; --accent-soft: #82401b; --accent-deep: #6e2a12; --accent-wash: rgba(181, 84, 31, 0.10);
+  --silver-hi: #2a2015; --silver: #4a3c2a; --silver-mute: #6b5c44; --silver-dim: #93876c;
+  --edge: #ddcda8; --edge-strong: rgba(217, 105, 31, 0.45);
+  --ok: #0d8a6a; --warn: #b8791f; --bad: #8a2e2e;
+  --well: rgba(42, 32, 21, 0.07); --vignette: rgba(42, 32, 21, 0.10);
+
+  --accent-vinyl: #460c80; --accent-scrobble: #b5541f; --accent-live: #227f38;
+
+  --bg-elevated: var(--surface-2); --border: var(--edge); --text: var(--silver-hi);
+  --text-dim: var(--silver-mute); --text-muted: var(--silver-dim); --gridline: var(--edge);
+  --glow: var(--accent-wash); --shadow: 0 1px 2px rgba(60,40,10,.08), 0 5px 22px rgba(60,40,10,.07);
 }
 
 * { box-sizing: border-box; }
+
+.i { width: 1.25em; height: 1.25em; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.hud { font-family: var(--font-mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--text-dim); }
+.hud::before { content: "// "; color: var(--accent); }
+
+/* thin, quiet scrollbars -- same rule as Citadel's own tokens.css */
+* { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
 
 body {
   background-color: var(--bg);
   /* A faint noise tile (breaks up flat color like paper grain / a hint
      of tape hiss) plus a soft glow seated at the top of the page --
-     violet stage-light in dark mode, sun-bleached warmth in light. */
+     accent stage-light in dark mode, sun-bleached warmth in light. */
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E"),
     radial-gradient(1100px 620px at 50% -12%, var(--glow), transparent 60%);
@@ -92,6 +84,8 @@ h1, h2 {
   letter-spacing: 0.02em;
 }
 
+.tabbar { display: none; }
+
 /* Three-column grid (not flex) so the search box centers on the bar
    itself -- not just between however wide the home/theme buttons
    happen to be -- via two equal side tracks. */
@@ -103,27 +97,27 @@ h1, h2 {
   grid-template-columns: 1fr minmax(0, 420px) 1fr;
   align-items: center;
   gap: 10px;
-  padding: 14px 24px;
+  padding: 9px 24px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
 }
 
-.topbar-side { display: flex; align-items: center; }
+.topbar-side { display: flex; align-items: center; gap: 8px; }
 /* Both side buttons sit right up against the search box (10px gap, from
    the grid gap above) rather than pinned to the outer edges of the bar. */
 .topbar-left { justify-self: end; }
 .topbar-right { justify-self: start; }
 
 .icon-btn {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--text-dim);
   cursor: pointer;
   font-size: 1rem;
@@ -131,8 +125,8 @@ h1, h2 {
 }
 .icon-btn:hover {
   color: var(--text);
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--edge-strong);
+  box-shadow: 0 0 0 3px var(--accent-wash);
 }
 
 .search-wrap {
@@ -142,10 +136,10 @@ h1, h2 {
 
 #search-input {
   width: 100%;
-  padding: 9px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
+  background: var(--surface);
   color: var(--text);
   font-size: 0.92rem;
 }
@@ -161,7 +155,7 @@ h1, h2 {
   right: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   box-shadow: var(--shadow);
   max-height: 360px;
   overflow-y: auto;
@@ -227,44 +221,6 @@ main#app {
   font-variant-numeric: tabular-nums;
 }
 
-/* --- Welcome screen (shown once, right after the database loads) --- */
-.welcome-screen {
-  min-height: 55vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-.welcome-card {
-  max-width: 460px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
-  padding: 34px 30px;
-  text-align: center;
-}
-.welcome-text {
-  font-size: 1rem;
-  line-height: 1.65;
-  color: var(--text);
-  margin: 0 0 26px;
-}
-.welcome-ok-btn {
-  font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 10px 34px;
-  border-radius: 8px;
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  font-size: 0.88rem;
-  cursor: pointer;
-  transition: filter 0.12s;
-}
-.welcome-ok-btn:hover { filter: brightness(1.12); }
-
 .footer {
   text-align: center;
   color: var(--text-dim);
@@ -273,31 +229,33 @@ main#app {
 }
 
 /* --- Dashboard --- */
+.stat-groups { display: flex; flex-direction: column; gap: 28px; margin-bottom: 36px; }
+.stat-group h2.hud { margin-bottom: 10px; font-size: 12px; text-transform: uppercase; }
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
-  margin-bottom: 36px;
 }
 .stat-card {
+  --c: var(--chamfer);
   position: relative;
   display: block;
   overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 18px 18px 16px 22px;
+  clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)));
+  padding: 20px 18px 16px;
   box-shadow: var(--shadow);
   cursor: pointer;
   transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
 }
-/* A colored spine rather than a plain border -- the card's category
-   reads at a glance, the way a record's spine color does on a shelf. */
+/* A colored top tick rather than a left spine -- a left edge bar clips oddly against the
+   chamfered bottom-left corner, a top tick doesn't. */
 .stat-card::before {
   content: "";
   position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 4px;
+  left: 0; right: 0; top: 0;
+  height: 3px;
   background: var(--border);
 }
 .stat-card.vinyl::before { background: var(--accent-vinyl); }
@@ -333,15 +291,18 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 .pill-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .pill {
   display: block;
-  padding: 9px 13px;
+  padding: 8px 12px;
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  font-size: 0.85rem;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   cursor: pointer;
   transition: border-color 0.15s;
 }
-.pill:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--bg-elevated)); }
+.pill:hover { border-color: var(--edge-strong); background: var(--accent-wash); }
 .pill .count { color: var(--text-dim); font-size: 0.75rem; }
 
 /* --- Artist page --- */
@@ -363,7 +324,7 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   align-items: center;
   gap: 7px;
   padding: 6px 13px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 0.82rem;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -412,19 +373,20 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   justify-content: space-between;
   gap: 16px;
   padding: 11px 0;
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   cursor: pointer;
 }
-.list-item:last-child { border-bottom: none; }
+.list-item:first-child { border-top: none; }
 .list-item:hover .list-title { color: var(--accent); }
 .list-title { font-weight: 600; font-size: 0.92rem; }
 .list-sub { color: var(--text-dim); font-size: 0.8rem; margin-top: 1px; }
 .list-right { color: var(--text-dim); font-size: 0.82rem; text-align: right; white-space: nowrap; }
 
 .vinyl-card {
+  --c: 10px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)));
   padding: 12px 14px;
   margin-bottom: 8px;
 }
@@ -451,13 +413,14 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 .set-name-label {
   margin-top: 14px;
   margin-bottom: 2px;
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
   font-size: 0.8rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--accent);
 }
+.set-name-label::before { content: "// "; color: var(--accent); }
 
 .back-link {
   display: inline-flex;
@@ -508,6 +471,11 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   gap: 8px;
   margin-bottom: 10px;
 }
+/* Scoped to the landing page only (renderHome() passes { center: true }) -- the same
+   toolbar/tabs on the Vinyl/Shows/Scrobbles browse pages stay left-aligned as before. */
+.chart-toolbar--center { justify-content: center; }
+.chart-toolbar--center .clear-filter-pill { margin-left: 12px; }
+.tabs-only--center { display: flex; justify-content: center; }
 .granularity-tabs {
   /* inline-flex, not flex: flex is block-level by default, so standalone
      (not itself a flex-item, as when it sits directly in a plain .section
@@ -515,8 +483,8 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
      of its container -- its buttons staying compact but the bordered box
      around them trailing on as empty space past "All". */
   display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 /* Spacing for a standalone tab strip (renderTimeWindowTabs) -- a chart's
@@ -527,16 +495,16 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   background: var(--bg-elevated);
   color: var(--text-dim);
   border: none;
-  border-right: 1px solid var(--border);
-  font-family: var(--font-display);
-  font-size: 0.74rem;
+  border-right: 1px solid var(--edge);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   cursor: pointer;
 }
 .gtab:last-child { border-right: none; }
 .gtab:hover { color: var(--text); }
-.gtab.active { background: var(--accent); color: #fff; }
+.gtab.active { background: var(--accent-wash); color: var(--accent-soft); }
 .clear-filter-pill {
   display: flex;
   align-items: center;
@@ -582,8 +550,8 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 .filter-bar input[type="text"],
 .filter-bar select {
   padding: 8px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
   background: var(--bg-elevated);
   color: var(--text);
   font-size: 0.85rem;
@@ -630,11 +598,11 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   text-align: left;
   padding: 8px 10px;
   color: var(--text-dim);
-  font-family: var(--font-display);
+  font-family: var(--font-mono);
   font-weight: 500;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   border-bottom: 1px solid var(--border);
   cursor: pointer;
   white-space: nowrap;
@@ -668,43 +636,50 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 }
 .pagination button {
   padding: 6px 12px;
-  border-radius: 7px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
   background: var(--bg-elevated);
   color: var(--text);
   cursor: pointer;
-  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .pagination button:disabled { opacity: 0.4; cursor: default; }
-.pagination button:not(:disabled):hover { border-color: var(--accent); }
+.pagination button:not(:disabled):hover { border-color: var(--edge-strong); background: var(--accent-wash); }
 
 .show-more-btn, .show-less-btn {
   display: block;
   margin: 14px auto 0;
   padding: 8px 18px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
   background: var(--bg-elevated);
   color: var(--text);
   cursor: pointer;
-  font-size: 0.84rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 .show-more-btn:hover, .show-less-btn:hover { border-color: var(--accent); }
 
 /* --- Enrichment (Wikipedia bio, MusicBrainz tags, cover art) --- */
 .about-panel {
+  --c: 10px;
   display: flex;
   gap: 16px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)));
   padding: 16px;
   margin-bottom: 30px;
 }
 .about-panel img.about-thumb {
   width: 84px;
   height: 84px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
   flex-shrink: 0;
   background: var(--bg);
@@ -714,19 +689,28 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 .about-panel .about-source a { color: var(--accent); }
 .genre-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .genre-pill {
-  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--edge);
   color: var(--text-dim);
 }
 .about-skeleton { color: var(--text-muted); font-size: 0.82rem; font-style: italic; }
 
-.vinyl-card { display: flex; gap: 12px; align-items: flex-start; }
+.vinyl-card {
+  --c: 10px;
+  display: flex; gap: 12px; align-items: flex-start;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)));
+}
 .vinyl-card img.cover-thumb {
   width: 48px;
   height: 48px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
   flex-shrink: 0;
   background: var(--bg);
@@ -744,9 +728,59 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 .album-cover-large {
   width: 160px;
   height: 160px;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
   flex-shrink: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
+}
+
+/* --- Latest record buys: tile grid with cover art --- */
+.vinyl-tile-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.vinyl-tile { cursor: pointer; }
+.vinyl-tile-cover {
+  width: 100%; aspect-ratio: 1; object-fit: cover;
+  background: var(--surface-2); border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+}
+.vinyl-tile:hover .vinyl-tile-title { color: var(--accent); }
+.vinyl-tile-title { margin-top: 8px; font-weight: 600; font-size: 0.85rem; }
+.vinyl-tile-sub { color: var(--text-dim); font-size: 0.78rem; }
+.vinyl-tile-meta { color: var(--text-muted); font-size: 0.72rem; margin-top: 2px; }
+
+@media (max-width: 640px) {
+  .vinyl-tile-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* --- Mobile: bottom tab bar + swipeable stat carousels (bespoke, not a reflow of desktop) --- */
+@media (max-width: 640px) {
+  .tabbar {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--bg-2) 92%, transparent);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--edge-strong);
+  }
+  .tabbar a {
+    display: grid; justify-items: center; gap: 2px; padding: 4px 0;
+    color: var(--silver-mute); font-family: var(--font-mono);
+    font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+  }
+  .tabbar a[aria-current] { color: var(--accent-soft); }
+  .tabbar .i { width: 22px; height: 22px; }
+
+  main#app { padding-bottom: 88px; }
+  .topbar { grid-template-columns: 1fr; }
+  .topbar-left, .topbar-right { display: none; }
+
+  /* Each stat group becomes a horizontally-scrollable, snap-scrolling strip instead of the
+     desktop grid just wrapping to fewer columns -- a structurally different presentation for
+     the exact same markup renderHome() already produces, gated entirely by this media query. */
+  .stat-grid {
+    display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+    gap: 10px; padding-bottom: 4px; -webkit-overflow-scrolling: touch;
+  }
+  .stat-grid .stat-card { flex: 0 0 62%; scroll-snap-align: start; }
+  .stat-group h2.hud { padding-left: 2px; }
 }

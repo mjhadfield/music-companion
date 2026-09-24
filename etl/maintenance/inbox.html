@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Music Companion — Inbox</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+  .inbox-list { padding: 12px 14px 6px; }
+  .inbox-list .review-item { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
+  .inbox-list .review-item > input { margin-top: 3px; }
+  .inbox-list .review-item.reviewed { opacity: 0.7; }
+  .ev-kind { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 6px; }
+  .ev-sub { font-size: 0.82rem; color: var(--text-dim); margin-top: 3px; }
+  .ev-sub a { color: inherit; }
+  .ev-note { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+  .hints { margin-top: 8px; }
+  .hints .h-head { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .runs td, .runs th { padding: 7px 10px; font-size: 0.84rem; text-align: left; vertical-align: top; }
+  .runs td.num { font-family: var(--font-mono); text-align: right; }
+  .runs .ev { color: var(--text-dim); font-size: 0.78rem; }
+  .more { padding: 4px 14px 14px; }
+</style>
+</head>
+<body>
+<header id="topnav"></header>
+<main class="wide">
+  <h1>Inbox</h1>
+  <p class="subtitle">What your imports added, or couldn't place with certainty. Exact MusicBrainz matches are applied as they arrive; anything new or matched only by name waits here. Tick what's fine and accept it in bulk, or deal with items one at a time (<kbd>j</kbd>/<kbd>k</kbd> to move).</p>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="artists">Artists</button>
+    <button data-tab="albums">Albums</button>
+    <button data-tab="songs">Songs</button>
+    <button data-tab="other">Other</button>
+    <button data-tab="runs">Runs</button>
+  </div>
+
+  <section data-panel="artists" hidden><div class="card flush" data-list="artists"></div></section>
+  <section data-panel="albums" hidden><div class="card flush" data-list="albums"></div></section>
+  <section data-panel="songs" hidden><div class="card flush" data-list="songs"></div></section>
+  <section data-panel="other" hidden><div class="card flush" data-list="other"></div></section>
+  <section data-panel="runs" hidden><div class="card flush" id="runs"></div></section>
+</main>
+
+<script src="shared.js"></script>
+<script>
+mountNav("Inbox");
+
+const LIST_TABS = ["artists", "albums", "songs", "other"];
+const state = Object.fromEntries(LIST_TABS.map((t) => [t, { reviewed: false, keys: null, items: [] }]));
+
+const KIND = {
+  new_artist: ["New artist", "accent"], new_album: ["New album", "accent"], new_song: ["New song", "accent"],
+  edition_linked: ["Edition matched by name", "warn"], unresolved_release: ["Edition not identified", "warn"],
+  mbid_clash: ["Same MBID as another", "bad"], suspect: ["Check", "bad"],
+};
+const REASON = {
+  "artist-mbid-differs": "Last.fm tagged these scrobbles with a different MusicBrainz artist than yours — a different band with the same name, or a wrong id on either side.",
+  "release-credited-elsewhere": "MusicBrainz credits this edition to a different artist, so it wasn't used to identify the album.",
+  "placeholder-artist": "A placeholder artist name — the scrobbling app didn't know who this was.",
+  "implausible-date": "Dated before Last.fm existed or in the future (a device clock problem) — this scrobble was not imported.",
+};
+
+const artistLink = (a) => a ? `<a href="/albums.html#discography/${a.artistId}">${esc(a.name)}</a>${a.mbid ? " " + mbLink("artist", a.mbid) : ""}` : "";
+const releaseLink = (r) => r ? mbLink("release", r, "edition") : "";
+
+function albumLine(al) {
+  if (!al) return "";
+  return `<a href="/albums.html#discography/${al.artistId}">${esc(al.title)}</a>${al.year ? ` <span class="meta">(${al.year})</span>` : ""}`
+    + ` · ${esc(al.artistName)} · ${plural(al.plays, "play")}`
+    + (al.mbid ? ` · ${mbLink("release-group", al.mbid)}` : ` · <span class="badge warn">no MBID</span>`);
+}
+function songLine(s) {
+  if (!s) return "";
+  return `<b>${esc(s.title)}</b> · ${esc(s.artistName)}${s.albumTitle ? ` · <i>${esc(s.albumTitle)}</i>` : ""} · ${plural(s.plays, "play")}`
+    + (s.mbid ? ` · ${mbLink("recording", s.mbid)}` : "");
+}
+function hintLine(type, h) {
+  if (type === "artist") return `<b>${esc(h.name)}</b> · ${plural(h.plays, "play")}${h.mbid ? " · " + mbLink("artist", h.mbid) : ""}${h.score ? ` <span class="meta">${h.score}% similar</span>` : ""}`;
+  return type === "album" ? albumLine(h) : songLine(h);
+}
+// A release credited to one other MusicBrainz artist: that artist may be who this really is.
+const creditFix = (it) => it.kind === "suspect" && it.detail.reason === "release-credited-elsewhere" && it.artist
+  && (it.detail.releaseGroup?.artistMbids || []).length === 1 ? it.detail.releaseGroup.artistMbids[0] : null;
+const hintId = (type, h) => h[{ artist: "artistId", album: "albumId", song: "songId" }[type]];
+
+function body(it) {
+  const d = it.detail, e = it.entity, src = it.source === "setlistfm" ? "setlist.fm" : "Last.fm";
+  const gone = `<span class="meta">(since merged or removed)</span>`;
+  switch (it.kind) {
+    case "new_artist":
+      return { title: e ? `<b>${esc(e.name)}</b>` : esc(d.name) + " " + gone,
+               sub: e ? `${plural(e.plays, "play")} · ${e.mbid ? mbLink("artist", e.mbid) : `<a href="/artists.html#missing/${e.artistId}">find its MBID</a>`}` : "" };
+    case "new_album":
+      return { title: e ? albumLine(e) : esc(d.title) + " " + gone,
+               sub: d.release ? `First seen as ${releaseLink(d.release)} on ${src}` + (d.mbid ? " — identified exactly" : "") : `from ${src}` };
+    case "new_song":
+      return { title: e ? songLine(e) : esc(d.title) + " " + gone, sub: `from ${src}` };
+    case "edition_linked":
+      return { title: `“${esc(d.title)}” ${releaseLink(d.release)} → ${e ? albumLine(e) : gone}`,
+               sub: d.releaseGroup ? `MusicBrainz puts this edition in ${mbLink("release-group", d.releaseGroup)}`
+                 + (e && e.mbid && e.mbid !== d.releaseGroup ? ` — <b>your album has a different MBID</b>` : e && e.mbid === d.releaseGroup ? " — the same as your album" : "") : "",
+               note: "Matched by artist and title, since no album had this edition's MusicBrainz release group yet." };
+    case "unresolved_release":
+      return { title: `“${esc(d.title)}” ${releaseLink(d.release)} → ${e ? albumLine(e) : gone}`,
+               sub: d.why === "not looked up yet"
+                 ? "Not looked up on MusicBrainz yet (this run's lookup limit was reached) — filed by title. The next import looks it up and settles this item automatically."
+                 : "MusicBrainz doesn't know this edition id, so it was filed by title." };
+    case "mbid_clash": {
+      const type = it.entityType, h = it.holder;
+      return { title: `${e ? hintLine(type, e) : gone}`,
+               sub: `${src} gave this the MBID ${mbLink(type === "song" ? "recording" : type === "album" ? "release-group" : "artist", d.mbid)}, which already belongs to:`,
+               hints: h ? [h] : [], hintLabel: "" };
+    }
+    case "suspect":
+      if (d.reason === "artist-mbid-differs")
+        return { title: artistLink(e), sub: `${src} says ${mbLink("artist", d.mbid, "this MusicBrainz artist")}; yours is ${mbLink("artist", d.localMbid)}`, why: REASON[d.reason] };
+      if (d.reason === "release-credited-elsewhere")
+        return { title: `“${esc(d.title)}” ${releaseLink(d.release)} · ${artistLink(it.artist)}`,
+                 sub: d.releaseGroup ? `MusicBrainz: ${mbLink("release-group", d.releaseGroup.mbid, d.releaseGroup.title || "release group")} by ${esc(d.releaseGroup.artistCredit || "another artist")}` : "",
+                 why: REASON[d.reason] };
+      if (d.reason === "implausible-date")
+        return { title: `<b>${esc(d.track)}</b> · ${esc(d.artist)}${d.album ? ` · <i>${esc(d.album)}</i>` : ""}`, sub: `dated ${esc(d.playedAt)}`, why: REASON[d.reason] };
+      return { title: e ? artistLink(e) : esc(d.name || ""), why: REASON[d.reason] || esc(d.reason) };
+  }
+  return { title: esc(it.kind) };
+}
+
+function itemHtml(it, i) {
+  const [label, cls] = KIND[it.kind] || [it.kind, ""];
+  const b = body(it);
+  const type = it.entityType;
+  const hints = b.hints || it.hints || [];
+  const mergeable = it.entity && ["artist", "album", "song"].includes(type);
+  const hintHead = b.hintLabel ?? (it.kind.startsWith("new_") ? `Possibly the same as ${hints.length === 1 ? "this" : "one of these"}:` : "");
+  return `<div class="review-item${it.reviewedAt ? " reviewed" : ""}" data-i="${i}">
+    <input type="checkbox" data-role="tick" ${it.clean && !it.reviewedAt ? "checked" : ""} ${it.reviewedAt ? "disabled" : ""} aria-label="tick for bulk accept" />
+    <div>
+      <div class="row">
+        <div>
+          <div><span class="badge ${cls} ev-kind">${label}</span>${b.title}</div>
+          ${b.sub ? `<div class="ev-sub">${b.sub}</div>` : ""}
+          ${b.why ? `<div class="ev-why">${b.why}</div>` : ""}
+          ${it.warning ? `<div class="ev-why">⚠ ${esc(it.warning)}</div>` : ""}
+          ${b.note ? `<div class="ev-note">${b.note}</div>` : ""}
+        </div>
+        <div class="actions">
+          ${it.reviewedAt ? `<span class="meta">reviewed ${fmtDate(it.reviewedAt)}</span>` : `
+            ${it.kind === "suspect" && it.detail.reason === "artist-mbid-differs" && it.entity ? `<button class="small" data-role="alias" title="The same artist for this library's purposes: count that MusicBrainz artist as ${esc(it.entity.name)} everywhere">Same artist</button>` : ""}
+            ${creditFix(it) ? `<button class="small" data-role="credit-fix" title="Last.fm's artist MBID was wrong: give ${esc(it.artist.name)} the MBID MusicBrainz credits this edition to (undoable)">Use as ${esc(it.artist.name)}’s MBID</button>` : ""}
+            ${keyBtn("a", it.kind.startsWith("new_") ? "Looks right" : "OK", "good", 'data-role="accept"')}
+            ${keyBtn("s", "Skip", "", 'data-role="skip"')}`}
+          <span class="meta">${fmtDate(it.at)}</span>
+        </div>
+      </div>
+      ${hints.length ? `<div class="hints">${hintHead ? `<div class="h-head">${hintHead}</div>` : ""}
+        ${hints.map((h, n) => `<div class="candidate"><div>${hintLine(type, h)}</div>
+          ${mergeable && !it.reviewedAt ? keyBtn(String(n + 1), "Merge into this", "", `data-role="merge" data-keep="${hintId(type, h)}"`) : ""}</div>`).join("")}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+function renderList(tab) {
+  const st = state[tab];
+  const root = document.querySelector(`[data-list="${tab}"]`);
+  const pending = st.items.filter((it) => !it.reviewedAt).length;
+  root.innerHTML = `
+    <div class="inbox-tools">
+      ${st.reviewed ? "" : `<label class="meta"><input type="checkbox" data-role="all" /> <span data-role="ticked"></span></label>
+      <button class="small good" data-role="bulk">Accept ticked</button>`}
+      <span class="spacer"></span>
+      <span class="meta">${st.reviewed ? `${fmtNum(st.total)} reviewed` : `${fmtNum(st.total)} to review`}${st.total > st.items.length ? ` · showing the newest ${fmtNum(st.items.length)}` : ""}</span>
+      <label class="meta"><input type="checkbox" data-role="show-reviewed" ${st.reviewed ? "checked" : ""} /> show reviewed</label>
+    </div>
+    <div class="inbox-list">${st.items.length ? st.items.map(itemHtml).join("")
+      : `<div class="empty">${st.reviewed ? "Nothing reviewed here yet." : "Nothing to review — every import so far has been checked."}</div>`}</div>`;
+  root.querySelector("[data-role='show-reviewed']").addEventListener("change", (e) => { st.reviewed = e.target.checked; load(tab); });
+  if (!st.reviewed) wireBulk(tab, root);
+  root.querySelectorAll(".review-item").forEach((el) => wireItem(tab, el));
+  st.keys?.reset();
+}
+
+function wireBulk(tab, root) {
+  const all = root.querySelector("[data-role='all']");
+  const boxes = () => [...root.querySelectorAll(".review-item:not(.done) [data-role='tick']:not(:disabled)")];
+  // The header box mirrors the rows: ticked (all), unticked (none), or part-ticked (indeterminate).
+  const sync = () => {
+    const n = boxes().filter((b) => b.checked).length;
+    all.checked = n > 0 && n === boxes().length; all.indeterminate = n > 0 && n < boxes().length;
+    root.querySelector("[data-role='ticked']").textContent = `${fmtNum(n)} ticked`;
+    root.querySelector("[data-role='bulk']").disabled = n === 0;
+  };
+  all.addEventListener("change", () => { boxes().forEach((b) => { b.checked = all.checked; }); sync(); });
+  root.addEventListener("change", (e) => { if (e.target.dataset.role === "tick") sync(); });
+  root.querySelector("[data-role='bulk']").addEventListener("click", async (e) => {
+    const picked = boxes().filter((b) => b.checked).map((b) => b.closest(".review-item"));
+    const ids = picked.map((el) => state[tab].items[+el.dataset.i].id);
+    e.target.disabled = true;
+    const { ok, data } = await api("/api/imports/review", { ids });
+    if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
+    toast(`${plural(data.reviewed, "item")} accepted`, { undo: data.undo });
+    notifyChanged();
+    load(tab);
+  });
+  sync();
+}
+
+function wireItem(tab, el) {
+  const it = state[tab].items[+el.dataset.i];
+  const done = () => { state[tab].keys.advance(el); el.querySelector("[data-role='tick']").disabled = true; refreshCounts(); };
+  el.querySelector("[data-role='accept']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    const { ok, data } = await api("/api/imports/review", { ids: [it.id] });
+    if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
+    toast("Marked reviewed", { undo: data.undo, timeout: 5000 });
+    done();
+  });
+  el.querySelector("[data-role='skip']")?.addEventListener("click", () => state[tab].keys.skip(el));
+  el.querySelector("[data-role='alias']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    if (await addMbAlias(it.entity.artistId, it.detail.mbid)) {
+      await api("/api/imports/review", { ids: [it.id] });
+      done();
+    } else e.target.disabled = false;
+  });
+  el.querySelector("[data-role='credit-fix']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    const { ok, data } = await api("/api/artists/assign-mbid", { artistId: it.artist.artistId, mbid: creditFix(it), reason: "inbox: MusicBrainz release credit" });
+    if (!ok) {
+      toast(esc(data.message) + (data.conflictingArtist ? ` — <a href="/artists.html#duplicates">compare on Artists</a>` : ""), { error: true, timeout: 12000 });
+      e.target.disabled = false; return;
+    }
+    const r = await api("/api/imports/review", { ids: [it.id] });
+    toast(`<b>${esc(data.name)}</b> now has MBID ${mbLink("artist", data.mbid)}`, { undo: { kind: "batch", id: [{ kind: "edit", id: data.editId }, ...(r.ok ? [{ kind: "inbox", id: [it.id] }] : [])] } });
+    notifyChanged();
+    done();
+  });
+  el.querySelectorAll("[data-role='merge']").forEach((btn) => btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const { ok, data } = await api("/api/imports/merge", { eventId: it.id, keepId: +btn.dataset.keep });
+    if (!ok) { toast(esc(data.message), { error: true, timeout: 9000 }); btn.disabled = false; return; }
+    toast(`Merged <b>${esc(data.absorbedName || data.absorbedTitle || "")}</b>`, { undo: data.undo });
+    notifyChanged();
+    done();
+  }));
+}
+
+async function load(tab) {
+  const st = state[tab];
+  const { ok, data } = await api(`/api/imports/inbox?tab=${tab}${st.reviewed ? "&reviewed=1" : ""}`);
+  if (!ok) { toast(esc(data.message), { error: true }); return; }
+  st.items = data.items; st.total = data.total;
+  if (!st.keys) st.keys = mountReviewKeys(document.querySelector(`[data-list="${tab}"]`));
+  renderList(tab);
+  setCounts(data.pending);
+}
+
+function setCounts(pending) { for (const t of LIST_TABS) tabs.setCount(t, pending[t] || null); }
+async function refreshCounts() {
+  const { ok, data } = await api("/api/imports/summary");
+  if (ok) setCounts(data.pending);
+}
+
+async function loadRuns() {
+  const { ok, data } = await api("/api/imports/summary");
+  if (!ok) return;
+  setCounts(data.pending);
+  const root = document.getElementById("runs");
+  const SRC = { lastfm: "Last.fm", setlistfm: "setlist.fm" };
+  root.innerHTML = data.runs.length ? `<table class="runs"><thead><tr><th>Source</th><th>Started</th><th>Imported</th><th>Skipped</th><th>Editions looked up</th><th>Recorded</th><th>To review</th></tr></thead><tbody>
+    ${data.runs.map((r) => {
+      const s = r.summary || {};
+      const skipped = [s.duplicates && `${fmtNum(s.duplicates)} already had`, s.invalid && `${fmtNum(s.invalid)} invalid`, s.skipped && `${fmtNum(s.skipped)}`].filter(Boolean).join(", ");
+      return `<tr><td>${SRC[r.source] || esc(r.source)}</td><td class="mono">${esc((r.startedAt || "").slice(0, 16))}${r.finishedAt ? "" : ` <span class="badge warn">didn't finish</span>`}</td>
+        <td class="num">${fmtNum(s.imported)}</td><td class="ev">${skipped || "—"}</td><td class="num">${s.releasesLookedUp != null ? fmtNum(s.releasesLookedUp) : "—"}</td>
+        <td class="ev">${Object.entries(s.events || {}).map(([k, n]) => `${fmtNum(n)} ${esc(k.replace(/_/g, " "))}`).join(", ") || "—"}</td>
+        <td class="num">${r.pending ? `<b style="color:var(--warn)">${fmtNum(r.pending)}</b>` : "0"}</td></tr>`;
+    }).join("")}</tbody></table>`
+    : `<div class="empty">No imports recorded yet — runs appear here from the next Last.fm or setlist.fm pull.</div>`;
+}
+
+const tabs = mountTabs(document.getElementById("tabs"), {
+  ...Object.fromEntries(LIST_TABS.map((t) => [t, () => load(t)])),
+  runs: loadRuns,
+});
+refreshCounts();
+document.addEventListener("mc:undone", () => { const t = tabs.current(); t === "runs" ? loadRuns() : load(t); });
+</script>
+</body>
+</html>

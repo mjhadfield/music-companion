@@ -42,7 +42,9 @@ PORT = 8644
 
 QUERY_TIMEOUT_S = 10          # a query still running after this long is aborted
 DEFAULT_LIMIT = 500
-MAX_LIMIT = 5000
+MAX_LIMIT = 500_000            # the biggest table here is ~100k rows, so this is really "no cap" — the real
+                                # limits are QUERY_TIMEOUT_S above (server) and the browser's own table-rendering
+                                # cost (client, see app.js's renderResults) for whoever picks the 500,000 option
 
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),

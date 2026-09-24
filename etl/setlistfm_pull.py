@@ -30,7 +30,8 @@ import math
 import time
 
 import requests
-from common import connect, get_or_create_artist, get_or_create_song, get_or_create_venue, load_env, require_env
+from common import (connect, finish_import_run, get_or_create_artist, get_or_create_song, get_or_create_venue, load_env,
+                    require_env, start_import_run)
 
 API_URL = "https://api.setlist.fm/rest/1.0/user/{username}/attended"
 REQUEST_DELAY_SECONDS = 0.6   # setlist.fm's free tier caps at 2 req/sec; stay well under it
@@ -80,6 +81,7 @@ def pull(max_pages: int | None) -> None:
     artist_cache: dict = {}
     song_cache: dict = {}
     venue_cache: dict = {}
+    run_id = start_import_run(conn, "setlistfm")  # new artists/songs go to maintenance > Inbox
 
     session = requests.Session()
     page = 1
@@ -163,7 +165,14 @@ def pull(max_pages: int | None) -> None:
                         song_artist_id = artist_id
                         is_cover = 0
 
-                    song_id = get_or_create_song(conn, song_cache, song_artist_id, song_name)
+                    # A cover a human re-linked to the band's OWN recording (maintenance > Songs):
+                    # honour that for this performer only, before falling back to the original artist.
+                    relinked = conn.execute(
+                        "SELECT a.canonical_id FROM alias_overrides a JOIN songs s ON s.id = a.canonical_id "
+                        "WHERE a.source = 'setlistfm' AND a.canonical_type = 'song' AND a.source_key = ?",
+                        (f"cover:{artist_id}:{song_name.lower()}",),
+                    ).fetchone() if is_cover else None
+                    song_id = relinked[0] if relinked else get_or_create_song(conn, song_cache, song_artist_id, song_name, source="setlistfm")
                     songs_linked += 1
                     conn.execute(
                         """
@@ -187,8 +196,14 @@ def pull(max_pages: int | None) -> None:
         page += 1
         time.sleep(REQUEST_DELAY_SECONDS)
 
+    summary = {"imported": imported, "songEntries": songs_linked, "skipped": skipped}
+    if run_id is not None:
+        summary["events"] = dict(conn.execute("SELECT kind, count(*) FROM import_events WHERE run_id = ? GROUP BY kind", (run_id,)).fetchall())
+    finish_import_run(conn, summary)
     conn.close()
     print(f"Done. Imported {imported} setlists ({songs_linked} song entries), skipped {skipped}.")
+    if summary.get("events"):
+        print("For review (maintenance > Inbox): " + ", ".join(f"{n} {k.replace('_', ' ')}" for k, n in sorted(summary["events"].items())))
 
 
 if __name__ == "__main__":

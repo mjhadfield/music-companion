@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Music Companion — Songs</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+  main.wide { max-width: 1340px; }
+  .q-row .todo { font-family: var(--font-mono); font-size: 0.72rem; color: var(--warn); white-space: nowrap; }
+  .q-row .clean { color: var(--ok); font-size: 0.72rem; }
+  .q-row .sub { font-size: 0.72rem; color: var(--text-muted); }
+  .progress { height: 4px; border-radius: 2px; background: var(--surface-3); overflow: hidden; width: 160px; display: inline-block; vertical-align: middle; }
+  .progress i { display: block; height: 100%; background: var(--ok); }
+  .artist-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 14px; }
+
+  .live-row { display: grid; grid-template-columns: minmax(0, 0.9fr) 22px minmax(0, 1.6fr) auto; gap: 10px; align-items: center; padding: 10px 14px; }
+  .live-row .arrow { color: var(--text-muted); text-align: center; }
+  /* album candidates need the room: their actions go on a line of their own underneath */
+  .live-row.stacked { grid-template-columns: minmax(0, 0.9fr) 22px minmax(0, 2.2fr); align-items: start; }
+  .live-row.stacked .actions { grid-column: 1 / -1; border-top: 1px dashed var(--edge); padding-top: 8px; }
+  .live-row .l-title { font-weight: 600; }
+  .live-row .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .live-row select { padding: 4px 8px; font-size: 0.8rem; }
+  .more { padding: 8px 14px 12px; border-top: 1px dashed var(--edge); display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; }
+  @media (max-width: 1100px) { .more { grid-template-columns: 1fr 1fr; } }
+  .cands { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .cand { display: flex; gap: 7px; align-items: baseline; cursor: pointer; padding: 2px 4px; border-radius: var(--radius-sm); }
+  .cand:hover { background: var(--accent-wash); }
+  .cand[hidden] { display: none; }
+  .cand .badge { margin-left: 2px; }
+  button.linkish { background: none; border: none; padding: 2px 4px; color: var(--accent-soft); cursor: pointer; text-align: left; }
+  .more input { width: 100%; }
+  .compact { padding: 6px 14px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 10px; align-items: center; border-bottom: 1px solid var(--edge); font-size: 0.86rem; }
+  .compact:last-child { border-bottom: none; }
+  .sec-note { font-size: 0.8rem; color: var(--text-dim); margin: -4px 0 8px; }
+  details.fold > summary { cursor: pointer; list-style: none; }
+  details.fold > summary::-webkit-details-marker { display: none; }
+  details.fold > summary h3::before { content: "▸ "; color: var(--text-muted); }
+  details.fold[open] > summary h3::before { content: "▾ "; }
+
+  .shows { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+  .show { border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--surface); padding: 8px 10px; cursor: pointer; font-size: 0.82rem; }
+  .show:hover, .show.open { border-color: var(--edge-strong); }
+  .show .date { font-family: var(--font-mono); font-size: 0.74rem; color: var(--text-dim); }
+  .show .pips { display: flex; gap: 2px; margin-top: 6px; }
+  .show .pips i { flex: 1; height: 3px; border-radius: 1px; background: var(--surface-3); }
+  .pips i.ok, .pips i.marked { background: var(--ok); } .pips i.match, .pips i.nonsong, .pips i.album, .pips i.newalbum, .pips i.lookedup { background: var(--warn); } .pips i.unchecked { background: var(--silver-dim); opacity: .5; }
+  .setlist { grid-column: 1 / -1; border: 1px solid var(--edge-strong); border-radius: var(--radius-sm); background: var(--surface-2); padding: 10px 14px; }
+  .setlist ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 28px; font-size: 0.84rem; }
+  .setlist li { break-inside: avoid; padding: 2px 0; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.ok, .dot.marked { background: var(--ok); } .dot.match, .dot.nonsong, .dot.album, .dot.newalbum, .dot.lookedup { background: var(--warn); } .dot.unchecked { background: var(--silver-dim); }
+
+  table.songs td, table.songs th { padding: 6px 8px; font-size: 0.84rem; vertical-align: middle; }
+  table.songs tr.primary td { background: rgba(52, 211, 153, 0.06); }
+  table.songs tr.excluded td { opacity: 0.5; }
+  .album-block-head { display: flex; gap: 12px; align-items: center; padding: 10px 14px; background: var(--bg-2); border-bottom: 1px solid var(--edge); }
+  .album-block-head .thumb { width: 44px; height: 44px; }
+  .album-block-head .grow { flex: 1; min-width: 0; }
+  .group { border-bottom: 1px solid var(--edge); }
+  .group:last-child { border-bottom: none; }
+  .group-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 14px 2px; }
+  .group .merge-foot { padding: 6px 14px 10px; margin: 0; }
+</style>
+</head>
+<body>
+<header id="topnav"></header>
+<main class="wide">
+  <h1>Songs</h1>
+  <p class="subtitle">One song, one record — so a song you've heard live, on vinyl and in your scrobbles counts as the same song. Live sets first, then duplicate versions album by album.</p>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="live">Live sets</button>
+    <button data-tab="dupes">Duplicates</button>
+    <button data-tab="recordings">Recording ids</button>
+    <button data-tab="activity">Activity</button>
+  </div>
+
+  <!-- Live sets ------------------------------------------------------------------------- -->
+  <section data-panel="live" hidden>
+    <div class="card flush disco-shell">
+      <div class="disco-top">
+        <input type="search" class="search-box" id="live-filter" placeholder="Filter artists…" />
+        <span class="meta" id="live-total"></span>
+      </div>
+      <div class="disco-body">
+        <aside class="disco-side">
+          <div class="side-head"><h3>Artists you've seen</h3><span class="mono meta" id="live-count"></span></div>
+          <div class="side-list" id="live-queue"><div class="meta" style="padding:8px 10px">Loading…</div></div>
+        </aside>
+        <div class="disco-main" id="live-view"><div class="empty">Pick an artist — most-seen first. Each song only needs fixing once: every show it was played at updates with it.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Duplicates ------------------------------------------------------------------------ -->
+  <section data-panel="dupes" hidden>
+    <div class="card flush disco-shell">
+      <div class="disco-top">
+        <input type="search" class="search-box" id="dupe-filter" placeholder="Filter artists…" />
+        <label class="meta"><input type="checkbox" id="dupe-reviewed" /> show reviewed</label>
+        <span class="meta" id="dupe-total"></span>
+      </div>
+      <div class="disco-body">
+        <aside class="disco-side">
+          <div class="side-head"><h3>Artists with duplicates</h3><span class="mono meta" id="dupe-count"></span></div>
+          <div class="side-list" id="dupe-queue"><div class="meta" style="padding:8px 10px">Loading…</div></div>
+        </aside>
+        <div class="disco-main" id="dupe-view"><div class="empty">Pick an artist — most-scrobbled first. Remaster/mono/single-version duplicates on the same album are pre-ticked; live, remix and demo versions never are.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section data-panel="recordings" hidden><div id="recordings"></div></section>
+
+  <section data-panel="activity" hidden>
+    <div class="card"><div id="activity"></div></div>
+  </section>
+</main>
+
+<script src="shared.js"></script>
+<script src="album-ui.js"></script>
+<script src="recordings-ui.js"></script>
+<script>
+mountNav("Songs");
+
+const KINDS = { solo: "Solo", jam: "Jam / doodle / improv", intro: "Intro / tape / interlude", medley: "Medley", snippet: "Snippet / tease", speech: "Speech", other: "Live only" };
+const STATUS_TEXT = { ok: "on an album", marked: "no album (marked)", match: "same as a studio song", nonsong: "not an album song", album: "on an album you have — review", newalbum: "on an album you don't have yet — review", lookedup: "looked up — review", unchecked: "not looked up yet" };
+
+// Applies reviewed actions in one transaction and offers a single undo for the lot.
+async function applyItems(items, message) {
+  const res = await api("/api/songs/apply", { items });
+  if (!res.ok) { toast(esc(res.data.message), { error: true }); return false; }
+  toast(message || `Applied ${res.data.applied} change${res.data.applied === 1 ? "" : "s"}`,
+    { undo: res.data.undo.length ? { kind: "batch", id: res.data.undo } : undefined, timeout: 15000 });
+  notifyChanged();
+  return true;
+}
+
+function songLine(t) {
+  return `<span class="t-title">${esc(t.title)}</span>${t.albumTitle ? ` <span class="meta">— ${esc(t.albumTitle)}${t.albumYear ? ` (${t.albumYear})` : ""}</span>` : ` <span class="badge warn">no album</span>`}
+    <div class="meta">${plural(t.scrobbleCount, "scrobble")}${t.setlistCount ? ` · ${plural(t.setlistCount, "show")}` : ""}${t.mbid ? ` · ${mbLink("song", t.mbid)}` : ""}</div>`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Live sets
+// ---------------------------------------------------------------------------------------------
+
+let liveQueue = [];
+let liveArtist = null;
+const liveView = document.getElementById("live-view");
+const liveKeys = mountReviewKeys(liveView);
+
+async function loadLiveQueue() {
+  const { ok, data } = await api("/api/songs/live-queue");
+  if (!ok) { document.getElementById("live-queue").innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  liveQueue = data.items;
+  const t = data.total;
+  document.getElementById("live-total").innerHTML = `<b>${fmtNum(t.todo)}</b> to review · ${fmtNum(t.unchecked)} not looked up · ${fmtNum(t.done)} of ${fmtNum(t.songs)} settled`;
+  document.getElementById("live-count").textContent = fmtNum(data.count);
+  tabs.setCount("live", t.todo);
+  paintLiveQueue();
+}
+
+function paintLiveQueue() {
+  const f = document.getElementById("live-filter").value.trim().toLowerCase();
+  const el = document.getElementById("live-queue");
+  const items = liveQueue.filter((x) => !f || (x.name || "").toLowerCase().includes(f));
+  el.innerHTML = items.map((x) => `
+    <div class="q-row ${x.artistId === liveArtist ? "current" : ""}" data-id="${x.artistId}">
+      <span>${esc(x.name)} <span class="sub">${plural(x.shows, "show")}</span></span>
+      <span>${x.todo ? `<span class="todo">${x.todo} to do</span>` : x.unchecked ? `<span class="sub">${x.unchecked} unchecked</span>` : `<span class="clean">✓</span>`}</span>
+    </div>`).join("") || `<div class="empty">No matches.</div>`;
+  el.querySelectorAll(".q-row").forEach((r) => r.addEventListener("click", () => openLive(parseInt(r.dataset.id, 10))));
+}
+document.getElementById("live-filter").addEventListener("input", paintLiveQueue);
+
+function nextLive() {
+  const i = liveQueue.findIndex((x) => x.artistId === liveArtist);
+  const next = liveQueue.slice(i + 1).find((x) => x.todo || x.unchecked) || liveQueue[i + 1];
+  if (next) openLive(next.artistId);
+}
+
+async function openLive(artistId, { keepScroll = false } = {}) {
+  liveArtist = artistId;
+  history.replaceState(null, "", `#live/${artistId}`);
+  document.querySelectorAll("#live-queue .q-row").forEach((r) => r.classList.toggle("current", parseInt(r.dataset.id, 10) === artistId));
+  const scroll = liveView.scrollTop;
+  if (!keepScroll) liveView.innerHTML = `<div class="status-line" style="padding:16px">Loading…</div>`;
+  const { ok, data } = await api(`/api/songs/live?artistId=${artistId}`);
+  if (liveArtist !== artistId) return;
+  if (!ok) { liveView.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  renderLive(data);
+  liveView.scrollTop = keepScroll ? scroll : 0;
+}
+
+const reloadLive = () => Promise.all([openLive(liveArtist, { keepScroll: true }), loadLiveQueue()]);
+
+// "On an album you don't have yet": the candidate picked on screen, else the first one MusicBrainz
+// doesn't credit to someone else.
+function chosenCandidate(s, row) {
+  const i = row?.querySelector("input[data-role='cand']:checked")?.value;
+  return i != null ? s.mbCandidates[+i] : (s.mbCandidates.find((g) => g.creditOk !== false) || s.mbCandidates[0]);
+}
+function albumNewAction(s, g, performerId) {
+  if (g.albumId) {  // in your library already: link to it
+    return g.ownerId === s.artistId ? { type: "album", songId: s.songId, albumId: g.albumId }
+      : { type: "relinkNew", songId: s.songId, performerId, albumId: g.albumId, title: s.baseTitle || s.title };
+  }
+  return { type: "albumNew", songId: s.songId, performerId, ownerId: g.ownerId, rgMbid: g.rgMbid, recordingMbid: g.recordingMbid, title: s.baseTitle || s.title };
+}
+const rgTypes = (g) => [g.primaryType, ...(g.secondaryTypes || [])].filter(Boolean).join(" + ") || "release";
+
+// The action a row's Accept (and the bulk list) would take. `row` supplies the on-screen choices
+// (rename checkbox, no-album kind); the bulk list uses the defaults.
+function suggestedAction(s, row, performerId) {
+  if (s.status === "match") {
+    if (s.target.relink) return { type: "relink", songId: s.songId, toSongId: s.target.songId, performerId };
+    const rename = row ? row.querySelector("[data-role='rename']")?.checked : s.target.edition;
+    return { type: "merge", absorbedId: s.songId, canonicalId: s.target.songId, title: rename && s.target.edition ? s.target.baseTitle : undefined };
+  }
+  if (s.status === "album") {
+    return s.mbAlbum.relinkNew ? { type: "relinkNew", songId: s.songId, performerId, albumId: s.mbAlbum.albumId, title: s.baseTitle || s.title }
+      : { type: "album", songId: s.songId, albumId: s.mbAlbum.albumId };
+  }
+  if (s.status === "newalbum") return albumNewAction(s, chosenCandidate(s, row), performerId);
+  if (s.status === "nonsong") return { type: "mark", songId: s.songId, kind: row ? row.querySelector("[data-role='kind']").value : s.kind };
+  if (s.status === "lookedup") return { type: "mark", songId: s.songId, kind: "other" };
+  return null;
+}
+// What Reject records, so the same suggestion doesn't come back.
+function rejectAction(s, performerId) {
+  if (s.status === "match" && s.target.relink && s.alt?.keep) return { type: "reject", what: "cover", songId: s.songId, performerId };
+  if (s.status === "match") return { type: "reject", what: "match", songId: s.songId, targetId: s.target.songId };
+  if (s.status === "album") return { type: "reject", what: "album", songId: s.songId, rgMbid: s.mbAlbum.rgMbid };
+  return null;
+}
+// "Not this album" on a newalbum row: forgets the candidate on screen (the next one, if any, shows next time).
+const rejectCandidate = (s, row) => ({ type: "reject", what: "album", songId: s.songId, rgMbid: chosenCandidate(s, row).rgMbid });
+function describe(s, row) {
+  if (s.status === "match" && s.target.relink) return `use ${s.target.performerName}'s own recording “${s.target.title}”${s.target.albumTitle ? ` (${s.target.albumTitle})` : ""}`;
+  if (s.status === "match") return `merge into “${s.target.title}”${s.target.albumTitle ? ` (${s.target.albumTitle})` : ""}${s.target.exact ? "" : ` — close title ${s.target.score}`}${s.target.edition ? `, renamed “${s.target.baseTitle}”` : ""}`;
+  if (s.status === "album") return s.mbAlbum.relinkNew ? `add as ${s.mbAlbum.performerName}'s song on your album “${s.mbAlbum.title}”` : `link to your album “${s.mbAlbum.title}”`;
+  if (s.status === "newalbum") {
+    const g = chosenCandidate(s, row);
+    if (g.albumId) return `link to your album “${g.localTitle}”${g.ownerId !== s.artistId ? ` (${g.ownerName}'s own recording)` : ""}`;
+    return `add ${g.ownerName}'s album “${g.title}”${g.firstDate ? ` (${g.firstDate.slice(0, 4)})` : ""} and link it${g.ownerId !== s.artistId ? " (their own recording)" : ""}`;
+  }
+  if (s.status === "nonsong") return `mark as ${KINDS[s.kind]}`;
+  if (s.status === "lookedup") return "mark as live only";
+  return "";
+}
+
+function renderLive(data) {
+  const songs = data.songs;
+  const by = (st) => songs.filter((s) => s.status === st);
+  const done = songs.filter((s) => ["ok", "marked"].includes(s.status)).length;
+  const todo = songs.filter((s) => ["match", "album", "newalbum", "lookedup", "nonsong"].includes(s.status));
+  const unchecked = by("unchecked");
+  const lookable = [...unchecked.filter((s) => s.lookable), // needs an MBID on the song's artist (or, for a cover, the band)
+    ...songs.filter((s) => s.status === "newalbum" && s.needsDetail)]; // found on an album you don't have: fetch its details
+  const a = data.artist;
+  liveView.innerHTML = `
+    <div class="artist-head">
+      <h2>${esc(a.name)}</h2> ${mbLink("artist", a.mbid)}
+      <span class="meta">${plural(data.shows.length, "show")} · ${plural(songs.length, "song")} heard live</span>
+      <span class="progress" title="${done} of ${songs.length} settled"><i style="width:${songs.length ? (100 * done) / songs.length : 0}%"></i></span>
+      <span class="meta">${done}/${songs.length}</span>
+      <span class="spacer" style="flex:1"></span>
+      ${keyBtn("n", "Next artist")}
+      <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> accept</span><span><kbd>r</kbd> reject</span><span><kbd>x</kbd> other: pick the song / album, or mark</span><span><kbd>s</kbd> skip</span><span><kbd>n</kbd> next artist</span></div>
+    </div>
+    <div class="disco-content">
+      <div class="artist-actions">
+        ${todo.length ? `<button class="primary small" data-role="bulk">Review all ${todo.length} suggestions as a list…</button>` : ""}
+        ${lookable.length ? `<button class="small" data-role="lookup">Look up ${plural(lookable.length, "song")} on MusicBrainz</button>` : ""}
+        ${unchecked.some((s) => !s.lookable) ? `<span class="meta">${unchecked.filter((s) => !s.lookable).length} can't be looked up until their artist has an MBID</span>` : ""}
+        <span class="meta" data-role="lookup-box"></span>
+      </div>
+      <div data-role="bulk-panel"></div>
+      ${section("Same as a studio song", "match", by("match"), "The setlist spelling of a song in your library. For a cover, the band's own studio recording comes first when they have one — accepting re-links only this band's plays; the original artist's song and shows are untouched.")}
+      ${section("On an album you have", "album", by("album"), "Looked up on MusicBrainz — nothing changes until you accept.")}
+      ${section("On an album you don't have yet", "newalbum", by("newalbum"), "MusicBrainz lists it on these albums. Add the one it belongs to — it joins your library unplayed, and when you scrobble it later the plays land on it — or mark it live only. Nothing changes until you accept.")}
+      ${section("Looked up — no album anywhere", "lookedup", by("lookedup"), "MusicBrainz knows no album with it. Accept to settle it as live only, or pick the right song / album by hand.")}
+      ${section("Not an album song", "nonsong", by("nonsong"), "Solos, jams, intros, medleys — mark them so they stop asking.")}
+      <div data-role="unchecked"></div>
+      <div data-role="settled"></div>
+      <details class="fold" style="margin-top:18px" ${todo.length ? "" : "open"}><summary class="section-label"><h3>Shows</h3><span class="meta">${plural(data.shows.length, "show")} — click one to see its setlist</span></summary>
+        <div class="shows" data-role="shows"></div></details>
+    </div>`;
+  liveView.querySelector("[data-key='n']").addEventListener("click", nextLive);
+  for (const st of ["match", "album", "newalbum", "lookedup", "nonsong"]) {
+    const host = liveView.querySelector(`[data-sec='${st}']`);
+    if (host) by(st).forEach((s) => host.appendChild(liveItem(s, data)));
+  }
+  renderCompactList(liveView.querySelector("[data-role='unchecked']"), unchecked, "Not looked up yet",
+    "Never scrobbled and no close title in your library. Look them up on MusicBrainz (above) — results come back here for review — or fix one by hand.", data, false);
+  renderCompactList(liveView.querySelector("[data-role='settled']"), songs.filter((s) => ["marked", "ok"].includes(s.status)),
+    "Settled", "On an album, or marked by you — nothing to do.", data, true);
+  renderShows(liveView.querySelector("[data-role='shows']"), data);
+  liveView.querySelector("[data-role='bulk']")?.addEventListener("click", () => openLiveBulk(todo, a.artistId));
+  liveView.querySelector("[data-role='lookup']")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    const box = liveView.querySelector("[data-role='lookup-box']");
+    await runSweep(box, "live-albums", Math.min(lookable.length, 200), { artistId: a.artistId });
+    reloadLive();
+  });
+  liveKeys.reset();
+}
+
+function section(title, st, items, note) {
+  if (!items.length) return "";
+  return `<div class="section-label"><h3>${title}</h3><span class="meta">${items.length}</span></div><div class="sec-note">${note}</div><div data-sec="${st}"></div>`;
+}
+
+function liveItem(s, data) {
+  const performerId = data.artist.artistId;
+  const item = document.createElement("div");
+  item.className = "review-item";
+  item.id = `live-song-${s.songId}`;
+  const lastSeen = s.playedAt[0] ? ` · last ${esc(s.playedAt[0])}` : "";
+  const left = `<div><span class="l-title">${esc(s.title)}</span>${s.cover ? ` <span class="badge" title="setlist.fm files covers under the original artist">cover of ${esc(s.artistName)}</span>` : ""}
+      <div class="meta">played at ${plural(s.playedAt.length, "show")}${lastSeen}${s.scrobbleCount ? ` · ${plural(s.scrobbleCount, "scrobble")}` : ""}</div>
+      ${s.cover && s.albumTitle ? `<div class="meta">now: ${esc(s.artistName)} — ${esc(s.albumTitle)}</div>` : ""}</div>`;
+  let right = "", accept = "Accept", altBtn = "";
+  if (s.status === "match" && s.target.relink) {
+    right = `<div><span class="badge accent">${esc(s.target.performerName)}'s own recording</span> ${songLine(s.target)}
+      <div style="margin-top:3px">${s.target.exact ? `<span class="badge high">same title</span>` : `<span class="badge medium">close title · ${s.target.score}</span>`}</div></div>`;
+    accept = `Use ${esc(s.target.performerName)}'s version`;
+    if (s.alt && !s.alt.keep) altBtn = `<button class="small" data-role="alt" title="Merge into ${esc(s.alt.artistName)}'s “${esc(s.alt.title)}” instead">Use the original</button>`;
+  } else if (s.status === "match") {
+    right = `<div>${songLine(s.target)}<div style="margin-top:3px">${s.target.exact ? `<span class="badge high">same title</span>` : `<span class="badge medium">close title · ${s.target.score}</span>`}
+      ${s.target.edition ? ` <label class="meta"><input type="checkbox" data-role="rename" checked /> rename to “${esc(s.target.baseTitle)}”</label>` : ""}</div></div>`;
+    accept = "Merge";
+  } else if (s.status === "album") {
+    right = `<div>${s.mbAlbum.relinkNew ? `<span class="badge accent">${esc(s.mbAlbum.performerName)}'s own recording</span> ` : ""}<span class="t-title">${esc(s.mbAlbum.title)}</span>${s.mbAlbum.year ? ` <span class="meta">(${s.mbAlbum.year})</span>` : ""} ${mbLink("album", s.mbAlbum.rgMbid)}
+      <div class="meta">MusicBrainz lists ${s.mbAlbum.relinkNew ? "their recording" : "this song"} on ${s.mbAlbum.byTitle ? `“${esc(s.mbAlbum.rgTitle)}” — the same title as this album of yours (yours isn't identified by MusicBrainz yet)` : "this album of yours"}</div></div>`;
+    accept = s.mbAlbum.relinkNew ? "Add to album" : "Link to album";
+  } else if (s.status === "newalbum") {
+    const first = s.mbCandidates.indexOf(chosenCandidate(s, null));
+    const cand = (g, i) => `<label class="cand${i >= 4 ? " extra" : ""}"${i >= 4 ? " hidden" : ""}>
+        <input type="radio" data-role="cand" name="cand-${s.songId}" value="${i}" ${i === first ? "checked" : ""} />
+        <span><span class="t-title">${esc(g.title)}</span>${g.firstDate ? ` <span class="meta"${g.creditOk === null ? ` title="From the release it was found on — the album's own original year is checked when it's looked up or added"` : ""}>(${esc(g.firstDate.slice(0, 4))}${g.creditOk === null ? "?" : ""})</span>` : ""}
+        <span class="badge ${g.primaryType === "Album" && !(g.secondaryTypes || []).length ? "ok" : ""}">${esc(rgTypes(g))}</span>
+        ${g.ownerId !== s.artistId ? `<span class="badge accent">${esc(g.ownerName)}'s own recording</span>` : s.cover ? `<span class="badge">${esc(g.ownerName)}'s album — the original</span>` : ""}
+        ${g.albumId ? `<span class="badge ok" title="${g.byTitle ? "Same title as your album (not identified by its release group yet)" : "In your library"}">in your library${g.byTitle ? " (by title)" : ""}</span>` : ""}
+        ${g.yoursByTitle > 1 ? `<span class="badge warn" title="Merge them first (Albums › Discography), or link to one by hand">you have ${g.yoursByTitle} albums with this title</span>` : ""}
+        ${g.creditOk === false ? `<span class="badge bad" title="MusicBrainz credits this album to ${esc(g.credit || "someone else")}">credited to ${esc(g.credit || "someone else")}</span>` : ""}
+        ${mbLink("album", g.rgMbid)}</span></label>`;
+    right = `<div class="cands">${s.mbCandidates.map(cand).join("")}
+      ${s.mbCandidates.length > 4 ? `<button class="linkish meta" data-role="more-cands">+ ${s.mbCandidates.length - 4} more</button>` : ""}
+      <div class="meta">the best match isn't in your library yet — MusicBrainz lists ${s.mbCandidates.some((g) => g.ownerId !== s.artistId) ? "these recordings" : "this song"} on these albums</div></div>`;
+    accept = "Add album & link";  // (links instead when the picked one is already yours)
+    altBtn = `<button class="small" data-role="liveonly" title="None of these — it's a live-only song">Live only</button>`;
+  } else if (s.status === "lookedup") {
+    right = `<div>${s.mbFound ? `MusicBrainz: on <i>${esc(s.mbFound.rgTitle)}</i>${s.mbFound.firstDate ? ` (${esc(s.mbFound.firstDate.slice(0, 4))})` : ""} ${mbLink("album", s.mbFound.rgMbid)} — not in your library` : "No album on MusicBrainz"}
+      <div class="meta">settle it as a live-only song?</div></div>`;
+    accept = "Live only";
+  } else if (s.status === "nonsong") {
+    right = `<div><select data-role="kind">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === s.kind ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+      <div class="meta">keeps it out of album stats; the show still counts it</div></div>`;
+    accept = "Mark";
+  }
+  const reject = s.status === "newalbum" ? true : rejectAction(s, performerId);
+  item.style.padding = "0";
+  item.innerHTML = `<div class="live-row${s.status === "newalbum" ? " stacked" : ""}">${left}<span class="arrow">→</span>${right}
+    <div class="actions">${keyBtn("m", accept, "good")}${reject ? keyBtn("r", s.status === "newalbum" ? "Not this album" : s.target?.relink && s.alt?.keep ? "Keep the original" : "Reject", "bad") : ""}${altBtn}${keyBtn("x", "Other…")}${keyBtn("s", "Skip")}</div></div>
+    <div data-role="more"></div>`;
+  const finish = () => { liveKeys.advance(item); reloadLive(); };
+  item.querySelector("[data-key='m']").addEventListener("click", async () => {
+    const act = suggestedAction(s, item, performerId);
+    if (act && await applyItems([act], `${esc(s.title)}: ${esc(s.status === "newalbum" ? describe(s, item) : describe({ ...s, kind: act.kind || s.kind }))}`)) finish();
+  });
+  item.querySelector("[data-key='r']")?.addEventListener("click", async () => {
+    if (s.status === "newalbum") {
+      const g = chosenCandidate(s, item);
+      if (await applyItems([rejectCandidate(s, item)], `${esc(s.title)}: not on “${esc(g.title)}” — it won't be suggested again`)) finish();
+      return;
+    }
+    if (await applyItems([reject], `${esc(s.title)}: ${s.target?.relink && s.alt?.keep ? "keeping the original" : "suggestion rejected — it won't come back"}`)) finish();
+  });
+  item.querySelector("[data-role='more-cands']")?.addEventListener("click", (e) => {
+    item.querySelectorAll(".cand.extra").forEach((el) => { el.hidden = false; });
+    e.currentTarget.remove();
+  });
+  item.querySelector("[data-role='liveonly']")?.addEventListener("click", async () => {
+    if (await applyItems([{ type: "mark", songId: s.songId, kind: "other" }], `${esc(s.title)}: marked live only`)) finish();
+  });
+  item.querySelector("[data-role='alt']")?.addEventListener("click", async () => {
+    if (await applyItems([{ type: "merge", absorbedId: s.songId, canonicalId: s.alt.songId }], `Merged “${esc(s.title)}” into ${esc(s.alt.artistName)}'s “${esc(s.alt.title)}”`)) finish();
+  });
+  item.querySelector("[data-key='x']").addEventListener("click", () => toggleMore(item.querySelector("[data-role='more']"), s, performerId, finish));
+  item.querySelector("[data-key='s']").addEventListener("click", () => { liveKeys.skip(item); });
+  return item;
+}
+
+// "Other…": pick the right song or album by hand, or mark it. For a cover, both the original
+// artist's and the band's own songs/albums are offered -- picking the band's re-links only
+// this band's plays; picking the original artist's merges as usual.
+function toggleMore(host, s, performerId, onDone) {
+  if (host.childElementCount) { host.innerHTML = ""; return; }
+  const artists = s.cover ? [s.artistId, performerId] : [s.artistId];
+  const who = s.cover ? `${esc(s.artistName)}'s or this band's` : `${esc(s.artistName)}'s`;
+  host.innerHTML = `<div class="more">
+      <div><div class="meta">It's this song</div><input type="text" data-role="song-q" placeholder="Search ${who} songs…" /></div>
+      <div><div class="meta">…or it's on this album</div><input type="text" data-role="album-q" placeholder="Search ${who} albums…" /></div>
+      <div><div class="meta">…or it's on this MusicBrainz album <span class="muted">(added if you don't have it)</span></div><input type="text" data-role="mb-q" placeholder="Search ${who} discography on MusicBrainz…" /></div>
+      <div><div class="meta">…or it has no album</div><div style="display:flex; gap:6px"><select data-role="kind2">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === (s.kind || "other") ? "selected" : ""}>${esc(v)}</option>`).join("")}</select><button class="small" data-role="mark">Mark</button></div></div>
+    </div>`;
+  mountTypeahead(host.querySelector("[data-role='song-q']"), {
+    fetchItems: async (q) => ((await api(`/api/songs/search?artistId=${artists.join(",")}&q=${encodeURIComponent(q)}`)).data.songs || []).filter((x) => x.songId !== s.songId),
+    renderItem: (x) => `<span>${esc(x.title)} <span class="meta">${s.cover ? esc(x.artistName) + " · " : ""}${x.albumTitle ? esc(x.albumTitle) : "(no album)"}</span></span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`,
+    onPick: async (x) => {
+      const act = x.artistId === s.artistId ? { type: "merge", absorbedId: s.songId, canonicalId: x.songId }
+        : { type: "relink", songId: s.songId, toSongId: x.songId, performerId };
+      if (await applyItems([act], `${act.type === "merge" ? "Merged" : "Re-linked this band's plays of"} “${esc(s.title)}” → “${esc(x.title)}”`)) onDone();
+    },
+  });
+  let albums = null;
+  mountTypeahead(host.querySelector("[data-role='album-q']"), {
+    fetchItems: async (q) => {
+      if (!albums) {
+        albums = [];
+        for (const aid of artists) {
+          const list = (await api(`/api/albums/discography?artistId=${aid}`)).data.albums || [];
+          albums.push(...list.map((x) => ({ ...x, owner: aid })));
+        }
+      }
+      const ql = q.toLowerCase();
+      return albums.filter((x) => x.title.toLowerCase().includes(ql)).slice(0, 15);
+    },
+    renderItem: (x) => `<span>${esc(x.title)} ${x.year ? `<span class="meta">(${x.year})</span>` : ""}${s.cover ? ` <span class="meta">· ${esc(x.artistName)}</span>` : ""}</span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`,
+    onPick: async (x) => {
+      const act = x.owner === s.artistId ? { type: "album", songId: s.songId, albumId: x.albumId }
+        : { type: "relinkNew", songId: s.songId, performerId, albumId: x.albumId, title: s.baseTitle || s.title };
+      if (await applyItems([act], `“${esc(s.title)}” → ${esc(x.title)}`)) onDone();
+    },
+  });
+  let disco = null;
+  mountTypeahead(host.querySelector("[data-role='mb-q']"), {
+    fetchItems: async (q) => {
+      if (!disco) {
+        disco = [];
+        for (const aid of artists) {
+          const r = await api(`/api/songs/mb-discography?artistId=${aid}`);
+          if (!r.ok) { toast(esc(r.data.message), { error: true }); continue; }
+          disco.push(...r.data.releaseGroups.map((g) => ({ ...g, owner: aid, ownerName: r.data.artistName })));
+        }
+      }
+      const ql = q.toLowerCase();
+      return disco.filter((g) => (g.title || "").toLowerCase().includes(ql)).slice(0, 15);
+    },
+    renderItem: (g) => `<span>${esc(g.title)} ${g.firstReleaseDate ? `<span class="meta">(${esc(g.firstReleaseDate.slice(0, 4))})</span>` : ""} <span class="meta">· ${esc(rgTypes(g))}${s.cover ? " · " + esc(g.ownerName) : ""}</span></span><span class="meta">${g.albumId ? "in your library" : "not in your library"}</span>`,
+    onPick: async (g) => {
+      const act = g.albumId
+        ? (g.owner === s.artistId ? { type: "album", songId: s.songId, albumId: g.albumId }
+          : { type: "relinkNew", songId: s.songId, performerId, albumId: g.albumId, title: s.baseTitle || s.title })
+        : { type: "albumNew", songId: s.songId, performerId, ownerId: g.owner, rgMbid: g.mbid, title: s.baseTitle || s.title };
+      if (await applyItems([act], `“${esc(s.title)}” → ${esc(g.title)}${g.albumId ? "" : " (album added)"}`)) onDone();
+    },
+  });
+  host.querySelector("[data-role='mark']").addEventListener("click", async () => {
+    const kind = host.querySelector("[data-role='kind2']").value;
+    if (await applyItems([{ type: "mark", songId: s.songId, kind }], `Marked “${esc(s.title)}” as ${esc(KINDS[kind])}`)) onDone();
+  });
+}
+
+function renderCompactList(host, list, title, note, data, folded) {
+  if (!list.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<details class="fold" ${folded ? "" : "open"}><summary class="section-label"><h3>${title}</h3><span class="meta">${list.length}</span></summary>
+    <div class="sec-note">${note}</div><div class="block" data-role="rows"></div></details>`;
+  const rows = host.querySelector("[data-role='rows']");
+  for (const s of list) {
+    const div = document.createElement("div");
+    div.id = `live-song-${s.songId}`;
+    const detail = s.status === "ok" ? `${esc(s.albumTitle)}${s.albumYear ? ` (${s.albumYear})` : ""}`
+      : s.status === "marked" ? `<span class="badge">${esc(KINDS[s.mark.kind] || s.mark.kind)}</span>`
+      : s.status === "unchecked" && !s.lookable ? `<a href="/artists.html#missing/${s.artistId}">${esc(s.artistName)} needs an MBID first →</a>`
+      : `<span class="muted">${STATUS_TEXT[s.status]}</span>`;
+    div.innerHTML = `<div class="compact"><div><span class="dot ${s.status}"></span>${esc(s.title)}${s.cover ? ` <span class="badge">cover</span>` : ""} <span class="meta">×${s.playedAt.length}</span></div>
+      <div class="meta">${detail}</div>
+      <div>${s.status === "marked" ? `<button class="small" data-role="unmark">Unmark</button>` : s.status === "ok" ? "" : `<button class="small" data-role="more">Fix…</button>`}</div></div>
+      <div data-role="more-host"></div>`;
+    div.querySelector("[data-role='more']")?.addEventListener("click", () => toggleMore(div.querySelector("[data-role='more-host']"), s, data.artist.artistId, reloadLive));
+    div.querySelector("[data-role='unmark']")?.addEventListener("click", async () => {
+      const r = await api("/api/history/undo", { kind: "mark", id: s.mark.id });
+      if (!r.ok) { toast(esc(r.data.message), { error: true }); return; }
+      toast(`Unmarked “${esc(s.title)}”`);
+      notifyChanged();
+      reloadLive();
+    });
+    rows.appendChild(div);
+  }
+}
+
+function renderShows(host, data) {
+  const byId = Object.fromEntries(data.songs.map((s) => [s.songId, s]));
+  host.innerHTML = data.shows.map((sh) => `
+    <div class="show" data-id="${sh.setlistId}">
+      <div class="date">${esc(sh.date)}</div>
+      <div><b>${esc(sh.venue || "—")}</b>${sh.city ? `, ${esc(sh.city)}` : ""}</div>
+      ${sh.tour ? `<div class="meta">${esc(sh.tour)}</div>` : ""}
+      <div class="meta">${sh.done}/${sh.total} settled${sh.todo ? ` · <span class="warn-text">${sh.todo} to review</span>` : ""}</div>
+      <div class="pips">${sh.entries.map((e) => `<i class="${byId[e.songId]?.status || "unchecked"}"></i>`).join("")}</div>
+    </div>`).join("");
+  host.querySelectorAll(".show").forEach((el) => el.addEventListener("click", () => {
+    const open = el.classList.contains("open");
+    host.querySelectorAll(".setlist").forEach((x) => x.remove());
+    host.querySelectorAll(".show.open").forEach((x) => x.classList.remove("open"));
+    if (open) return;
+    el.classList.add("open");
+    const sh = data.shows.find((x) => x.setlistId === parseInt(el.dataset.id, 10));
+    const box = document.createElement("div");
+    box.className = "setlist";
+    let lastSet = null;
+    box.innerHTML = `<div class="meta" style="margin-bottom:6px">${esc(sh.date)} · ${esc(sh.venue || "")}${sh.city ? `, ${esc(sh.city)}` : ""} — click a song to jump to it</div><ol>${sh.entries.map((e) => {
+      const s = byId[e.songId];
+      const setHead = e.set && e.set !== lastSet ? ((lastSet = e.set), `<li style="list-style:none; margin-left:-22px" class="meta">${esc(e.set)}</li>`) : "";
+      return `${setHead}<li><a href="#live-song-${e.songId}" data-jumpsong="${e.songId}" style="color:inherit; text-decoration:none"><span class="dot ${s?.status || "unchecked"}"></span>${esc(e.raw)}</a>${e.cover ? ` <span class="meta">(${esc(e.coverOf || "cover")})</span>` : ""}
+        <span class="meta">${s ? (s.status === "ok" ? "— " + esc(s.albumTitle) : "— " + STATUS_TEXT[s.status]) : ""}</span></li>`;
+    }).join("")}</ol>`;
+    // place the setlist after the last show card in this row
+    let anchor = el;
+    const top = el.offsetTop;
+    for (let n = el.nextElementSibling; n && n.offsetTop === top; n = n.nextElementSibling) anchor = n;
+    anchor.after(box);
+    box.querySelectorAll("[data-jumpsong]").forEach((l) => l.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      const target = document.getElementById(`live-song-${l.dataset.jumpsong}`);
+      target?.closest("details")?.setAttribute("open", "");
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target?.classList.add("active");
+      setTimeout(() => target?.classList.remove("active"), 1500);
+    }));
+  }));
+}
+
+// Every suggestion for the artist as one reviewed list: exact matches, album links and non-song
+// marks start ticked; fuzzy (close-title) matches start unticked. Nothing happens until Apply.
+// Pre-ticked: exact title matches (incl. a band's own recording of a cover) and non-song marks.
+// Never pre-ticked: close-title guesses and anything that came from a MusicBrainz lookup.
+const bulkDefault = (s) => (s.status === "match" && s.target.exact) || s.status === "nonsong";
+
+function openLiveBulk(todo, performerId) {
+  const host = liveView.querySelector("[data-role='bulk-panel']");
+  host.innerHTML = `<div class="block" style="margin-bottom:16px">
+    <div class="block-head"><div><b>Review all suggestions</b> <span class="meta">untick anything that's wrong, then apply — one undo covers the lot</span></div>
+      <div style="display:flex; gap:6px"><button class="small good" data-role="apply">Apply</button><button class="small" data-role="cancel">Cancel</button></div></div>
+    <div class="table-scroll" style="max-height:420px; overflow-y:auto"><table class="data"><thead><tr><th><input type="checkbox" data-role="all" /></th><th>Live title</th><th>Will</th><th>Why</th><th class="num">Shows</th></tr></thead>
+    <tbody>${todo.map((s, i) => `<tr><td><input type="checkbox" data-i="${i}" ${bulkDefault(s) ? "checked" : ""} /></td>
+      <td>${esc(s.title)}${s.cover ? ` <span class="badge">cover</span>` : ""}</td><td>${esc(describe(s))}</td>
+      <td>${s.status === "match" ? (s.target.exact ? `<span class="badge high">same title</span>` : `<span class="badge medium">close title</span>`)
+        : s.status === "nonsong" ? `<span class="badge">title pattern</span>` : `<span class="badge accent">MusicBrainz lookup</span>`}</td>
+      <td class="num">${s.playedAt.length}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const boxes = () => [...host.querySelectorAll("input[data-i]")];
+  const apply = host.querySelector("[data-role='apply']");
+  const allBox = host.querySelector("[data-role='all']");
+  // The header box mirrors the rows: ticked (all), unticked (none), or part-ticked (indeterminate).
+  const recount = () => {
+    const n = boxes().filter((b) => b.checked).length;
+    apply.textContent = `Apply ${n}`; apply.disabled = !n;
+    allBox.checked = n === boxes().length; allBox.indeterminate = n > 0 && n < boxes().length;
+  };
+  allBox.addEventListener("change", (e) => { boxes().forEach((b) => (b.checked = e.target.checked)); recount(); });
+  boxes().forEach((b) => b.addEventListener("change", recount));
+  recount();
+  host.querySelector("[data-role='cancel']").addEventListener("click", () => { host.innerHTML = ""; });
+  apply.addEventListener("click", async () => {
+    const items = boxes().filter((b) => b.checked).map((b) => suggestedAction(todo[parseInt(b.dataset.i, 10)], null, performerId));
+    apply.disabled = true;
+    if (await applyItems(items)) reloadLive(); else apply.disabled = false;
+  });
+  host.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+// ---------------------------------------------------------------------------------------------
+// Duplicates (album by album)
+// ---------------------------------------------------------------------------------------------
+
+let dupeQueue = [];
+let dupeArtist = null;
+const dupeView = document.getElementById("dupe-view");
+const dupeKeys = mountReviewKeys(dupeView);
+
+async function loadDupeQueue() {
+  const { ok, data } = await api(`/api/songs/dupe-queue${document.getElementById("dupe-reviewed").checked ? "?showReviewed=1" : ""}`);
+  if (!ok) { document.getElementById("dupe-queue").innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  dupeQueue = data.items;
+  document.getElementById("dupe-count").textContent = fmtNum(data.count);
+  document.getElementById("dupe-total").textContent = `${fmtNum(data.totalGroups)} duplicate groups across ${plural(data.count, "artist")}`;
+  tabs.setCount("dupes", data.totalGroups);
+  paintDupeQueue();
+}
+function paintDupeQueue() {
+  const f = document.getElementById("dupe-filter").value.trim().toLowerCase();
+  const el = document.getElementById("dupe-queue");
+  el.innerHTML = dupeQueue.filter((x) => !f || (x.name || "").toLowerCase().includes(f)).map((x) => `
+    <div class="q-row ${x.artistId === dupeArtist ? "current" : ""}" data-id="${x.artistId}" title="${fmtNum(x.scrobbleCount)} scrobbles">
+      <span>${esc(x.name)}${x.reviewed ? ` <span class="clean">✓</span>` : ""}</span>
+      <span class="todo">${x.albumGroups ? `${x.albumGroups} on albums` : ""}${x.albumGroups && x.crossGroups ? " · " : ""}${x.crossGroups ? `${x.crossGroups} across` : ""}</span>
+    </div>`).join("") || `<div class="empty">No matches.</div>`;
+  el.querySelectorAll(".q-row").forEach((r) => r.addEventListener("click", () => openDupes(parseInt(r.dataset.id, 10))));
+}
+document.getElementById("dupe-filter").addEventListener("input", paintDupeQueue);
+document.getElementById("dupe-reviewed").addEventListener("change", loadDupeQueue);
+
+function nextDupe() {
+  const i = dupeQueue.findIndex((x) => x.artistId === dupeArtist);
+  const next = dupeQueue[i + 1] || dupeQueue.find((x) => x.artistId !== dupeArtist);
+  if (next) openDupes(next.artistId);
+}
+
+async function openDupes(artistId, { keepScroll = false } = {}) {
+  dupeArtist = artistId;
+  history.replaceState(null, "", `#dupes/${artistId}`);
+  document.querySelectorAll("#dupe-queue .q-row").forEach((r) => r.classList.toggle("current", parseInt(r.dataset.id, 10) === artistId));
+  const scroll = dupeView.scrollTop;
+  if (!keepScroll) dupeView.innerHTML = `<div class="status-line" style="padding:16px">Loading…</div>`;
+  const { ok, data } = await api(`/api/songs/dupes?artistId=${artistId}`);
+  if (dupeArtist !== artistId) return;
+  if (!ok) { dupeView.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  renderDupes(data);
+  dupeView.scrollTop = keepScroll ? scroll : 0;
+}
+const reloadDupes = () => Promise.all([openDupes(dupeArtist, { keepScroll: true }), loadDupeQueue()]);
+
+function renderDupes(data) {
+  const a = data.artist;
+  const songs = data.songs;
+  const nGroups = data.albums.reduce((n, al) => n + al.groups.length, 0) + data.cross.length;
+  dupeView.innerHTML = `
+    <div class="artist-head">
+      <h2>${esc(a.name)}</h2> ${mbLink("artist", a.mbid)}
+      <span class="meta">${plural(nGroups, "group")} — ${plural(data.albums.length, "album")} with duplicates, ${data.cross.length} across albums</span>
+      <span class="spacer" style="flex:1"></span>
+      <button class="small ${a.reviewed ? "" : "good"}" data-role="reviewed">${a.reviewed ? "Reviewed ✓ (undo)" : "Mark artist reviewed"}</button>
+      ${keyBtn("n", "Next artist")}
+      <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move between groups</span><span><kbd>m</kbd> merge group</span><span><kbd>r</kbd> not the same</span><span><kbd>s</kbd> skip</span><span><kbd>n</kbd> next artist</span></div>
+    </div>
+    <div class="disco-content" data-role="content"></div>`;
+  dupeView.querySelector("[data-key='n']").addEventListener("click", nextDupe);
+  dupeView.querySelector("[data-role='reviewed']").addEventListener("click", async () => {
+    await api("/api/review/mark", { entityType: "artist", entityId: a.artistId, mark: "songs-reviewed", remove: a.reviewed });
+    toast(a.reviewed ? `${esc(a.name)} back in the queue` : `${esc(a.name)} marked as reviewed`);
+    reloadDupes();
+  });
+  const content = dupeView.querySelector("[data-role='content']");
+  if (!nGroups) content.innerHTML = `<div class="notice">No duplicate songs left for ${esc(a.name)}.</div>`;
+  for (const al of data.albums) {
+    const block = document.createElement("div");
+    block.className = "block";
+    block.style.marginBottom = "14px";
+    block.innerHTML = `<div class="album-block-head">${thumb(al)}<div class="grow"><b>${esc(al.title)}</b>${al.year ? ` <span class="meta">(${al.year})</span>` : ""} ${al.mbid ? mbLink("album", al.mbid) : ""}
+        <div class="meta">${plural(al.groups.length, "duplicate group")}${al.mergedIn ? ` · ${plural(al.mergedIn, "version")} merged into this album` : ""}</div></div>
+        ${al.groups.length > 1 ? `<button class="small good" data-role="all">Merge all ticked on this album</button>` : ""}</div>`;
+    const tables = al.groups.map((g) => { const t = groupBlock(g, songs, { crossAlbum: false }); block.appendChild(t.el); return t; });
+    block.querySelector("[data-role='all']")?.addEventListener("click", async () => {
+      const items = tables.flatMap((t) => t.items());
+      if (!items.length) { toast("Nothing ticked on this album"); return; }
+      if (await applyItems(items, `Merged ${plural(items.length, "song")} on ${esc(al.title)}`)) reloadDupes();
+    });
+    content.appendChild(block);
+  }
+  if (data.cross.length) {
+    content.insertAdjacentHTML("beforeend", `<div class="section-label"><h3>Across albums</h3><span class="meta">${data.cross.length}</span></div>
+      <div class="sec-note">The same song title on different albums — usually a live album or compilation version of the studio song. Nothing is ticked: merge only what really is the same song.</div>`);
+    const block = document.createElement("div");
+    block.className = "block";
+    data.cross.forEach((g) => block.appendChild(groupBlock(g, songs, { crossAlbum: true }).el));
+    content.appendChild(block);
+  }
+  dupeKeys.reset();
+}
+
+// One group of versions: keep-radio, merge-checkbox per song, optional rename, merge + dismiss.
+function groupBlock(g, songs, { crossAlbum }) {
+  const members = g.songIds.map((i) => songs[i]);
+  const state = { primary: g.primary, checked: new Set(g.include) };
+  const el = document.createElement("div");
+  el.className = "group review-item";
+  el.style.cssText = "border:none; border-bottom:1px solid var(--edge); border-radius:0; margin:0; padding:0";
+  const name = `sp-${g.songIds[0]}`;
+  function items() {
+    const p = songs[state.primary];
+    const absorbed = members.filter((m) => state.checked.has(m.songId) && m.songId !== state.primary);
+    const title = el.querySelector("[data-role='title']")?.value.trim();
+    return absorbed.map((m, i) => ({ type: "merge", absorbedId: m.songId, canonicalId: p.songId, title: i === absorbed.length - 1 && title && title !== p.title ? title : undefined }));
+  }
+  function paint() {
+    const p = songs[state.primary];
+    const n = members.filter((m) => state.checked.has(m.songId) && m.songId !== state.primary).length;
+    el.innerHTML = `
+      <div class="group-title"><div><b>${esc(g.baseTitle)}</b> <span class="meta">${members.length} versions</span></div>
+        <div class="actions" style="display:flex; gap:6px">${keyBtn("r", "Not the same")}${keyBtn("s", "Skip")}</div></div>
+      <div class="table-scroll" style="padding:0 8px"><table class="data songs"><thead><tr><th>Keep</th><th>Merge</th><th>Title</th><th>Played on</th><th class="num">Plays</th><th class="num">Shows</th><th>MBID</th></tr></thead><tbody>
+      ${members.map((m) => {
+        const isP = m.songId === state.primary;
+        const on = state.checked.has(m.songId);
+        return `<tr class="${isP ? "primary" : ""} ${!isP && !on ? "excluded" : ""}">
+          <td><input type="radio" name="${name}" value="${m.songId}" ${isP ? "checked" : ""} /></td>
+          <td><input type="checkbox" data-id="${m.songId}" ${on && !isP ? "checked" : ""} ${isP ? "disabled" : ""} /></td>
+          <td>${esc(m.title)} ${m.tags.map((t) => `<span class="badge ${["live", "remix", "demo"].includes(t) ? "warn" : ""}">${esc(t)}</span>`).join(" ")}${m.edition ? ` <span class="badge">edition</span>` : ""}</td>
+          <td class="meta">${m.scrobbleAlbums.length ? m.scrobbleAlbums.slice(0, 3).map((x) => `${esc(x.title)} <span class="muted">×${x.count}</span>`).join("<br>") : (m.albumTitle ? esc(m.albumTitle) : "—")}</td>
+          <td class="num">${fmtNum(m.scrobbleCount)}</td><td class="num">${m.setlistCount || ""}</td>
+          <td>${m.mbid ? mbLink("song", m.mbid) : ""}</td></tr>`;
+      }).join("")}</tbody></table></div>
+      <div class="merge-foot">
+        ${n ? `<label class="meta">Title after merge <input type="text" data-role="title" value="${esc(p.edition || p.tags.length ? p.baseTitle : p.title)}" /></label>
+          ${keyBtn("m", `Merge ${n} into “${esc(p.title)}”`, "danger", 'data-role="merge"')}`
+          : `<span class="meta">${crossAlbum ? "Tick the versions that really are this song (e.g. a live-album take), keep the studio one." : "Tick the versions to fold into the kept one."}</span>`}
+      </div>`;
+    el.querySelectorAll(`input[name="${name}"]`).forEach((r) => r.addEventListener("change", () => { state.primary = parseInt(r.value, 10); state.checked.delete(state.primary); paint(); }));
+    el.querySelectorAll("input[type='checkbox'][data-id]").forEach((c) => c.addEventListener("change", () => {
+      const id = parseInt(c.dataset.id, 10); c.checked ? state.checked.add(id) : state.checked.delete(id); paint();
+    }));
+    el.querySelector("[data-role='merge']")?.addEventListener("click", async () => {
+      if (await applyItems(items(), `Merged ${plural(items().length, "version")} into “${esc(el.querySelector("[data-role='title']").value || p.title)}”`)) reloadDupes();
+    });
+    el.querySelector("[data-role='title']")?.addEventListener("keydown", (e) => { if (e.key === "Enter") el.querySelector("[data-role='merge']").click(); });
+    el.querySelector("[data-key='r']").addEventListener("click", async () => {
+      const r = await api("/api/songs/dismiss-group", { songIds: g.songIds });
+      if (!r.ok) { toast(esc(r.data.message), { error: true }); return; }
+      toast(`“${esc(g.baseTitle)}”: marked as different songs`);
+      reloadDupes();
+    });
+    el.querySelector("[data-key='s']").addEventListener("click", () => { dupeKeys.skip(el); });
+  }
+  paint();
+  return { el, items };
+}
+
+// ---------------------------------------------------------------------------------------------
+
+document.addEventListener("mc:undone", () => {
+  if (tabs.current() === "live" && liveArtist) reloadLive();
+  if (tabs.current() === "dupes" && dupeArtist) reloadDupes();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "n" || e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey) return;
+  const t = tabs.current();
+  if (t === "live" && liveArtist) { e.preventDefault(); nextLive(); }
+  if (t === "dupes" && dupeArtist) { e.preventDefault(); nextDupe(); }
+});
+
+const tabs = mountTabs(document.getElementById("tabs"), {
+  live: loadLiveQueue,
+  dupes: loadDupeQueue,
+  recordings: () => mountRecordings(document.getElementById("recordings")).load(),
+  activity: () => mountActivity(document.getElementById("activity"), { entityType: "song", limit: 60 }),
+}, {
+  onSubpath: (tab, sub) => {
+    if (!/^\d+$/.test(sub)) return;
+    if (tab === "live") { if (!liveQueue.length) loadLiveQueue(); openLive(parseInt(sub, 10)); }
+    if (tab === "dupes") { if (!dupeQueue.length) loadDupeQueue(); openDupes(parseInt(sub, 10)); }
+  },
+});
+</script>
+</body>
+</html>

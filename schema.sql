@@ -27,12 +27,25 @@ CREATE TABLE IF NOT EXISTS artists (
 );
 
 CREATE TABLE IF NOT EXISTS albums (
-    id          INTEGER PRIMARY KEY,
-    mbid        TEXT UNIQUE,              -- MusicBrainz release-group id
-    artist_id   INTEGER NOT NULL REFERENCES artists(id),  -- primary/display artist (convenience; see album_artists for the full credit)
-    title       TEXT NOT NULL,
-    year        INTEGER,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    id                INTEGER PRIMARY KEY,
+    mbid              TEXT UNIQUE,              -- MusicBrainz release-group id
+    artist_id         INTEGER NOT NULL REFERENCES artists(id),  -- primary/display artist (convenience; see album_artists for the full credit)
+    title             TEXT NOT NULL,
+    year              INTEGER,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    -- Cover art is fetched once (from the Cover Art Archive, via mbid, or a manually pasted
+    -- URL) and stored locally as data/covers/{id}.jpg -- these two columns just track that
+    -- fetch's outcome; the image bytes themselves live on disk, not in this table. NULL means
+    -- never attempted. 'ok' means data/covers/{id}.jpg exists and is real usable art. 'none'
+    -- means a fetch was tried and came back with nothing (a real, recorded outcome, not the
+    -- same as "haven't checked yet" -- keeps a completeness sweep from re-trying it forever).
+    -- Column order matters here: appended after created_at, not grouped with the rest of an
+    -- album's identity above, because build_public_db.py's `INSERT ... SELECT *` is
+    -- positional -- these must land in the same order ALTER TABLE actually put them in on the
+    -- live database (new columns always append at the end), or that insert quietly shuffles
+    -- values into the wrong columns instead of failing loudly.
+    cover_status      TEXT CHECK (cover_status IN ('ok', 'none')),
+    cover_updated_at  TEXT
 );
 
 -- Full artist credit per album (many-to-many). Real releases are often
@@ -83,7 +96,12 @@ CREATE TABLE IF NOT EXISTS vinyl_holdings (
     notes                   TEXT,
     raw_artist_text         TEXT NOT NULL, -- artist string as Discogs had it (pre-match)
     raw_title_text          TEXT NOT NULL,
-    created_at              TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    -- The exact MusicBrainz *release* this pressing is (albums.mbid is the release *group*, i.e.
+    -- the work across every pressing). Set when a human accepts MusicBrainz's own Discogs-URL
+    -- link for this discogs_release_id; its release group should equal the album's mbid.
+    -- After created_at because ALTER TABLE ADD COLUMN appends (see migrations.py).
+    mb_release_id           TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_vinyl_album ON vinyl_holdings(album_id);
@@ -199,7 +217,11 @@ CREATE TABLE IF NOT EXISTS merge_log (
     canonical_id     INTEGER NOT NULL,     -- polymorphic target (same pattern as notes.entity_id): no FK
     canonical_name   TEXT NOT NULL,
     rows_moved_json  TEXT NOT NULL,        -- {"songs": 4, "scrobbles": 812, ...}
-    merged_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    merged_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    -- Everything needed to reverse this merge row-for-row (see etl/maintenance/merge.py's
+    -- undo_merge); NULL for merges made before the undo journal existed.
+    undo_json        TEXT,
+    undone_at        TEXT
 );
 
 -- A fuzzy duplicate-name scan (e.g. across all artists) can't tell "Bush"
@@ -217,6 +239,134 @@ CREATE TABLE IF NOT EXISTS duplicate_dismissals (
     entity_id_b   INTEGER NOT NULL,     -- the larger of the two ids
     dismissed_at  TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(entity_type, entity_id_a, entity_id_b)
+);
+
+-- ---------------------------------------------------------------------
+-- Maintenance review state (internal housekeeping only: not public)
+-- ---------------------------------------------------------------------
+-- Kept in sync with etl/migrations.py, which adds these to databases that predate them.
+
+-- Cached MusicBrainz responses, keyed by request ("lookup:artist:<mbid>", "search:..."), so a
+-- lookup is only ever made once per expiry window -- see etl/maintenance/mbcache.py.
+CREATE TABLE IF NOT EXISTS mb_cache (
+    key          TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    fetched_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- A proposed mbid for an entity, from an automated sweep -- never applied until a human
+-- accepts it. Rejected rows stay, so the same guess isn't proposed again.
+CREATE TABLE IF NOT EXISTS suggestions (
+    id            INTEGER PRIMARY KEY,
+    entity_type   TEXT NOT NULL CHECK (entity_type IN ('artist','album','song','vinyl')),
+    entity_id     INTEGER NOT NULL,
+    mbid          TEXT NOT NULL,
+    label         TEXT,                 -- display name of what the mbid points at
+    confidence    REAL NOT NULL,        -- 0-100
+    tier          TEXT NOT NULL CHECK (tier IN ('high','medium','low')),
+    source        TEXT NOT NULL,        -- 'mb-search' | 'discogs-link' | ...
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','rejected')),
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at    TEXT,
+    UNIQUE(entity_type, entity_id, mbid)
+);
+CREATE INDEX IF NOT EXISTS idx_suggestions_entity ON suggestions(entity_type, entity_id);
+
+-- "A human looked at this and it's fine" markers -- e.g. a verify flag marked "looks right"
+-- ('verified:<check>') or an album whose songs have been reviewed ('songs-reviewed').
+CREATE TABLE IF NOT EXISTS review_marks (
+    id           INTEGER PRIMARY KEY,
+    entity_type  TEXT NOT NULL CHECK (entity_type IN ('artist','album','song','vinyl')),
+    entity_id    INTEGER NOT NULL,
+    mark         TEXT NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(entity_type, entity_id, mark)
+);
+
+-- Extra MusicBrainz artist ids a local artist also releases under (e.g. "Jimi Hendrix" also owns
+-- "The Jimi Hendrix Experience"), so checks, searches, song lookups and imports treat that credit
+-- as the same artist. override_ids: the alias_overrides rows created with it (removed with it).
+CREATE TABLE IF NOT EXISTS artist_mb_aliases (
+    id            INTEGER PRIMARY KEY,
+    artist_id     INTEGER NOT NULL REFERENCES artists(id),
+    mbid          TEXT NOT NULL UNIQUE,
+    name          TEXT,
+    override_ids  TEXT NOT NULL DEFAULT '[]',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_artist_mb_aliases_artist ON artist_mb_aliases(artist_id);
+
+-- Editions: MusicBrainz *release* ids (the exact edition) -> the album they belong to. The album's
+-- own mbid is the release GROUP (what stats and matching use); this keeps the edition detail
+-- without letting it split albums, and is the importer's instant lookup table.
+CREATE TABLE IF NOT EXISTS album_releases (
+    id            INTEGER PRIMARY KEY,
+    release_mbid  TEXT NOT NULL UNIQUE,
+    album_id      INTEGER NOT NULL REFERENCES albums(id),
+    title         TEXT,
+    source        TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_album_releases_album ON album_releases(album_id);
+
+-- The exact release each scrobble was played from, as Last.fm reported it.
+CREATE TABLE IF NOT EXISTS scrobble_releases (
+    scrobble_id   INTEGER PRIMARY KEY REFERENCES scrobbles(id),
+    release_mbid  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scrobble_releases_release ON scrobble_releases(release_mbid);
+
+-- Tracks: MusicBrainz *track* ids (a recording's slot on one specific release) -> the song. A
+-- song's own mbid is the RECORDING; Last.fm sends either kind in the same field, so track ids
+-- are kept here instead -- and a track id seen once routes future imports straight to the song.
+CREATE TABLE IF NOT EXISTS song_tracks (
+    id            INTEGER PRIMARY KEY,
+    track_mbid    TEXT NOT NULL UNIQUE,
+    song_id       INTEGER NOT NULL REFERENCES songs(id),
+    release_mbid  TEXT,
+    source        TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_song_tracks_song ON song_tracks(song_id);
+
+-- The raw id Last.fm sent for each scrobble's track (a recording OR a track id -- unverified).
+CREATE TABLE IF NOT EXISTS scrobble_tracks (
+    scrobble_id   INTEGER PRIMARY KEY REFERENCES scrobbles(id),
+    lastfm_mbid   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scrobble_tracks_mbid ON scrobble_tracks(lastfm_mbid);
+
+-- The Import inbox: what each import run created or couldn't place, for review.
+CREATE TABLE IF NOT EXISTS import_runs (
+    id            INTEGER PRIMARY KEY,
+    source        TEXT NOT NULL,
+    started_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at   TEXT,
+    summary_json  TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS import_events (
+    id            INTEGER PRIMARY KEY,
+    run_id        INTEGER REFERENCES import_runs(id),
+    kind          TEXT NOT NULL,        -- new_artist | new_album | new_song | edition_linked | mbid_clash | unresolved_release | suspect
+    entity_type   TEXT,
+    entity_id     INTEGER,
+    detail_json   TEXT NOT NULL DEFAULT '{}',
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed_at   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_import_events_open ON import_events(reviewed_at, kind);
+
+-- Every non-merge identity edit (mbid/title/year) with its previous values, so it can be undone.
+CREATE TABLE IF NOT EXISTS edit_log (
+    id            INTEGER PRIMARY KEY,
+    entity_type   TEXT NOT NULL CHECK (entity_type IN ('artist','album','song','vinyl')),
+    entity_id     INTEGER NOT NULL,
+    entity_name   TEXT NOT NULL,
+    changes_json  TEXT NOT NULL,        -- {"mbid": [old, new], "title": [old, new]}
+    reason        TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    undone_at     TEXT
 );
 
 -- ---------------------------------------------------------------------
