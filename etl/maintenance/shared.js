@@ -197,6 +197,9 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
         what = d.action === "hide" ? `Hid genre <span class="who">${esc(i.name)}</span> everywhere`
           : d.action === "merge" ? `Merged genre <span class="who">${esc(i.name)}</span> into another`
           : `Restored genre <span class="who">${esc(i.name)}</span>`;
+      } else if (i.changes._movePlays) {
+        const d = i.changes._movePlays;
+        what = `Moved ${plural(d.scrobbleIds.length, "play")} (as “${esc(d.rawTitles.join(" / "))}”) from <span class="who">${esc(d.fromTitle)}</span> to <span class="who">${esc(d.toTitle)}</span>`;
       } else if (i.changes._created) {
         what = `Added album <span class="who">${esc(i.name)}</span> from MusicBrainz ${i.changes._created.mbid ? mbLink("album", i.changes._created.mbid) : ""}`;
       } else if (i.changes._split) {
@@ -206,8 +209,11 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
         const r = i.changes._relink;
         what = `Re-linked ${plural(r.setlistSongIds.length, "live play")} of <span class="who">${esc(i.name)}</span> to <span class="who">${esc(r.toTitle || "#" + r.to)}</span>${r.createdSong ? " <span class='meta'>(new song)</span>" : ""}`;
       } else {
-        const parts = Object.entries(i.changes).filter(([k]) => !k.startsWith("cover_")).map(([k, [o, n]]) =>
-          k === "mbid" ? `mbid ${o ? mbLink(i.entityType, o) : "∅"} → ${n ? mbLink(i.entityType, n) : "∅"}`
+        const parts = Object.entries(i.changes).filter(([k]) => k !== "cover_status" && k !== "cover_updated_at").map(([k, [o, n]]) =>
+          k === "cover_file" ? (n ? "its own cover" : "back to the album's cover")
+          : k === "display_title" ? `title on the site “${esc(o ?? i.name)}” → “${esc(n ?? "the album's")}”`
+          : k === "release_year" ? `year ${esc(o ?? "the album's")} → ${esc(n ?? "the album's")}`
+          : k === "mbid" ? `mbid ${o ? mbLink(i.entityType, o) : "∅"} → ${n ? mbLink(i.entityType, n) : "∅"}`
           : k === "mb_release_id" ? `pressing ${o ? mbLink("release", o) : "∅"} → ${n ? mbLink("release", n) : "∅"}`
           : k === "album_id" ? `moved to another album (#${esc(o)} → #${esc(n)})`
           : k === "disc_colour" ? `record colour ${(() => { try { const c = n && JSON.parse(n); return c ? `→ ${esc(c.colours.join(" / "))} (${esc(c.effect)})` : "reset to what the format says"; } catch { return "changed"; } })()}`

@@ -105,7 +105,12 @@ CREATE TABLE IF NOT EXISTS vinyl_holdings (
     -- The year THIS pressing came out (Discogs "Released"); albums.year is the album's original
     -- year. And the record's colour when set by hand: JSON {"colours": [...], "effect": "..."}.
     pressing_year           INTEGER,
-    disc_colour             TEXT
+    disc_colour             TEXT,
+    -- This copy's own look when it's a distinct release of the album (Part 1 / Part 2, a picture
+    -- disc): its own cover file (in the covers dir), title and first-release year. NULL = the album's.
+    cover_file              TEXT,
+    display_title           TEXT,
+    release_year            INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_vinyl_album ON vinyl_holdings(album_id);
@@ -447,3 +452,26 @@ CREATE VIEW IF NOT EXISTS artist_genres AS
            count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = ag.album_id) THEN ag.album_id END) AS vinyl_albums
     FROM album_genres ag JOIN album_artists aa ON aa.album_id = ag.album_id
     GROUP BY aa.artist_id, ag.genre_id;
+
+-- The album's own tracklist for albums not on vinyl (migration 009): MusicBrainz's earliest
+-- official release of the release group. Vinyl albums use the pressing you own (vinyl_details).
+CREATE TABLE IF NOT EXISTS album_tracklists (
+    album_id        INTEGER NOT NULL REFERENCES albums(id),
+    position        INTEGER NOT NULL,
+    number          TEXT,
+    disc            INTEGER,
+    title           TEXT NOT NULL,
+    recording_mbid  TEXT,
+    length_ms       INTEGER,
+    PRIMARY KEY (album_id, position)
+);
+CREATE TABLE IF NOT EXISTS album_tracklist_sources (
+    album_id        INTEGER PRIMARY KEY REFERENCES albums(id),
+    source          TEXT NOT NULL,
+    release_mbid    TEXT,
+    release_title   TEXT,
+    release_date    TEXT,
+    country         TEXT,
+    format          TEXT,
+    fetched_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);

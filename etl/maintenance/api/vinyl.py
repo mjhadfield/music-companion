@@ -132,6 +132,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
                    | {f"lookup:discogs-release:{r[2]}" for r in rows if r[2]}
                    | {f"lookup:discogs-api:{r[2]}" for r in rows if r[2]})
 
+    look_cols = {r[1] for r in c.execute("PRAGMA table_info(vinyl_holdings)")}
+    looks = {r[0]: r[1:] for r in c.execute("SELECT id, cover_file, display_title, release_year FROM vinyl_holdings")} if "cover_file" in look_cols else {}
     out = []
     for (vid, album_id, rel_id, cat, label, fmt, media_c, sleeve_c, added, rating, notes, raw_artist, raw_title, mb_rel,
          title, year, mbid, cover, artist_id) in rows:
@@ -173,6 +175,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
             "discogs": cache.get(f"lookup:discogs-api:{rel_id}") if rel_id else None,
             "discogsDetailsChecked": bool(rel_id) and f"lookup:discogs-api:{rel_id}" in cache,
             "suggestions": [s for s in pending.get(vid, [])],
+            # this copy's own look on the site (NULL = the album's): see migration 010
+            "look": dict(zip(("coverFile", "displayTitle", "releaseYear"), looks.get(vid, (None, None, None)))),
         }
         h["checks"] = _checks(h, rg_checked, album_id in reviewed)
         h["score"] = sum({"ok": 0, "na": 0, "unknown": 1, "warn": 2, "bad": 4}[x["status"]] for x in h["checks"])
@@ -234,7 +238,8 @@ def _checks(h: dict, rg_checked: bool, reviewed: bool) -> list[dict]:
     elif a["mbid"] and reviewed:
         add("identity", "Identity verified", "ok", "Confirmed (Discogs master or by hand)")
     elif a["mbid"]:
-        add("identity", "Identity verified", "unknown", "Not checked against MusicBrainz yet", "lookup")
+        # its own button: the pressing lookup can't help when MusicBrainz doesn't list the pressing
+        add("identity", "Identity verified", "unknown", "Not checked against MusicBrainz yet", "check")
     else:
         add("identity", "Identity verified", "unknown", "Needs an album MBID first")
 
@@ -261,6 +266,20 @@ def _checks(h: dict, rg_checked: bool, reviewed: bool) -> list[dict]:
     add("cover", "Cover art", "ok" if cover == "ok" else "bad" if cover == "none" else "warn",
         {"ok": "Has cover art", "none": "Cover Art Archive had nothing — paste an image URL"}.get(cover, "No cover fetched yet"),
         None if cover == "ok" else "cover")
+
+    # Several copies of one album: a copy that's really its own release (its own title on Discogs --
+    # "Electric Ladyland Part 1" -- or a picture disc) should look like itself on the site.
+    if h["otherPressings"]:
+        look = h["look"]
+        distinct = h["pressingTitle"] or ("Pic" in {t["code"] for t in h["formatInfo"]["tags"]})
+        if look["coverFile"] or look["displayTitle"] or look["releaseYear"]:
+            add("look", "Own look", "ok", "Has its own " + " & ".join(k for k, v in (("cover", look["coverFile"]), ("title", look["displayTitle"]),
+                                                                                     ("year", look["releaseYear"])) if v))
+        elif distinct:
+            add("look", "Own look", "warn", f"{'“' + h['pressingTitle'] + '”' if h['pressingTitle'] else 'A picture disc'} — shows the album's cover & title "
+                f"like your {len(h['otherPressings'])} other cop{'y' if len(h['otherPressings']) == 1 else 'ies'}", "look")
+        else:
+            add("look", "Own look", "ok", f"Shares the album's cover with your other cop{'y' if len(h['otherPressings']) == 1 else 'ies'}")
 
     n = len(h["versions"])
     add("versions", "No duplicates", "warn" if n else "ok",
@@ -410,6 +429,111 @@ def disc_colour(req):
     with write_tx() as c:
         e = merge.edit_entity(c, "vinyl", vid, {"disc_colour": value}, "record colour")
     return {"vinylId": vid, "discColour": json.loads(value) if value else None, "editId": e["editId"]}
+
+
+@route("POST", "/api/vinyl/check-album", mutating=True)
+def check_album(req):
+    """Look the album's release group up on MusicBrainz (one request, cached) -- what the identity
+    and original-year checks are worked out from. Needed on its own when MusicBrainz doesn't list
+    the pressing (so the pressing lookup has nothing to go on), e.g. after an identity fix."""
+    import mbcache
+    vid = req.int("vinylId", required=True)
+    with read_conn() as c:
+        row = c.execute("SELECT al.mbid FROM vinyl_holdings v JOIN albums al ON al.id = v.album_id WHERE v.id = ?", (vid,)).fetchone()
+    if not row:
+        raise ApiError("holding not found", 404)
+    if not row[0]:
+        raise ApiError("The album has no MusicBrainz id yet -- set its identity first.", 409)
+    try:
+        rg = mbcache.release_group(row[0])
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError(f"MusicBrainz request failed: {exc}", 502)
+    return {"vinylId": vid, "found": bool(rg), "title": (rg or {}).get("title"), "firstReleaseDate": (rg or {}).get("firstReleaseDate")}
+
+
+# -- A copy's own look (migration 010) ---------------------------------------------------------------
+
+def _holding_look_row(c, vid: int):
+    row = c.execute("SELECT v.id, v.discogs_release_id, v.mb_release_id, v.cover_file FROM vinyl_holdings v WHERE v.id = ?", (vid,)).fetchone()
+    if not row:
+        raise ApiError("holding not found", 404)
+    return row
+
+
+@route("GET", "/api/vinyl/copy-images")
+def copy_images(req):
+    """Cover choices for one copy: its MusicBrainz release on the Cover Art Archive, and its own
+    Discogs release's photos (one throttled Discogs request the first time, cached after)."""
+    import mbcache
+    vid = req.int("vinylId", required=True)
+    with read_conn() as c:
+        _, rel_id, mb_rel, _ = _holding_look_row(c, vid)
+    out = []
+    if mb_rel:
+        out.append({"source": "caa", "label": "Cover Art Archive — this pressing's MusicBrainz release",
+                    "url": f"https://coverartarchive.org/release/{mb_rel}/front-500", "thumb": f"https://coverartarchive.org/release/{mb_rel}/front-250"})
+    if rel_id:
+        try:
+            images = mbcache.discogs_release_images(rel_id)
+        except Exception as exc:  # noqa: BLE001 -- Discogs down / rate-limited: the other options still work
+            raise ApiError(f"Couldn't reach Discogs: {exc}", 502)
+        for i, im in enumerate(images):
+            out.append({"source": "discogs", "label": f"Discogs photo {i + 1}{' (the main one)' if im.get('type') == 'primary' else ''}",
+                        "url": im["uri"], "thumb": im.get("uri150") or im["uri"], "width": im.get("width"), "height": im.get("height")})
+    return {"vinylId": vid, "images": out}
+
+
+@route("POST", "/api/vinyl/copy-cover", mutating=True)
+def copy_cover(req):
+    """Give one copy its own cover: url (a choice above, or pasted), or data (a base64 image the
+    browser uploaded), or clear=true to go back to the album's. Undoable (an edit)."""
+    import base64
+    import covers
+    vid = req.int("vinylId", required=True)
+    with read_conn() as c:
+        _holding_look_row(c, vid)
+    if req.body.get("clear"):
+        name = None
+    else:
+        if req.body.get("data"):
+            try:
+                content = base64.b64decode(str(req.body["data"]).split(",")[-1], validate=True)
+            except ValueError:
+                raise ApiError("That upload isn't a valid image")
+            if not covers.sniff_image(content):
+                raise ApiError("That file isn't a JPEG, PNG or WebP image")
+            if len(content) > covers.MAX_COVER_BYTES:
+                raise ApiError("That image is over 5 MB")
+        else:
+            url = req.str("url")
+            if not url.startswith(("http://", "https://")):
+                raise ApiError("url must start with http:// or https://")
+            content, error = covers.download(url)  # outside any transaction: a network call
+            if error:
+                raise ApiError(error)
+        name = covers.save_holding_cover(vid, content)
+    with write_tx() as c:
+        e = merge.edit_entity(c, "vinyl", vid, {"cover_file": name}, "this copy's cover")
+    return {"vinylId": vid, "coverFile": name, "editId": e["editId"]}
+
+
+@route("POST", "/api/vinyl/copy-identity", mutating=True)
+def copy_identity(req):
+    """This copy's own title / first-release year on the site; blank = the album's. Undoable."""
+    vid = req.int("vinylId", required=True)
+    title = (req.str("displayTitle") or "").strip() or None
+    year = req.body.get("releaseYear")
+    year = int(year) if str(year or "").strip().isdigit() else None
+    if year is not None and not 1900 <= year <= 2100:
+        raise ApiError("That doesn't look like a year")
+    with write_tx() as c:
+        album_title = c.execute("SELECT al.title FROM vinyl_holdings v JOIN albums al ON al.id = v.album_id WHERE v.id = ?", (vid,)).fetchone()
+        if not album_title:
+            raise ApiError("holding not found", 404)
+        if title == album_title[0]:
+            title = None  # the same as the album's is no override at all
+        e = merge.edit_entity(c, "vinyl", vid, {"display_title": title, "release_year": year}, "this copy's title & year")
+    return {"vinylId": vid, "displayTitle": title, "releaseYear": year, "editId": e["editId"]}
 
 
 @route("POST", "/api/vinyl/move", mutating=True)

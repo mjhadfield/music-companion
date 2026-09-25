@@ -85,6 +85,16 @@
   .inline-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .inline-edit input[type="text"] { flex: 1; min-width: 220px; }
   .inline-edit input[type="number"] { width: 90px; }
+  .look-grid { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: start; }
+  .look-preview { display: grid; gap: 3px; }
+  .look-preview img, .look-preview .placeholder-art { width: 150px; height: 150px; object-fit: cover; border: 1px solid var(--edge); }
+  .look-form { display: grid; gap: 4px; min-width: 0; }
+  .look-photos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+  .look-photos:empty { display: none; }
+  .look-photo { display: grid; gap: 3px; padding: 4px; background: var(--surface-2); border: 1px solid var(--edge); cursor: pointer; color: var(--text-dim); font-size: 11px; }
+  .look-photo:hover { border-color: var(--accent-vinyl); color: var(--text); }
+  .look-photo img { width: 96px; height: 96px; object-fit: cover; display: block; }
+  @media (max-width: 640px) { .look-grid { grid-template-columns: 1fr; } }
   .big-cover { width: 220px; height: 220px; object-fit: cover; border: 1px solid var(--edge); border-radius: var(--radius-sm); }
   .d-body .resolve input[type="text"] { width: 240px; }
   @media (max-width: 700px) { .d-head { grid-template-columns: 1fr; } .checklist li { grid-template-columns: 18px 1fr; } .checklist li .c-text, .checklist li .c-fix { grid-column: 2; } }
@@ -173,7 +183,8 @@ let openId = null;
 
 const check = (h, key) => h.checks.find((c) => c.key === key);
 const done = (c) => c.status === "ok" || c.status === "na"; // "na": nothing to do (e.g. MusicBrainz doesn't list the pressing)
-const artUrl = (h) => h.album.coverStatus === "ok" ? `/covers/${h.album.albumId}.jpg` : null;
+// this copy's own cover when it has one (a Part 1, a picture disc), else the album's
+const artUrl = (h) => h.look?.coverFile ? `/covers/${h.look.coverFile}` : h.album.coverStatus === "ok" ? `/covers/${h.album.albumId}.jpg` : null;
 const stars = (n) => n ? `<span class="stars" title="${n}/5">${"★".repeat(n)}${"☆".repeat(5 - n)}</span>` : "";
 
 function fmtTags(h) {
@@ -363,6 +374,7 @@ function renderDrawer(h) {
     ${missingArtists.length ? sec(`Artist identity <span class="meta">(${missingArtists.length} without an MBID)</span>`, `<div data-role="artists"></div>`, { role: "artist" }) : ""}
     ${sec("Genres", `<div data-role="genres"><span class="meta">Loading…</span></div>`, { role: "genres", right: `<a class="meta" href="/genres.html#browse">Genre review →</a>` })}
     ${sec("This pressing", pressingHtml(h), { right: h.discogsReleaseId ? discogsLink(h.discogsReleaseId, "Discogs release") : "" })}
+    ${sec("This copy on the site", `<div data-role="look"></div>`, { role: "look" })}
     ${sec("MusicBrainz link for this pressing", `<div data-role="link"></div>`, { role: "link" })}
     ${sec("Title & year", `<div data-role="titleyear"></div>`, { role: "titleyear" })}
     ${sec("Cover art", `<div data-role="cover"></div>`, { role: "cover" })}
@@ -378,6 +390,14 @@ function renderDrawer(h) {
   renderColourEditor(dBody.querySelector("[data-role='colour']"), h);
   renderTitleYear($("titleyear"), h);
   renderCover($("cover"), h);
+  renderCopyLook($("look"), h);
+  dBody.querySelector("[data-act='check-album']")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    const { ok, data } = await api("/api/vinyl/check-album", { vinylId: h.vinylId });
+    if (!ok) { toast(esc(data.message), { error: true }); e.currentTarget.disabled = false; return; }
+    toast(data.found ? `Checked: <b>${esc(data.title)}</b>${data.firstReleaseDate ? ` (first released ${esc(data.firstReleaseDate)})` : ""}` : "MusicBrainz doesn't know that release group — fix the album's identity", { error: !data.found });
+    refresh();
+  });
   if (h.versionProfiles.length) {
     $("versions").appendChild(mergeTable([h.albumProfile, ...h.versionProfiles], { checkedAll: true, primary: a.albumId, onMerged: refresh }));
   }
@@ -470,7 +490,9 @@ function fixButton(h, c) {
     case "title": return keyBtn("t", `Use “${esc(h.album.baseTitle)}”`, "", 'data-act="clean-title"');
     case "suggestion": return `<button class="small" data-jump="link">Review ↓</button>`;
     case "lookup": return `<button class="small" data-jump="link">Look up ↓</button>`;
+    case "check": return `<button class="small" data-act="check-album">Check on MusicBrainz</button>`;
     case "cover": return `<button class="small" data-jump="cover">Fix ↓</button>`;
+    case "look": return `<button class="small" data-jump="look">Set ↓</button>`;
     case "versions": return `<button class="small" data-jump="versions">Review ↓</button>`;
     case "identity": return `<button class="small" data-jump="identity">Fix ↓</button>`;
     case "credit": return `${creditAliasButton(c.credit)} <button class="small" data-jump="identity">Wrong album ↓</button>`;
@@ -705,6 +727,88 @@ function renderCover(el, h) {
     if (!ok) { toast(esc(data.message), { error: true }); return; }
     toast(`Cover art saved for <b>${esc(a.title)}</b>`);
     refresh();
+  });
+}
+
+// -- This copy on the site ---------------------------------------------------------------------
+// Several copies of one album that are really distinct releases -- Electric Ladyland Part 1 /
+// Part 2 / the double, a picture disc beside the original -- each get their own cover, title and
+// year on the site. Blank = the album's. Every change is an undoable edit.
+function renderCopyLook(el, h) {
+  const a = h.album, look = h.look || {};
+  const others = h.otherPressings.length;
+  const cover = artUrl(h);
+  const shownTitle = look.displayTitle || a.title, shownYear = look.releaseYear || a.year;
+  const suggestTitle = h.pressingTitle && h.pressingTitle !== look.displayTitle ? h.pressingTitle : null;
+  const suggestYear = h.pressingTitle && h.pressingYear && h.pressingYear !== a.year && h.pressingYear !== look.releaseYear ? h.pressingYear : null;
+  el.innerHTML = `
+    <div class="meta" style="margin-bottom:10px">${others
+      ? `You have ${plural(others + 1, "copy", "copies")} of this album. On the site each shows the album's cover, title and year unless it has its own — give it its own when it's really a different release.`
+      : "Only needed when a copy should look different from the album on the site (e.g. a picture disc)."}</div>
+    <div class="look-grid">
+      <div class="look-preview">${cover ? `<img src="${cover}" alt="" />` : `<div class="placeholder-art"></div>`}
+        <b>${esc(shownTitle)}</b><span class="meta">${shownYear || ""} · ${look.coverFile ? "its own cover" : "the album's cover"}</span></div>
+      <div class="look-form">
+        <label class="meta">Title on the site</label>
+        <div class="inline-form"><input type="text" data-role="look-title" value="${esc(look.displayTitle || "")}" placeholder="${esc(a.title)} (the album's)" style="flex:1; min-width:200px" />
+          ${suggestTitle ? `<button class="small" data-act="use-ptitle" title="This release's own title on Discogs">Use “${esc(suggestTitle)}”</button>` : ""}</div>
+        <label class="meta">First released</label>
+        <div class="inline-form"><input type="number" data-role="look-year" value="${look.releaseYear || ""}" placeholder="${a.year || ""} (the album's)" style="width:170px" min="1900" max="2100" />
+          ${suggestYear ? `<button class="small" data-act="use-pyear" title="The year this release came out">Use ${suggestYear}</button>` : ""}
+          <button class="small primary" data-act="save-ty">Save title & year</button>
+          ${look.displayTitle || look.releaseYear ? `<button class="small" data-act="reset-ty">Back to the album's</button>` : ""}</div>
+        <label class="meta" style="margin-top:10px">Cover</label>
+        <div class="inline-form"><button class="small" data-act="photos">${h.mbReleaseId || h.discogsReleaseId ? "Show this pressing's photos" : "No Discogs / MusicBrainz release to take photos from"}</button>
+          <label class="small btn">Upload a photo…<input type="file" accept="image/jpeg,image/png,image/webp" data-role="look-file" hidden /></label>
+          ${look.coverFile ? `<button class="small" data-act="reset-cover">Use the album's cover</button>` : ""}</div>
+        <div class="look-photos" data-role="look-photos"></div>
+        <div class="inline-form" style="margin-top:6px"><input type="text" data-role="look-url" placeholder="…or paste a direct image link" style="flex:1; min-width:200px" /><button class="small" data-act="look-url">Use this image</button></div>
+      </div>
+    </div>`;
+  const $ = (r) => el.querySelector(`[data-role='${r}']`);
+  const act = (name, fn) => el.querySelector(`[data-act='${name}']`)?.addEventListener("click", fn);
+  const done = (message, editId) => { if (editId) toast(message, { undo: { kind: "edit", id: editId, onUndone: () => openDrawer(h.vinylId, { scroll: false }) } }); notifyChanged(); openDrawer(h.vinylId, { scroll: false }); };
+  const saveTY = async (title, year) => {
+    const { ok, data } = await api("/api/vinyl/copy-identity", { vinylId: h.vinylId, displayTitle: title, releaseYear: year });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    done(data.displayTitle || data.releaseYear ? `This copy now shows as <b>${esc(data.displayTitle || a.title)}</b>${data.releaseYear ? ` (${data.releaseYear})` : ""}` : "Back to the album's title & year", data.editId);
+  };
+  const setCover = async (body, message) => {
+    const { ok, data } = await api("/api/vinyl/copy-cover", { vinylId: h.vinylId, ...body });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    done(message, data.editId);
+  };
+  act("use-ptitle", () => { $("look-title").value = suggestTitle; });
+  act("use-pyear", () => { $("look-year").value = suggestYear; });
+  act("save-ty", () => saveTY($("look-title").value, $("look-year").value));
+  act("reset-ty", () => saveTY("", ""));
+  act("reset-cover", () => setCover({ clear: true }, "Back to the album's cover"));
+  act("look-url", () => { const url = $("look-url").value.trim(); if (url) setCover({ url }, "This copy has its own cover"); });
+  act("photos", async (e) => {
+    if (!h.mbReleaseId && !h.discogsReleaseId) return;
+    e.currentTarget.disabled = true;
+    $("look-photos").innerHTML = `<span class="meta">Fetching this pressing's photos…</span>`;
+    const { ok, data } = await api(`/api/vinyl/copy-images?vinylId=${h.vinylId}`);
+    if (!ok) { $("look-photos").innerHTML = `<span class="status-line error">${esc(data.message)}</span>`; return; }
+    $("look-photos").innerHTML = data.images.length ? data.images.map((im, i) => `
+      <button class="look-photo" data-pick="${i}" title="${esc(im.label)} — use as this copy's cover"><img src="${esc(im.thumb)}" alt="" referrerpolicy="no-referrer" loading="lazy" onerror="this.closest('.look-photo').remove()" /><span>${im.source === "caa" ? "Cover Art Archive" : `Discogs ${i + 1 - data.images.filter((x) => x.source === "caa").length}`}</span></button>`).join("")
+      : `<span class="meta">Neither Discogs nor the Cover Art Archive has a photo of this pressing — upload your own, or paste a link.</span>`;
+    $("look-photos").querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", () => {
+      const im = data.images[+b.dataset.pick];
+      setCover({ url: im.url }, `This copy's cover: ${esc(im.label)}`);
+    }));
+  });
+  $("look-file").addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      // a phone photo can be 10 MB+: scale it to at most 1200px and send a JPEG
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
+      const cv = Object.assign(document.createElement("canvas"), { width: Math.round(bmp.width * k), height: Math.round(bmp.height * k) });
+      cv.getContext("2d").drawImage(bmp, 0, 0, cv.width, cv.height);
+      await setCover({ data: cv.toDataURL("image/jpeg", 0.9) }, "This copy's cover: your photo");
+    } catch { toast("Couldn't read that image", { error: true }); }
   });
 }
 

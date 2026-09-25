@@ -374,6 +374,49 @@ def _m008_pressing_year_and_disc_colour(conn: sqlite3.Connection) -> None:
                      [(y, rid) for rid, y in released.items()])
 
 
+def _m009_album_tracklists(conn: sqlite3.Connection) -> None:
+    """The album's own tracklist for albums not on vinyl (vinyl albums use the pressing you own):
+    MusicBrainz's earliest official release of the release group -- the album as first released,
+    so deluxe / remaster extras are recognisably bonus tracks. Filled by the album-tracklists
+    sweep. Public: the site splits an album page into "Tracklist" and "Bonus & other tracks"."""
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS album_tracklists (
+            album_id        INTEGER NOT NULL REFERENCES albums(id),
+            position        INTEGER NOT NULL,
+            number          TEXT,
+            disc            INTEGER,
+            title           TEXT NOT NULL,
+            recording_mbid  TEXT,
+            length_ms       INTEGER,
+            PRIMARY KEY (album_id, position)
+        );
+        CREATE TABLE IF NOT EXISTS album_tracklist_sources (
+            album_id        INTEGER PRIMARY KEY REFERENCES albums(id),
+            source          TEXT NOT NULL,
+            release_mbid    TEXT,
+            release_title   TEXT,
+            release_date    TEXT,
+            country         TEXT,
+            format          TEXT,
+            fetched_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+    """)
+
+
+def _m010_copy_look(conn: sqlite3.Connection) -> None:
+    """A copy's own look, for when one album has records that are really distinct releases
+    (Electric Ladyland Part 1 / Part 2 / the double; a picture disc beside the original). All
+    public, all NULL = as the album:
+      cover_file     its own cover image in the covers dir (h<id>-<hash>.jpg -- a new name per
+                     image, so undo can point back at the previous one and browsers never cache stale)
+      display_title  what the site calls this record ("Electric Ladyland Part 1")
+      release_year   the year this release first came out, where it differs from the album's"""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(vinyl_holdings)")}
+    for col, typ in (("cover_file", "TEXT"), ("display_title", "TEXT"), ("release_year", "INTEGER")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE vinyl_holdings ADD COLUMN {col} {typ}")
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -383,6 +426,8 @@ MIGRATIONS = [
     ("006_song_tracks", _m006_song_tracks),
     ("007_genres_and_pressings", _m007_genres_and_pressings),
     ("008_pressing_year_and_disc_colour", _m008_pressing_year_and_disc_colour),
+    ("009_album_tracklists", _m009_album_tracklists),
+    ("010_copy_look", _m010_copy_look),
 ]
 
 

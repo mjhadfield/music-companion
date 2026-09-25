@@ -100,6 +100,12 @@ def base_key(title: str) -> str:
     return fold(split_title(title)[0])
 
 
+def track_key(title: str) -> str:
+    """base_key for matching against a pressing's tracklist: also blind to apostrophes, which
+    tracklists drop freely ("Tomorrows Dream" = "Tomorrow's Dream")."""
+    return fold(re.sub(r"['’`´]", "", split_title(title)[0]))
+
+
 def variant_tags(title: str) -> set[str]:
     return split_title(title)[1] - {"edition"}
 

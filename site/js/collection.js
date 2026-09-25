@@ -109,7 +109,44 @@ function gradeOf(cond) {
 }
 const starsHtml = (n) => (n ? `<span class="stars" title="Your rating: ${n}/5">${"★".repeat(n)}<span class="off">${"★".repeat(5 - n)}</span></span>` : "");
 const jsonOr = (s, fallback) => { try { return s ? JSON.parse(s) : fallback; } catch { return fallback; } };
-const normTitle = (t) => String(t || "").toLowerCase().replace(/\s*[([].*?[)\]]/g, "").replace(/\s+-\s+.*$/, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+// The comparison form of a track title: case, accents, apostrophes ("Tomorrows" = "Tomorrow's"),
+// "&" vs "and", bracketed and " - " suffixes (remasters, live...) all ignored.
+// A " - …" ending is only dropped when it's an edition note ("- 2009 Remaster", "- Live at ..."),
+// never part of the title itself ("95 - N.A.S.T.Y.").
+const EDITION_TAIL = /\s+-\s+(?=.*\b(remaster(ed)?|live|version|mix|edit|demo|mono|stereo|single|bonus|edition|re-?record(ing)?|session|take|acoustic|instrumental|\d{4})\b).*$/i;
+const normTitle = (t) => String(t || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+  .replace(/\s*[([].*?[)\]]/g, "").replace(EDITION_TAIL, "").replace(/['’`´]/g, "").replace(/&/g, " and ")
+  .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const compactTitle = (t) => normTitle(t).replace(/ /g, "");
+// A different recording, not just another edition: live, remix, demo, acoustic, instrumental --
+// read only from the title's bracketed / " - " tail ("Live Wire" is just a title). -> tag or "".
+function variantOf(title) {
+  const t = String(title || "");
+  const tails = [...t.matchAll(/[([]([^)\]]*)[)\]]/g)].map((m) => m[1]);
+  const dash = t.indexOf(" - ");
+  if (dash > 0) tails.push(t.slice(dash + 3));
+  const tail = tails.join(" ").toLowerCase();
+  if (/\b(live|unplugged)\b/.test(tail)) return "live";
+  if (/\bremix\b|\bmix\b/.test(tail) && !/\boriginal mix\b/.test(tail)) return "remix";
+  if (/\bdemo\b/.test(tail)) return "demo";
+  if (/\bacoustic\b/.test(tail)) return "acoustic";
+  if (/\binstrumental\b/.test(tail)) return "instrumental";
+  return "";
+}
+// The grouping key for "the same recording": the title without edition notes, plus its variant.
+const trackKey = (t) => { const v = variantOf(t); return normTitle(t) + (v ? `#${v}` : ""); };
+// Similarity of two compact titles, 0-1 (edit distance) -- for "Seperate" vs "Separate".
+function titleSimilarity(a, b) {
+  if (!a || !b) return 0;
+  const m = a.length, n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[n] / Math.max(m, n);
+}
 
 let _tableCache = null;
 const _columnCache = {};
@@ -128,7 +165,8 @@ function loadCollection() {
   const details = hasTable("vinyl_details");
   const rows = query(`
     SELECT v.id, v.album_id, v.label, v.catalog_number, v.format, v.media_condition, v.sleeve_condition, v.rating, v.notes,
-           v.date_added, v.discogs_release_id, v.mb_release_id${hasColumn("vinyl_holdings", "pressing_year") ? ", v.pressing_year AS csv_pressing_year, v.disc_colour" : ""},
+           v.date_added, v.discogs_release_id, v.mb_release_id${hasColumn("vinyl_holdings", "pressing_year") ? ", v.pressing_year AS csv_pressing_year, v.disc_colour" : ""}
+           ${hasColumn("vinyl_holdings", "cover_file") ? ", v.cover_file, v.display_title, v.release_year" : ""},
            al.title, al.year, al.cover_status, al.cover_updated_at, al.mbid AS album_mbid, ar.id AS artist_id, ar.name AS artist_name, ar.sort_name,
            (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays
            ${details ? ", d.country, d.released, d.year AS discogs_year, d.format_descriptions, d.format_text, d.identifiers, d.companies, d.tracklist, d.discogs_notes, d.styles" : ""}
@@ -153,11 +191,14 @@ function loadCollection() {
     const markedReissue = f.reissue || desc.some((d) => /reissue|repress|remaster/i.test(d));
     // A reissue whose album year isn't earlier than the pressing: that "album year" is really the
     // pressing's own (not corrected in maintenance yet) -- the original year is unknown, not that.
-    const originalYear = markedReissue && pressingYear && r.year && r.year >= pressingYear ? null : r.year;
+    // A copy that's its own release (Electric Ladyland Part 1, a picture disc) can carry its own
+    // title, first-release year and cover (set in maintenance); otherwise it's the album's.
+    const albumYear = r.release_year || r.year;
+    const originalYear = markedReissue && pressingYear && albumYear && albumYear >= pressingYear ? null : albumYear;
     const rec = {
-      ...r, label: labels.join(" / ") || null, labels, fmt: f, discs: f.discs, pressing_year: pressingYear,
+      ...r, title: r.display_title || r.title, albumTitle: r.title, ownLook: Boolean(r.cover_file || r.display_title || r.release_year), label: labels.join(" / ") || null, labels, fmt: f, discs: f.discs, pressing_year: pressingYear,
       // a reissue: the format says so, or this pressing came out well after the album did
-      year: originalYear, yearUnconfirmed: originalYear == null && Boolean(r.year),
+      year: originalYear, yearUnconfirmed: originalYear == null && Boolean(albumYear),
       reissue: markedReissue || Boolean(pressingYear && originalYear && pressingYear >= originalYear + 2),
       tagCodes: new Set(f.tags.map((t) => t.code)), descText: `${desc.join(" ")} ${r.format_text || ""}`,
       genres: genresByAlbum[r.album_id] || [], decade: originalYear ? `${Math.floor(originalYear / 10) * 10}s` : null,
@@ -176,7 +217,7 @@ function loadCollection() {
 }
 
 const collectionState = {
-  view: "wall", q: "", sort: "added", group: "none", insights: false,
+  view: "wall", q: "", sort: "artist", dir: null, group: "decade", groupDir: null, insights: false, filtersOpen: false, // dir null = the sort's natural direction
   facets: { genre: new Set(), decade: new Set(), pressed: new Set(), format: new Set(), label: new Set(), country: new Set(), grade: new Set(), rating: new Set() },
   open: null, more: {},
 };
@@ -203,13 +244,13 @@ function passes(r, st, skip = null) {
 }
 
 const SORTS = {
-  added: { label: "Recently added", fn: (a, b) => String(b.date_added || "").localeCompare(String(a.date_added || "")) },
-  artist: { label: "Artist A–Z", fn: (a, b) => a.sortArtist.localeCompare(b.sortArtist) || (a.year || 0) - (b.year || 0) },
+  added: { label: "Recently added", desc: true, fn: (a, b) => String(b.date_added || "").localeCompare(String(a.date_added || "")) },
+  artist: { label: "Artist A–Z", fn: (a, b) => a.sortArtist.localeCompare(b.sortArtist) || (a.year || 0) - (b.year || 0) || a.title.localeCompare(b.title, undefined, { numeric: true }) },
   title: { label: "Title A–Z", fn: (a, b) => a.title.localeCompare(b.title) },
   year: { label: "Original year", fn: (a, b) => (a.year || 9999) - (b.year || 9999) },
   pressing: { label: "Pressing year", fn: (a, b) => (a.pressing_year || 9999) - (b.pressing_year || 9999) },
-  rating: { label: "Your rating", fn: (a, b) => (b.rating || 0) - (a.rating || 0) || String(b.date_added).localeCompare(String(a.date_added)) },
-  plays: { label: "Most played", fn: (a, b) => b.plays - a.plays },
+  rating: { label: "Your rating", desc: true, fn: (a, b) => (b.rating || 0) - (a.rating || 0) || String(b.date_added).localeCompare(String(a.date_added)) },
+  plays: { label: "Most played", desc: true, fn: (a, b) => b.plays - a.plays },
 };
 const GROUPS = {
   none: { label: "No grouping" },
@@ -220,6 +261,20 @@ const GROUPS = {
   added: { label: "Year added", key: (r) => r.addedYear || "Unknown" },
 };
 
+// Is the list running high-to-low / Z-A? Each sort has a natural way round (newest added first,
+// artists A-Z); its direction button flips it. The groups have their own button: decades, years
+// added, labels… A-Z / oldest first, genres biggest first, until flipped.
+const isDesc = (st) => (st.dir ? st.dir === "desc" : Boolean(SORTS[st.sort].desc));
+const isGroupDesc = (st) => (st.groupDir ? st.groupDir === "desc" : st.group === "genre");
+const dirLabel = (btn, desc, what) => {
+  btn.innerHTML = desc ? "↓ Desc" : "↑ Asc";
+  btn.title = `${what}: ${desc ? "descending" : "ascending"} — click to flip`;
+};
+function sortRecords(list, st) {
+  const out = [...list].sort(SORTS[st.sort].fn);
+  return isDesc(st) === Boolean(SORTS[st.sort].desc) ? out : out.reverse();
+}
+
 function applyHashFilters() {
   const m = (location.hash.split("?")[1] || "");
   if (!m) return;
@@ -227,21 +282,22 @@ function applyHashFilters() {
   const st = collectionState;
   if (p.get("genre")) { Object.values(st.facets).forEach((s) => s.clear()); st.q = ""; st.facets.genre.add(p.get("genre")); }
   if (p.get("q")) { Object.values(st.facets).forEach((s) => s.clear()); st.q = p.get("q"); }
-  history.replaceState(null, "", "#/vinyl"); // applied once -- a later re-render mustn't reset the filters again
+  history.replaceState(history.state, "", "#/vinyl"); // applied once -- a later re-render mustn't reset the filters again
   lastRenderedHash = location.hash;
 }
 
 function renderCollection(holdingId = null) {
   applyHashFilters();
   app.classList.add("wide"); // the cover wall wants the room; render() drops this on other pages
+  setTopbarTitle("vinyl", "The Collection"); // on a phone the title sits in the top bar, in place of the artist search
   const all = loadCollection();
   const st = collectionState;
   app.innerHTML = `
     <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
     <div class="coll-head">
-      <div><div class="hud">vinyl</div><h1>The Collection</h1></div>
+      <div class="coll-title"><div class="hud">vinyl</div><h1>The Collection</h1></div>
       <div class="coll-actions">
-        <button class="coll-btn" data-role="dig" title="Pull a random record from what's showing">⟳ Crate dig</button>
+        <button class="coll-btn" data-role="dig" title="Pull a random record from what's showing">⟳ <span class="dig-word">Crate </span>dig</button>
         <div class="seg" role="tablist" aria-label="View">${[["wall", "▦ Wall"], ["shelf", "▤ Shelf"], ["list", "≡ List"]].map(([v, l]) =>
           `<button role="tab" data-view="${v}" aria-selected="${st.view === v}">${l}</button>`).join("")}</div>
       </div>
@@ -249,11 +305,15 @@ function renderCollection(holdingId = null) {
     <div class="coll-stats" data-role="stats"></div>
     <div class="coll-tools">
       <input type="search" id="coll-search" placeholder="Search title, artist, label, cat#, genre…" value="${esc(st.q)}" />
-      <label>Sort <select data-role="sort">${Object.entries(SORTS).map(([k, s]) => `<option value="${k}" ${k === st.sort ? "selected" : ""}>${s.label}</option>`).join("")}</select></label>
-      <label>Group <select data-role="group">${Object.entries(GROUPS).map(([k, g]) => `<option value="${k}" ${k === st.group ? "selected" : ""}>${g.label}</option>`).join("")}</select></label>
-      <button class="coll-btn filters-toggle" data-role="filters">Filters</button>
+      <label>Sort <select data-role="sort">${Object.entries(SORTS).map(([k, s]) => `<option value="${k}" ${k === st.sort ? "selected" : ""}>${s.label}</option>`).join("")}</select>
+        <button type="button" class="coll-btn dir-btn" data-role="dir"></button></label>
+      <label>Group <select data-role="group">${Object.entries(GROUPS).map(([k, g]) => `<option value="${k}" ${k === st.group ? "selected" : ""}>${g.label}</option>`).join("")}</select>
+        <button type="button" class="coll-btn dir-btn" data-role="group-dir"></button></label>
     </div>
-    <div class="coll-facets" data-role="facets"></div>
+    <div class="coll-filters${st.filtersOpen ? " open" : ""}">
+      <button class="filters-bar" data-role="filters-bar" aria-expanded="${st.filtersOpen}"><span>Filters</span><span class="fb-active" data-role="fb-active"></span><svg class="i"><use href="#i-chevron"/></svg></button>
+      <div class="coll-facets" data-role="facets"></div>
+    </div>
     <div class="coll-count" data-role="count"></div>
     <div data-role="results"></div>
     <details class="coll-insights" ${st.insights ? "open" : ""}><summary><span class="hud">insights</span> What's on the shelf</summary><div data-role="insights"></div></details>
@@ -262,9 +322,17 @@ function renderCollection(holdingId = null) {
   app.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => { st.view = b.dataset.view; app.querySelectorAll("[data-view]").forEach((x) => x.setAttribute("aria-selected", x === b)); update(); }));
   let t = null;
   app.querySelector("#coll-search").addEventListener("input", (e) => { clearTimeout(t); t = setTimeout(() => { st.q = e.target.value.trim(); update(); }, 150); });
-  $("sort").addEventListener("change", (e) => { st.sort = e.target.value; update(); });
-  $("group").addEventListener("change", (e) => { st.group = e.target.value; update(); });
-  $("filters").addEventListener("click", () => app.querySelector(".coll-facets").classList.toggle("open"));
+  $("sort").addEventListener("change", (e) => { st.sort = e.target.value; st.dir = null; update(); });
+  $("dir").addEventListener("click", () => { st.dir = isDesc(st) ? "asc" : "desc"; update(); });
+  $("group").addEventListener("change", (e) => { st.group = e.target.value; st.groupDir = null; update(); });
+  $("group-dir").addEventListener("click", () => { st.groupDir = isGroupDesc(st) ? "asc" : "desc"; update(); });
+  // collapsed by default to one "Filters" bar, on its own line above the count
+  const toggleFilters = () => {
+    st.filtersOpen = !st.filtersOpen;
+    app.querySelector(".coll-filters").classList.toggle("open", st.filtersOpen);
+    $("filters-bar").setAttribute("aria-expanded", st.filtersOpen);
+  };
+  $("filters-bar").addEventListener("click", toggleFilters);
   $("dig").addEventListener("click", () => {
     const pool = all.filter((r) => passes(r, st));
     if (pool.length) openRecord(pool[Math.floor(Math.random() * pool.length)].id, { dig: true });
@@ -272,23 +340,29 @@ function renderCollection(holdingId = null) {
   app.querySelector(".coll-insights").addEventListener("toggle", (e) => { st.insights = e.target.open; if (st.insights) renderInsights($("insights"), all.filter((r) => passes(r, st))); });
 
   function update() {
-    const shown = all.filter((r) => passes(r, st)).sort(SORTS[st.sort].fn);
+    const shown = sortRecords(all.filter((r) => passes(r, st)), st);
+    dirLabel($("dir"), isDesc(st), "Sort");
+    dirLabel($("group-dir"), isGroupDesc(st), "Groups");
+    $("group-dir").hidden = st.group === "none" || st.view === "shelf"; // the shelf is always filed A-Z
     renderStats($("stats"), shown, all.length);
     renderFacets($("facets"), all, update);
-    const active = Object.values(st.facets).reduce((n, s) => n + s.size, 0);
-    $("filters").textContent = active ? `Filters (${active})` : "Filters";
+    const chosen = Object.values(st.facets).flatMap((s) => [...s]);
+    $("fb-active").innerHTML = chosen.length ? `<b>${chosen.length}</b> ${esc(chosen.join(" · "))}` : "";
     $("count").innerHTML = shown.length === all.length ? `${plural(all.length, "record")}`
       : `${plural(shown.length, "record")} of ${all.length} · <button class="linkish" data-role="clear">clear filters</button>`;
     $("count").querySelector("[data-role='clear']")?.addEventListener("click", () => {
       Object.values(st.facets).forEach((s) => s.clear()); st.q = ""; app.querySelector("#coll-search").value = ""; update();
     });
     const host = $("results");
+    const shelf = st.view === "shelf" ? [...shown].sort(SORTS.artist.fn) : null;
+    const groups = shelf ? null : groupRecords(shown, st.group, isGroupDesc(st));
     if (!shown.length) host.innerHTML = `<div class="empty-state">No records match — try removing a filter.</div>`;
-    else if (st.view === "shelf") renderShelf(host, [...shown].sort(SORTS.artist.fn));
-    else if (st.view === "list") renderList(host, groupRecords(shown, st.group));
-    else renderWall(host, groupRecords(shown, st.group));
+    else if (shelf) renderShelf(host, shelf);
+    else if (st.view === "list") renderList(host, groups);
+    else renderWall(host, groups);
     if (st.insights) renderInsights($("insights"), shown);
-    collectionState.visible = shown.map((r) => r.id);
+    // previous / next (and swipes) follow the records in the order they're on screen
+    collectionState.visible = (shelf || groups.flatMap((g) => g.items)).map((r) => r.id);
   }
   collectionState.refresh = update;
   update();
@@ -297,7 +371,7 @@ function renderCollection(holdingId = null) {
 
 function plural(n, word) { return `${Number(n).toLocaleString()} ${word}${n === 1 ? "" : "s"}`; }
 
-function groupRecords(list, group) {
+function groupRecords(list, group, desc = false) {
   if (group === "none") return [{ key: null, items: list }];
   const out = new Map();
   for (const r of list) {
@@ -306,9 +380,10 @@ function groupRecords(list, group) {
     out.get(k).push(r);
   }
   const keys = [...out.keys()];
-  if (group === "decade" || group === "added") keys.sort();
-  else if (group !== "genre") keys.sort((a, b) => a.localeCompare(b));
-  else keys.sort((a, b) => out.get(b).length - out.get(a).length);
+  const unknown = (k) => /^(unknown|no )/i.test(String(k)); // "Unknown year", "No label"… always last
+  const size = (k) => out.get(k).length;
+  if (group === "genre") keys.sort((a, b) => unknown(a) - unknown(b) || (desc ? size(b) - size(a) : size(a) - size(b)) || a.localeCompare(b)); // by how many
+  else keys.sort((a, b) => unknown(a) - unknown(b) || (desc ? -1 : 1) * String(a).localeCompare(String(b)));
   return keys.map((k) => ({ key: k, items: out.get(k) }));
 }
 
@@ -371,20 +446,63 @@ function renderFacets(host, all, onChange) {
 const GRADE_ORDER = ["M", "NM", "VG+", "VG", "G+", "G", "F", "P", "—"];
 
 function coverImg(r, cls = "") {
+  if (r.cover_file) return `<img class="${cls}" src="public/covers/${encodeURIComponent(r.cover_file)}" alt="" loading="lazy" />`; // this copy's own
   return r.cover_status === "ok" ? `<img class="${cls}" src="${esc(coverUrl(r.album_id, r.cover_updated_at))}" alt="" loading="lazy" />` : `<div class="${cls} noart">${esc(r.title.slice(0, 1))}</div>`;
 }
 const colourDot = (r) => (r.colours.length && FORMAT_FACETS.Coloured(r) ? `<i class="cdot" style="background:${discBackground(r)}" title="${esc(r.colours.join(" / "))} vinyl"></i>` : "");
 
-function renderWall(host, groups) {
-  host.innerHTML = groups.map((g) => `${g.key !== null ? `<h3 class="coll-group">${esc(g.key)} <span>${g.items.length}</span></h3>` : ""}
-    <div class="wall">${g.items.map((r) => `
-      <button class="rec" data-id="${r.id}" title="${esc(r.title)} — ${esc(r.artist_name)}">
+// One record as a tile -- the collection wall's, and (details: true) the home page's, which adds
+// the key facts: what kind of pressing, its notable features and colour, label, country, when bought.
+function recTileHtml(r, { details = false } = {}) {
+  const press = r.reissue
+    ? `<span class="rec-press" title="${r.year ? `A ${r.pressing_year || ""} reissue of the ${r.year} album` : "A reissue — the album's original year isn't confirmed yet"}">${r.pressing_year ? `${r.pressing_year} ` : ""}reissue</span>`
+    : details ? `<span class="rec-press og">original press</span>` : "";
+  let extra = "";
+  if (details) {
+    const feats = ["Limited", "180g", "Gatefold", "Picture disc", "Record Store Day"].filter((k) => FORMAT_FACETS[k](r));
+    if (r.discs > 1) feats.unshift(`${r.discs}LP`);
+    const colour = FORMAT_FACETS.Coloured(r) ? r.colours.map((c) => c[0].toUpperCase() + c.slice(1)).join(" / ") + (r.discEffect && r.discEffect !== "solid" ? ` ${r.discEffect}` : "") : "";
+    extra = `
+        <span class="rec-keys">${colour ? `<span class="ktag colour">${colourDot(r)}${esc(colour)}</span>` : ""}${feats.slice(0, 3).map((f) => `<span class="ktag">${esc(f)}</span>`).join("")}</span>
+        <span class="rec-label">${esc([r.labels[0], r.country].filter(Boolean).join(" · "))}</span>
+        <span class="rec-added" title="Added ${esc((r.date_added || "").slice(0, 10))}">added ${esc(relativeDay(r.date_added))}</span>`;
+  }
+  return `
+      <button class="rec${details ? " rec-detailed" : ""}" data-id="${r.id}" title="${esc(r.title)} — ${esc(r.artist_name)}">
         <span class="rec-art"><span class="rec-disc" style="background:${discBackground(r)}"><i></i></span>${coverImg(r, "rec-cover")}</span>
         <span class="rec-title">${esc(r.title)}</span>
         <span class="rec-artist">${esc(r.artist_name)}</span>
-        <span class="rec-meta">${starsHtml(r.rating)}<span>${r.year || ""}</span>${colourDot(r)}${r.discs > 1 ? `<span class="tagl">${r.discs}LP</span>` : ""}</span>
-        ${r.reissue ? `<span class="rec-press" title="${r.year ? `A ${r.pressing_year || ""} reissue of the ${r.year} album` : "A reissue — the album's original year isn't confirmed yet"}">${r.pressing_year ? `${r.pressing_year} ` : ""}reissue</span>` : ""}
-      </button>`).join("")}</div>`).join("");
+        <span class="rec-meta">${starsHtml(r.rating)}<span>${r.year || ""}</span>${details ? "" : colourDot(r)}${!details && r.discs > 1 ? `<span class="tagl">${r.discs}LP</span>` : ""}</span>
+        ${press}${extra}
+      </button>`;
+}
+
+function relativeDay(iso) {
+  if (!iso) return "";
+  const d = new Date(iso), days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days} days ago`;
+  if (days < 30) return `${Math.floor(days / 7)} week${days < 14 ? "" : "s"} ago`;
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: d.getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+}
+
+// The home page's "Latest record buys": the newest additions, opened in place (no page change).
+function latestRecordsHtml(n = 8) {
+  const recent = loadCollection().filter((r) => r.date_added).sort(SORTS.added.fn).slice(0, n);
+  return recent.length ? `<div class="wall home-wall">${recent.map((r) => recTileHtml(r, { details: true })).join("")}</div>` : '<div class="subtle">No dated additions yet.</div>';
+}
+function wireLatestRecords(host) {
+  const ids = [...host.querySelectorAll(".rec[data-id]")].map((b) => +b.dataset.id);
+  host.querySelectorAll(".rec[data-id]").forEach((b) => b.addEventListener("click", () => {
+    collectionState.visible = ids; // ← → step through these
+    openRecord(+b.dataset.id);
+  }));
+}
+
+function renderWall(host, groups) {
+  host.innerHTML = groups.map((g) => `${g.key !== null ? `<h3 class="coll-group">${esc(g.key)} <span>${g.items.length}</span></h3>` : ""}
+    <div class="wall">${g.items.map((r) => recTileHtml(r)).join("")}</div>`).join("");
   host.querySelectorAll(".rec").forEach((b) => b.addEventListener("click", () => openRecord(+b.dataset.id)));
 }
 
@@ -496,8 +614,17 @@ function openRecord(id, { replace = true } = {}) {
   const all = loadCollection();
   const r = all.find((x) => x.id === id);
   if (!r) return;
+  // Opening the drawer is its own history step, so the phone's Back (or ✕) closes it and leaves
+  // you where you were; stepping between records replaces that step rather than piling up.
+  const onVinyl = location.hash.startsWith("#/vinyl");
+  if (!collectionState.open && history.state?.drawer == null) {
+    if (onVinyl && location.hash.startsWith("#/vinyl/")) history.replaceState(history.state, "", "#/vinyl"); // deep link: the collection goes underneath
+    navDepth += 1;
+    history.pushState({ depth: navDepth, drawer: id }, "", onVinyl ? `#/vinyl/${id}` : location.href); // elsewhere (home) it opens in place
+  } else if (replace || history.state?.drawer != null) {
+    history.replaceState({ ...history.state, drawer: id }, "", onVinyl ? `#/vinyl/${id}` : location.href);
+  }
   collectionState.open = id;
-  if (replace) history.replaceState(null, "", `#/vinyl/${id}`);
   lastRenderedHash = location.hash; // opening a record isn't a navigation -- don't jump to the top later
   let shell = document.querySelector(".drawer-shell");
   if (!shell) {
@@ -505,7 +632,7 @@ function openRecord(id, { replace = true } = {}) {
     shell.className = "drawer-shell";
     shell.innerHTML = `<div class="drawer-backdrop"></div><aside class="drawer" role="dialog" aria-modal="true" aria-label="Record"><div class="drawer-bar">
       <button class="icon-btn" data-role="prev" title="Previous (←)">‹</button><button class="icon-btn" data-role="next" title="Next (→)">›</button>
-      <span class="spacer"></span><button class="icon-btn" data-role="close" title="Close (Esc)" aria-label="Close">✕</button></div><div class="drawer-body"></div></aside>`;
+      <span class="drawer-pos" data-role="pos"></span><span class="spacer"></span><button class="icon-btn" data-role="close" title="Close (Esc)" aria-label="Close">✕</button></div><div class="drawer-body"></div></aside>`;
     document.body.appendChild(shell);
     const close = () => closeRecord();
     shell.querySelector(".drawer-backdrop").addEventListener("click", close);
@@ -513,13 +640,18 @@ function openRecord(id, { replace = true } = {}) {
     shell.querySelector("[data-role='prev']").addEventListener("click", () => stepRecord(-1));
     shell.querySelector("[data-role='next']").addEventListener("click", () => stepRecord(1));
     document.addEventListener("keydown", drawerKeys);
+    wireSwipe(shell.querySelector(".drawer-body"));
   }
   requestAnimationFrame(() => shell.classList.add("open"));
   document.body.classList.add("drawer-open");
   const body = shell.querySelector(".drawer-body");
+  const ids = location.hash.startsWith("#/vinyl") ? collectionState.visible || [] : [];
+  const pos = ids.indexOf(id);
+  shell.querySelector("[data-role='pos']").textContent = pos >= 0 && ids.length > 1 ? `${pos + 1} / ${ids.length}` : "";
   body.innerHTML = recordDetailHtml(r, all);
   body.scrollTop = 0;
   body.querySelectorAll("[data-genre]").forEach((b) => b.addEventListener("click", () => {
+    if (!location.hash.startsWith("#/vinyl")) { closeRecord(false); location.hash = `#/vinyl?genre=${encodeURIComponent(b.dataset.genre)}`; return; }
     const st = collectionState;
     Object.values(st.facets).forEach((s) => s.clear());
     st.facets.genre.add(b.dataset.genre);
@@ -535,18 +667,66 @@ function openRecord(id, { replace = true } = {}) {
 function closeRecord(restoreHash = true) {
   const shell = document.querySelector(".drawer-shell");
   if (!shell) return;
+  if (restoreHash && history.state?.drawer != null) { history.back(); return; } // popstate below does the closing
   shell.classList.remove("open");
   document.body.classList.remove("drawer-open");
   collectionState.open = null;
-  if (restoreHash && location.hash.startsWith("#/vinyl/")) { history.replaceState(null, "", "#/vinyl"); lastRenderedHash = location.hash; }
+  if (restoreHash && location.hash.startsWith("#/vinyl/")) { history.replaceState(history.state, "", "#/vinyl"); lastRenderedHash = location.hash; }
   setTimeout(() => { if (!shell.classList.contains("open")) shell.remove(); document.removeEventListener("keydown", drawerKeys); }, 250);
 }
+
+// Back out of an open drawer: close it over the page that's already there -- no re-render, so
+// the collection keeps its scroll position and filters.
+window.addEventListener("popstate", () => {
+  if (!collectionState.open || history.state?.drawer != null) return;
+  if (location.hash !== lastRenderedHash && location.hash.split("?")[0] === "#/vinyl") skipRender = location.hash;
+  lastRenderedHash = location.hash;
+  closeRecord(false);
+});
 
 function stepRecord(dir) {
   const ids = collectionState.visible || [];
   const i = ids.indexOf(collectionState.open);
   if (i < 0 || !ids.length) return;
   openRecord(ids[(i + dir + ids.length) % ids.length]);
+  // the next record slides in from the side it came from
+  document.querySelector(".drawer-body")?.animate?.([{ transform: `translateX(${dir * 48}px)`, opacity: 0.2 }, { transform: "none", opacity: 1 }],
+    { duration: 220, easing: "cubic-bezier(.2,.7,.3,1)" });
+}
+
+// Swipe left / right in the drawer for the next / previous record. The record follows the finger
+// once the gesture is clearly sideways; vertical scrolling is left alone.
+function wireSwipe(el) {
+  let x0 = 0, y0 = 0, t0 = 0, dx = 0, mode = null; // mode: null (undecided) | "x" | "y"
+  el.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1 || e.target.closest("input, textarea, select")) { mode = "y"; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); dx = 0; mode = null;
+  }, { passive: true });
+  el.addEventListener("touchmove", (e) => {
+    if (mode === "y") return;
+    const mx = e.touches[0].clientX - x0, my = e.touches[0].clientY - y0;
+    if (!mode) {
+      if (Math.abs(mx) < 10 && Math.abs(my) < 10) return;
+      mode = Math.abs(mx) > Math.abs(my) * 1.3 ? "x" : "y";
+      if (mode === "y") return;
+    }
+    dx = mx;
+    el.style.transition = "none";
+    el.style.transform = `translateX(${dx * 0.6}px)`;
+    el.style.opacity = String(1 - Math.min(Math.abs(dx) / 600, 0.5));
+  }, { passive: true });
+  el.addEventListener("touchend", () => {
+    if (mode !== "x") return;
+    mode = null;
+    el.style.transition = "transform .18s ease, opacity .18s ease";
+    el.style.transform = ""; el.style.opacity = "";
+    const fast = Math.abs(dx) > 40 && Date.now() - t0 < 300;
+    if (Math.abs(dx) > 80 || fast) {
+      el.style.transition = "";
+      stepRecord(dx < 0 ? 1 : -1);
+    }
+  });
+  el.addEventListener("touchcancel", () => { mode = null; el.style.transform = ""; el.style.opacity = ""; });
 }
 function drawerKeys(e) {
   if (!collectionState.open || e.target.closest("input, textarea, select")) return;
@@ -575,40 +755,15 @@ function pressingBadges(r) {
 function recordDetailHtml(r, all) {
   const others = all.filter((x) => x.album_id === r.album_id && x.id !== r.id);
   const hist = query(`SELECT count(*) AS n, min(played_at) AS first, max(played_at) AS last FROM scrobbles WHERE album_id = ?`, [r.album_id])[0];
-  const rows = query(`
-    SELECT so.id, so.title, (SELECT count(*) FROM scrobbles s WHERE s.song_id = so.id) AS plays
-    FROM songs so WHERE so.album_id = ? OR so.id IN (SELECT DISTINCT song_id FROM scrobbles WHERE album_id = ? AND song_id IS NOT NULL)
-    ORDER BY plays DESC`, [r.album_id, r.album_id]);
-  const setlistsOf = {};
-  if (rows.length) {
-    for (const x of query(`SELECT song_id, setlist_id FROM setlist_songs WHERE song_id IN (${rows.map(() => "?").join(",")})`, rows.map((x) => x.id))) {
-      (setlistsOf[x.song_id] ||= []).push(x.setlist_id);
-    }
-  }
-  // One entry per track, not per song row: a track's plays and live sightings are often split
-  // across rows not merged yet ("War Pigs - 2009 Remaster" has the scrobbles, the setlist's plain
-  // "War Pigs" the shows) -- count them all. Links go to the plain-titled row when there is one.
-  const byKey = new Map();
-  for (const x of rows) {
-    const k = normTitle(x.title);
-    let g = byKey.get(k);
-    if (!g) byKey.set(k, (g = { rows: [], plays: 0, setlists: new Set() }));
-    g.rows.push(x);
-    g.plays += x.plays;
-    (setlistsOf[x.id] || []).forEach((id) => g.setlists.add(id));
-  }
-  const songs = [...byKey.values()].map((g) => {
-    const plain = g.rows.find((x) => !/\s-\s|[([]/.test(x.title));
-    const best = plain || g.rows[0];
-    return { id: best.id, title: best.title, plays: g.plays, shows: g.setlists.size, setlists: g.setlists };
-  }).sort((a, b) => b.plays - a.plays);
+  const songs = albumSongGroups(r.album_id);
   const live = songs.filter((x) => x.shows > 0);
   const liveShows = new Set(live.flatMap((x) => [...x.setlists])).size;
-  const bySong = Object.fromEntries([...byKey.keys()].map((k) => [k, songs.find((x) => normTitle(x.title) === k) || null]));
   const discogsTracks = jsonOr(r.tracklist, []).filter((t) => (t.type || "track") === "track" && t.title);
-  const tracks = discogsTracks.length
-    ? discogsTracks.map((t) => ({ pos: t.position, title: t.title, dur: t.duration, song: bySong[normTitle(t.title)] }))
-    : songs.map((s) => ({ pos: "", title: s.title, song: s }));
+  const matched = matchTracklist(discogsTracks, songs);
+  const tracks = discogsTracks.length ? matched.tracks : songs.map((x) => ({ pos: "", title: x.title, song: x }));
+  // anything you've played from this album that this pressing's tracklist doesn't list -- so the
+  // tracklist accounts for every play the album page counts
+  const unlisted = matched.unlisted.filter((x) => x.plays);
   const ids = jsonOr(r.identifiers, []);
   const matrix = ids.filter((i) => /matrix|runout/i.test(i.type || ""));
   const barcode = ids.find((i) => /barcode/i.test(i.type || ""));
@@ -648,8 +803,10 @@ function recordDetailHtml(r, all) {
     </section>
 
     ${others.length ? `<section class="rd-sec"><h3>Also in your collection</h3>${others.map((o) => `<button class="rd-other" data-open="${o.id}">
-      <b>${esc([o.country, o.pressing_year || (o.released || "").slice(0, 4)].filter(Boolean).join(" ") || o.label || "Another pressing")}</b>
-      <span class="subtle">${esc([o.label, o.catalog_number].filter(Boolean).join(" · "))}${o.grade ? ` · ${esc(o.grade.short)}` : ""}</span></button>`).join("")}</section>` : ""}
+      ${coverImg(o, "rd-other-art")}<span class="rd-other-text">
+      ${o.title !== r.title ? `<b>${esc(o.title)}</b>` : ""}
+      <b class="${o.title !== r.title ? "subtle" : ""}">${esc([o.country, o.pressing_year || (o.released || "").slice(0, 4)].filter(Boolean).join(" ") || o.label || "Another pressing")}</b>
+      <span class="subtle">${esc([o.label, o.catalog_number].filter(Boolean).join(" · "))}${o.grade ? ` · ${esc(o.grade.short)}` : ""}</span></span></button>`).join("")}</section>` : ""}
 
     <section class="rd-sec">
       <h3>Your history with it</h3>
@@ -664,9 +821,109 @@ function recordDetailHtml(r, all) {
     ${tracks.length ? `<section class="rd-sec"><h3>Tracklist <span class="subtle">plays${live.length ? " · ● heard live" : ""}</span></h3>
       <ol class="rd-tracks">${tracks.map((t) => `<li>${t.pos ? `<span class="pos">${esc(t.pos)}</span>` : ""}
         ${t.song ? `<button class="linkish" data-song="${t.song.id}">${esc(t.title)}</button>` : `<span>${esc(t.title)}</span>`}
-        <span class="tr-right">${t.song?.shows ? `<i class="livedot" title="Heard live at ${plural(t.song.shows, "show")}">●</i>` : ""}${t.song ? `<span class="subtle">${t.song.plays}</span>` : ""}${t.dur ? `<span class="subtle dur">${esc(t.dur)}</span>` : ""}</span></li>`).join("")}</ol></section>` : ""}
+        <span class="tr-right">${t.song?.shows && !t.again ? `<i class="livedot" title="Heard live at ${plural(t.song.shows, "show")}">●</i>` : ""}${t.song && !t.again ? `<span class="subtle">${t.song.plays}</span>` : t.again ? `<span class="subtle" title="Counted on its first line above">↑</span>` : ""}${t.dur ? `<span class="subtle dur">${esc(t.dur)}</span>` : ""}</span></li>`).join("")}</ol>
+      ${unlisted.length ? `<div class="rd-unlisted"><div class="subtle">Also played from this album — not on this pressing's tracklist:</div>
+        <ol class="rd-tracks">${unlisted.map((x) => `<li><button class="linkish" data-song="${x.id}">${esc(x.title)}</button>
+          <span class="tr-right">${x.shows ? `<i class="livedot" title="Heard live at ${plural(x.shows, "show")}">●</i>` : ""}<span class="subtle">${x.plays}</span></span></li>`).join("")}</ol></div>` : ""}</section>` : ""}
 
     <div class="rd-foot"><button class="coll-btn" data-role="album-page">Open album page →</button></div>`;
+}
+
+
+// An album's songs, one entry per track -- shared by the record drawer and the album page so the
+// two always agree. Every song filed under the album or scrobbled from it; rows for the same track
+// not merged yet ("War Pigs - 2009 Remaster" + the setlist's "War Pigs") count together; links go
+// to the plain-titled row. -> [{id, title, plays, shows, setlists}] most played first.
+function albumSongGroups(albumId) {
+  const rows = query(`
+    SELECT so.id, so.title, so.mbid, (SELECT count(*) FROM scrobbles s WHERE s.song_id = so.id) AS plays
+    FROM songs so WHERE so.album_id = ? OR so.id IN (SELECT DISTINCT song_id FROM scrobbles WHERE album_id = ? AND song_id IS NOT NULL)
+    ORDER BY plays DESC`, [albumId, albumId]);
+  const setlistsOf = {};
+  if (rows.length) {
+    for (const x of query(`SELECT song_id, setlist_id FROM setlist_songs WHERE song_id IN (${rows.map(() => "?").join(",")})`, rows.map((x) => x.id))) {
+      (setlistsOf[x.song_id] ||= []).push(x.setlist_id);
+    }
+  }
+  // One entry per track, not per song row: a track's plays and live sightings are often split
+  // across rows not merged yet ("War Pigs - 2009 Remaster" has the scrobbles, the setlist's plain
+  // "War Pigs" the shows) -- count them all. Links go to the plain-titled row when there is one.
+  const byKey = new Map();
+  for (const x of rows) {
+    const k = trackKey(x.title); // remasters fold together; a live / remix / demo version stays its own
+    let g = byKey.get(k);
+    if (!g) byKey.set(k, (g = { rows: [], plays: 0, setlists: new Set(), mbids: new Set() }));
+    g.rows.push(x);
+    if (x.mbid) g.mbids.add(x.mbid);
+    g.plays += x.plays;
+    (setlistsOf[x.id] || []).forEach((id) => g.setlists.add(id));
+  }
+  const songs = [...byKey.values()].map((g) => {
+    const plain = g.rows.find((x) => !/\s-\s|[([]/.test(x.title)) || g.rows.find((x) => !EDITION_TAIL.test(x.title));
+    const best = plain || g.rows[0];
+    return { id: best.id, title: best.title, plays: g.plays, shows: g.setlists.size, setlists: g.setlists, mbids: g.mbids, variant: variantOf(best.title) };
+  }).sort((a, b) => b.plays - a.plays);
+  return songs;
+}
+
+// A pressing's tracklist -> your songs (albumSongGroups entries). Same title, else -- one clear
+// winner only -- spacing-blind ("Good Morning" = "Goodmorning"), a prefix ("Wheels Of Confusion" /
+// "... / The Straightener") or a near-identical spelling ("Seperate"). A song listed twice (a
+// deluxe "Snowblind (Live)" after "Snowblind") is counted on its first line only (again: true).
+// -> {tracks: [{pos, title, dur, song, again}], unlisted: [songs not on it]}
+function matchTracklist(pressingTracks, songs) {
+  const bySong = Object.fromEntries(songs.map((x) => [trackKey(x.title), x]));
+  const used = new Set();
+  const matchTrack = (title, recording) => {
+    const k = normTitle(title), c = k.replace(/ /g, ""), v = variantOf(title);
+    const free = () => songs.filter((x) => !used.has(x.id) && (x.variant || "") === v); // a live track only matches live songs
+    const only = (list) => (list.length === 1 ? list[0] : null);
+    let song = (recording && songs.find((x) => x.mbids?.has(recording))) // the same MusicBrainz recording, whatever it's called
+      || bySong[k + (v ? `#${v}` : "")]
+      || only(free().filter((x) => compactTitle(x.title) === c))
+      || (k.length >= 4 ? only(free().filter((x) => normTitle(x.title).startsWith(`${k} `) || k.startsWith(`${normTitle(x.title)} `))) : null);
+    if (!song && c.length >= 5) {
+      const scored = free().map((x) => [titleSimilarity(c, compactTitle(x.title)), x]).filter(([sc]) => sc >= 0.85).sort((a, b) => b[0] - a[0]);
+      if (scored.length === 1 || (scored.length > 1 && scored[0][0] - scored[1][0] >= 0.08)) song = scored[0][1];
+    }
+    // a live album's tracklist says "Ace of Spades", your plays say "Ace Of Spades - Live": that's
+    // the track -- but only when the album has no studio version of it (then the live one's a bonus)
+    if (!song && !v && !songs.some((x) => !x.variant && normTitle(x.title) === k)) {
+      song = only(songs.filter((x) => !used.has(x.id) && x.variant && normTitle(x.title) === k));
+    }
+    const again = Boolean(song && used.has(song.id));
+    if (song) used.add(song.id);
+    return { song: song || null, again };
+  };
+  const tracks = pressingTracks.map((t) => ({ pos: t.position, title: t.title, dur: t.duration, ...matchTrack(t.title, t.recordingMbid) }));
+  return { tracks, unlisted: songs.filter((x) => !used.has(x.id)) };
+}
+
+// MusicBrainz's original release of the album (the album-tracklists sweep), for albums not on vinyl.
+function musicbrainzTracklist(albumId) {
+  if (!hasTable("album_tracklists")) return null;
+  const tracks = query(`SELECT number, title, recording_mbid, length_ms FROM album_tracklists WHERE album_id = ? ORDER BY position`, [albumId]);
+  if (!tracks.length) return null;
+  const src = query(`SELECT release_date, country, format FROM album_tracklist_sources WHERE album_id = ?`, [albumId])[0] || {};
+  const mmss = (ms) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}` : null);
+  const what = [(src.release_date || "").slice(0, 4), src.country && src.country !== "XW" ? src.country : null, src.format].filter(Boolean).join(" ");
+  return {
+    tracks: tracks.map((t) => ({ position: t.number, title: t.title, duration: mmss(t.length_ms), recordingMbid: t.recording_mbid })),
+    source: `the original release${what ? ` (${what})` : ""} · MusicBrainz`,
+  };
+}
+
+// The album page's reference tracklist, from a pressing you own: an original press if you have
+// one, else the shortest (closest to the album proper -- a deluxe reissue's extras are the bonus).
+function albumReferenceTracklist(albumId) {
+  const presses = loadCollection().filter((r) => r.album_id === albumId)
+    .map((r) => ({ r, tracks: jsonOr(r.tracklist, []).filter((t) => (t.type || "track") === "track" && t.title) }))
+    .filter((x) => x.tracks.length);
+  if (!presses.length) return musicbrainzTracklist(albumId);
+  presses.sort((a, b) => (a.r.reissue - b.r.reissue) || (a.tracks.length - b.tracks.length));
+  const { r, tracks } = presses[0];
+  const what = [r.reissue ? `${r.pressing_year || ""} reissue` : "original press", r.country].filter(Boolean).join(", ").trim();
+  return { tracks, source: `your ${what} pressing`, holdingId: r.id, pressing: true };
 }
 
 // ---------------------------------------------------------------------

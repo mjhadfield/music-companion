@@ -585,7 +585,57 @@ def _pressings(limit: int, log, progress, cancelled) -> None:
         conn.close()
 
 
+def _album_tracklists(limit: int, log, progress, cancelled) -> None:
+    """The album as first released (MusicBrainz's earliest official release of its release group)
+    for albums NOT on vinyl -- vinyl albums use the pressing you own. Most played first; about 2
+    requests an album (more for a classic with hundreds of releases). Albums still identified by
+    one edition are skipped (convert them in Albums > Editions first)."""
+    conn = db_connect()
+    try:
+        targets = conn.execute("""
+            SELECT al.id, al.title, al.mbid, ar.name FROM albums al JOIN artists ar ON ar.id = al.artist_id
+            WHERE al.mbid IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = al.id)
+              AND NOT EXISTS (SELECT 1 FROM album_tracklist_sources t WHERE t.album_id = al.id)
+              AND NOT EXISTS (SELECT 1 FROM album_releases r WHERE r.release_mbid = al.mbid)
+              AND NOT EXISTS (SELECT 1 FROM scrobble_releases r WHERE r.release_mbid = al.mbid)
+              AND NOT EXISTS (SELECT 1 FROM mb_cache m WHERE m.key = 'browse:tracklist:' || al.mbid AND m.payload_json = 'null')
+            ORDER BY (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) DESC LIMIT ?""", (limit,)).fetchall()
+        log(f"Fetching the original tracklist of {len(targets)} album(s) from MusicBrainz — most played first (about 2 requests each).")
+        done = 0
+        for i, (aid, title, mbid, artist) in enumerate(targets):
+            if cancelled():
+                log("Cancelled.")
+                break
+            progress(i, len(targets))
+            try:
+                tl = mbcache.release_group_tracklist(mbid)
+                if not tl or not tl.get("tracks"):
+                    log(f"  · {artist} — {title}: no official release on MusicBrainz")
+                    continue
+                conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (aid,))
+                conn.executemany("INSERT INTO album_tracklists (album_id, position, number, disc, title, recording_mbid, length_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                 [(aid, t["position"], t.get("number"), t.get("disc"), t["title"], t.get("recordingMbid"), t.get("lengthMs"))
+                                  for t in tl["tracks"] if t.get("title")])
+                conn.execute("""INSERT INTO album_tracklist_sources (album_id, source, release_mbid, release_title, release_date, country, format)
+                                VALUES (?, 'musicbrainz', ?, ?, ?, ?, ?) ON CONFLICT (album_id) DO UPDATE SET release_mbid = excluded.release_mbid,
+                                release_title = excluded.release_title, release_date = excluded.release_date, country = excluded.country,
+                                format = excluded.format, fetched_at = datetime('now')""",
+                             (aid, tl.get("releaseMbid"), tl.get("releaseTitle"), tl.get("date"), tl.get("country"), tl.get("format")))
+                conn.commit()
+                done += 1
+                log(f"  · {artist} — {title}: {len(tl['tracks'])} tracks ({tl.get('date') or '?'} {tl.get('country') or ''} {tl.get('format') or ''})")
+            except Exception as exc:
+                conn.rollback()
+                log(f"  ! {artist} — {title}: {exc}")
+        progress(len(targets), len(targets))
+        log(f"Done — {done} tracklist(s) stored. Publish for the site to use them.")
+    finally:
+        conn.close()
+
+
 SWEEPS = {
+    "album-tracklists": _album_tracklists,
     "genres": _genres,
     "pressings": _pressings,
     "song-recordings": _song_recordings,

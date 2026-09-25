@@ -201,6 +201,14 @@ def assign_mbid(req):
                                conflictingAlbum={"albumId": exc.conflict["id"], "title": exc.conflict["name"], "mbid": mbid})
             raise
         title = c.execute("SELECT title FROM albums WHERE id = ?", (album_id,)).fetchone()[0]
+    if current[0] != mbid:
+        # A new identity: look the release group up now -- what the vinyl identity / original-year
+        # checks read (otherwise they sit at "not checked"). Cache only, so the edit stays cleanly
+        # undoable; the cover it cleared is re-fetched by hand (a fetch here would block that undo).
+        try:
+            mbcache.release_group(mbid)
+        except Exception:  # noqa: BLE001 -- best-effort: "Check on MusicBrainz" on the vinyl page redoes it
+            pass
     return {"albumId": album_id, "title": title, "mbid": mbid, "resolvedFromRelease": mbid != submitted, "editId": edit["editId"]}
 
 

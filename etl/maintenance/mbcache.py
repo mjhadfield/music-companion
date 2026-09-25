@@ -119,6 +119,15 @@ def artist_release_group_genres(artist_mbid: str):
     return _cached(f"browse:rg-genres:{artist_mbid}", "browse", lambda: mb.browse_release_group_genres(artist_mbid))
 
 
+def discogs_release_images(release_id: int):
+    """A Discogs release's photos -> [{type, uri, uri150, width, height}] (one throttled request,
+    then cached; the older discogs-full entries were cached before images were kept)."""
+    def fetch():
+        d = discogs_api.release(release_id)
+        return {"images": (d or {}).get("images") or []}
+    return _cached(f"lookup:discogs-images:{int(release_id)}", "lookup", fetch)["images"]
+
+
 def discogs_release_full(release_id: int):
     """Discogs' full release (pressing detail, tracklist, styles) -- its own key: older
     lookup:discogs-api entries hold only the few fields the vinyl checks needed."""

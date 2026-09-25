@@ -8,6 +8,7 @@ can reach you if a script misbehaves) and no more than ~1 request/second.
 Both are enforced here centrally so every search function gets them for
 free.
 """
+import re
 import threading
 import time
 
@@ -336,28 +337,55 @@ def release_parent_group(release_mbid: str) -> dict | None:
 
 
 def release_group_tracklist(rg_mbid: str) -> dict | None:
-    """A canonical tracklist for a release group: its earliest official release's recordings.
-    Two requests (browse releases, then that release's recordings)."""
-    data = _mb_get("release", {"release-group": rg_mbid, "limit": 100, "status": "official"})
-    releases = [r for r in data.get("releases", []) if r.get("id")]
+    """A canonical tracklist for a release group: its earliest official release -- the album as
+    first released, so a remaster's or deluxe edition's extras are recognisably extras. Browses the
+    group's releases (100 a request, up to 3 pages for a classic with hundreds), then that
+    release's recordings. -> {releaseMbid, releaseTitle, date, country, format, tracks:
+    [{position (1-based order), number (as printed: "A1", "3"), disc, title, recordingMbid, lengthMs}]}"""
+    releases = []
+    for page in range(3):
+        try:
+            data = _mb_get("release", {"release-group": rg_mbid, "limit": 100, "offset": page * 100, "status": "official", "inc": "media"})
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                return None  # not a (current) release group -- nothing to fetch
+            raise
+        batch = [r for r in data.get("releases", []) if r.get("id")]
+        releases += batch
+        if len(releases) >= int(data.get("release-count", 0)) or not batch:
+            break
     if not releases:
         return None
-    releases.sort(key=lambda r: (r.get("date") or "9999", r.get("title") or ""))
+    # the album is the audio: a video release in the same group (a concert DVD) only if there's nothing else
+    video = re.compile(r"DVD|VHS|Blu-ray|Video|LaserDisc|UMD", re.I)
+    audio = [r for r in releases if not all(video.search(m.get("format") or "") for m in (r.get("media") or [{}]))]
+    releases = audio or releases
+    # the first release: the earliest year; within it a main market (then any; Japan last), then
+    # the earliest full date (a bare "1991" is often a stray regional pressing), vinyl/CD over tape
+    def rank(r):
+        d = r.get("date") or ""
+        padded = (d + "-99-99")[:10] if d else "9999-99-99"
+        fmts = " ".join(m.get("format") or "" for m in r.get("media") or [])
+        fmt_rank = 0 if re.search(r'Vinyl|12"|CD', fmts) else 1 if "Digital" in fmts else 2
+        # Japan's first editions routinely add bonus tracks -- a main market's is the album proper
+        market = 0 if r.get("country") in ("GB", "US", "XE", "XW", "DE") else 2 if r.get("country") == "JP" else 1
+        return (d[:4] or "9999", market, padded, fmt_rank, r.get("title") or "")
+    releases.sort(key=rank)
     chosen = releases[0]
     detail = _mb_lookup("release", chosen["id"], {"inc": "recordings"})
     if not detail:
         return None
-    tracks = []
-    for medium in detail.get("media", []):
+    tracks, n = [], 0
+    media = detail.get("media", [])
+    for medium in media:
         for t in medium.get("tracks", []):
             rec = t.get("recording") or {}
-            tracks.append({
-                "position": f"{medium.get('position', 1)}-{t.get('position')}",
-                "title": t.get("title") or rec.get("title"),
-                "recordingMbid": rec.get("id"),
-                "lengthMs": rec.get("length"),
-            })
-    return {"releaseMbid": chosen["id"], "releaseTitle": chosen.get("title"), "date": chosen.get("date"), "tracks": tracks}
+            n += 1
+            tracks.append({"position": n, "number": t.get("number") or str(t.get("position") or n), "disc": medium.get("position", 1),
+                           "title": t.get("title") or rec.get("title"), "recordingMbid": rec.get("id"), "lengthMs": rec.get("length") or t.get("length")})
+    formats = sorted({m.get("format") for m in media if m.get("format")})
+    return {"releaseMbid": chosen["id"], "releaseTitle": chosen.get("title"), "date": chosen.get("date"), "country": chosen.get("country"),
+            "format": " + ".join(formats) or None, "discs": len(media), "tracks": tracks}
 
 
 def search_recordings(title: str, artist_mbid: str | None = None, limit: int = 10) -> list[dict]:

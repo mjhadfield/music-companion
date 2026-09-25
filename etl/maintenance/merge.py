@@ -94,6 +94,31 @@ def _move_album_genres(conn, journal: dict, rows_moved: dict, absorbed_id: int, 
         rows_moved[table] = len(moved)
 
 
+_TRACKLIST_COLS = "position, number, disc, title, recording_mbid, length_ms"
+_TL_SOURCE_COLS = "source, release_mbid, release_title, release_date, country, format, fetched_at"
+
+
+def _move_album_tracklist(conn, journal: dict, absorbed_id: int, canonical_id: int) -> None:
+    """The album's MusicBrainz tracklist: the survivor keeps its own; if it has none it takes the
+    absorbed album's; otherwise the absorbed one's is dropped. Journaled for undo."""
+    try:
+        has_own = conn.execute("SELECT 1 FROM album_tracklist_sources WHERE album_id = ?", (canonical_id,)).fetchone()
+    except Exception:  # pre-migration database
+        return
+    if not conn.execute("SELECT 1 FROM album_tracklist_sources WHERE album_id = ?", (absorbed_id,)).fetchone():
+        return
+    if not has_own:
+        conn.execute("UPDATE album_tracklists SET album_id = ? WHERE album_id = ?", (canonical_id, absorbed_id))
+        conn.execute("UPDATE album_tracklist_sources SET album_id = ? WHERE album_id = ?", (canonical_id, absorbed_id))
+        journal["tracklist_moved"] = True
+        return
+    journal["tracklist_dropped"] = {
+        "tracks": [list(r) for r in conn.execute(f"SELECT {_TRACKLIST_COLS} FROM album_tracklists WHERE album_id = ?", (absorbed_id,))],
+        "source": list(conn.execute(f"SELECT {_TL_SOURCE_COLS} FROM album_tracklist_sources WHERE album_id = ?", (absorbed_id,)).fetchone())}
+    conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (absorbed_id,))
+    conn.execute("DELETE FROM album_tracklist_sources WHERE album_id = ?", (absorbed_id,))
+
+
 def _upsert_alias(conn, journal: dict, source: str, source_key: str, canonical_type: str, canonical_id: int, note: str) -> None:
     existing = conn.execute(
         "SELECT id, canonical_id, note FROM alias_overrides WHERE source = ? AND source_key = ? AND canonical_type = ?",
@@ -309,6 +334,7 @@ def merge_albums(conn, absorbed_id: int, canonical_id: int, identity: dict | Non
     for table in ("songs", "vinyl_holdings", "scrobbles", "album_releases"):  # editions follow the album
         _move(conn, journal, rows_moved, table, "album_id", absorbed_id, canonical_id)
     _move_album_genres(conn, journal, rows_moved, absorbed_id, canonical_id)
+    _move_album_tracklist(conn, journal, absorbed_id, canonical_id)
     _note_rows(conn, journal, rows_moved, "album", absorbed_id, canonical_id)
     _repoint_aliases(conn, journal, rows_moved, "album", absorbed_id, canonical_id)
 
@@ -469,6 +495,15 @@ def undo_merge(conn, log_id: int) -> dict:
             conn.execute("UPDATE album_artists SET album_id = ? WHERE artist_id = ? AND album_id = ?", (absorbed_id, artist_id, canonical_id))
     for album_id, artist_id, position in j["album_artists_deleted"]:
         conn.execute("INSERT OR IGNORE INTO album_artists (album_id, artist_id, position) VALUES (?, ?, ?)", (album_id, artist_id, position))
+    if entity_type == "album" and j.get("tracklist_moved"):
+        conn.execute("UPDATE album_tracklists SET album_id = ? WHERE album_id = ?", (absorbed_id, canonical_id))
+        conn.execute("UPDATE album_tracklist_sources SET album_id = ? WHERE album_id = ?", (absorbed_id, canonical_id))
+    if entity_type == "album" and j.get("tracklist_dropped"):
+        d = j["tracklist_dropped"]
+        conn.executemany(f"INSERT OR IGNORE INTO album_tracklists (album_id, {_TRACKLIST_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         [(absorbed_id, *t) for t in d["tracks"]])
+        conn.execute(f"INSERT OR IGNORE INTO album_tracklist_sources (album_id, {_TL_SOURCE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     (absorbed_id, *d["source"]))
     if entity_type == "album":  # genres went with the album (merges from before genres have no entries)
         for table, cols in (("album_genres", "genre_id, source, votes, created_at"), ("genre_hidden", "genre_id, created_at")):
             moved = j.get(f"{table}_moved") or []
@@ -499,7 +534,7 @@ def undo_merge(conn, log_id: int) -> dict:
 # -- Identity edits --------------------------------------------------------------------------
 
 EDITABLE = {"artists": {"mbid", "name"}, "albums": {"mbid", "title", "year", "cover_status", "cover_updated_at"},
-            "songs": {"mbid", "title", "album_id"}, "vinyl_holdings": {"album_id", "mb_release_id", "disc_colour"}}
+            "songs": {"mbid", "title", "album_id"}, "vinyl_holdings": {"album_id", "mb_release_id", "disc_colour", "cover_file", "display_title", "release_year"}}
 _NAME_FIELD = {"artists": "name", "albums": "title", "songs": "title", "vinyl_holdings": "raw_title_text"}
 _UNIQUE_MBID = {"artists", "albums", "songs"}  # vinyl_holdings.mb_release_id is deliberately not unique
 
@@ -625,6 +660,8 @@ def _undo_created(conn, album_id: int) -> None:
     conn.execute("DELETE FROM review_marks WHERE entity_type = 'album' AND entity_id = ?", (album_id,))
     conn.execute("DELETE FROM notes WHERE entity_type = 'album' AND entity_id = ?", (album_id,))
     conn.execute("DELETE FROM album_genres WHERE album_id = ?", (album_id,))  # derived since -- goes with it
+    conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (album_id,))
+    conn.execute("DELETE FROM album_tracklist_sources WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM genre_hidden WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM album_artists WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM albums WHERE id = ?", (album_id,))
@@ -694,11 +731,72 @@ def _undo_split(conn, d: dict) -> None:
     conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE canonical_type = 'album' AND canonical_id = ?", (back, new))
     conn.execute("DELETE FROM review_marks WHERE entity_type = 'album' AND entity_id = ?", (new,))
     conn.execute("DELETE FROM album_genres WHERE album_id = ?", (new,))
+    conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (new,))
+    conn.execute("DELETE FROM album_tracklist_sources WHERE album_id = ?", (new,))
     conn.execute("DELETE FROM genre_hidden WHERE album_id = ?", (new,))
     conn.execute("DELETE FROM album_artists WHERE album_id = ?", (new,))
     conn.execute("DELETE FROM albums WHERE id = ?", (new,))
     if d.get("mergeLogId"):
         conn.execute("UPDATE merge_log SET undone_at = NULL WHERE id = ?", (d["mergeLogId"],))
+
+
+def move_album_plays(conn, from_album: int, to_album: int, raw_titles: list[str], reason: str) -> dict:
+    """Moves what arrived under a given album name from one album to ANOTHER EXISTING album -- for
+    scrobbles filed under the wrong album (e.g. an old merge put "Led Zeppelin (Remaster)" into
+    Led Zeppelin II). Recovered from the source text every row keeps: those scrobbles (and
+    pressings), songs only ever played from them, the editions they were played from, and the
+    import aliases for those names (so future imports go to the right album too). Journaled in
+    edit_log as {"_movePlays": ...}; undo_edit moves exactly those rows back."""
+    src, dst = _row_dict(conn, "albums", from_album), _row_dict(conn, "albums", to_album)
+    if not src or not dst:
+        raise MergeError("both albums must exist", "not_found")
+    if src["artist_id"] != dst["artist_id"]:
+        raise MergeError("Plays can only move between albums of the same artist.", "different_artist")
+    lowered = sorted({t.strip().lower() for t in raw_titles if t and t.strip()})
+    marks = ",".join("?" * len(lowered))
+    scrobbles = [r[0] for r in conn.execute(
+        f"SELECT id FROM scrobbles WHERE album_id = ? AND lower(raw_album_text) IN ({marks})", (from_album, *lowered))]
+    vinyl = [r[0] for r in conn.execute(
+        f"SELECT id FROM vinyl_holdings WHERE album_id = ? AND lower(raw_title_text) IN ({marks})", (from_album, *lowered))]
+    if not scrobbles and not vinyl:
+        raise MergeError("Nothing on this album arrived under that name.", "merge_error")
+    moved = json.dumps(scrobbles)
+    conn.execute("UPDATE scrobbles SET album_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_album, moved))
+    conn.execute("UPDATE vinyl_holdings SET album_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_album, json.dumps(vinyl)))
+    songs = [r[0] for r in conn.execute(
+        "SELECT id FROM songs WHERE album_id = ? AND id IN (SELECT song_id FROM scrobbles WHERE id IN (SELECT value FROM json_each(?))) "
+        "AND NOT EXISTS (SELECT 1 FROM scrobbles x WHERE x.song_id = songs.id AND x.album_id = ?)", (from_album, moved, from_album))]
+    conn.execute("UPDATE songs SET album_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_album, json.dumps(songs)))
+    aliases = [r[0] for r in conn.execute(
+        f"SELECT id FROM alias_overrides WHERE canonical_type = 'album' AND canonical_id = ? "
+        f"AND substr(source_key, instr(source_key, ':') + 1) IN ({marks})", (from_album, *lowered))]
+    conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_album, json.dumps(aliases)))
+    # editions only these scrobbles were played from follow them
+    editions = [r[0] for r in conn.execute(
+        "SELECT ar.id FROM album_releases ar WHERE ar.album_id = ? AND ar.release_mbid IN "
+        "(SELECT sr.release_mbid FROM scrobble_releases sr WHERE sr.scrobble_id IN (SELECT value FROM json_each(?))) "
+        "AND NOT EXISTS (SELECT 1 FROM scrobble_releases x JOIN scrobbles s ON s.id = x.scrobble_id "
+        "               WHERE x.release_mbid = ar.release_mbid AND s.album_id = ?)", (from_album, moved, from_album))]
+    conn.execute("UPDATE album_releases SET album_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_album, json.dumps(editions)))
+    detail = {"from": from_album, "fromTitle": src["title"], "to": to_album, "toTitle": dst["title"], "rawTitles": lowered,
+              "scrobbleIds": scrobbles, "vinylIds": vinyl, "songIds": songs, "aliasIds": aliases, "editionIds": editions}
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('album', ?, ?, ?, ?)",
+                           (to_album, dst["title"], json.dumps({"_movePlays": detail}), reason)).lastrowid
+    return {"editId": edit_id, "scrobbles": len(scrobbles), "vinyl": len(vinyl), "songs": len(songs), "aliases": len(aliases),
+            "editions": len(editions)}
+
+
+def _undo_move_plays(conn, d: dict) -> None:
+    back, to = d["from"], d["to"]
+    if not _row_dict(conn, "albums", back) or not _row_dict(conn, "albums", to):
+        raise MergeError("One of those albums has been merged away since -- undo that first.", "gone")
+    for table, key in (("scrobbles", "scrobbleIds"), ("vinyl_holdings", "vinylIds"), ("songs", "songIds"), ("album_releases", "editionIds")):
+        ids = json.dumps(d[key])
+        moved_again = conn.execute(f"SELECT count(*) FROM {table} WHERE id IN (SELECT value FROM json_each(?)) AND album_id != ?", (ids, to)).fetchone()[0]
+        if moved_again:
+            raise MergeError(f"Some of those {table.replace('_', ' ')} have moved again since -- undo the later change first.", "diverged")
+        conn.execute(f"UPDATE {table} SET album_id = ? WHERE id IN (SELECT value FROM json_each(?))", (back, ids))
+    conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE id IN (SELECT value FROM json_each(?))", (back, json.dumps(d["aliasIds"])))
 
 
 def undo_edit(conn, edit_id: int) -> dict:
@@ -724,6 +822,10 @@ def undo_edit(conn, edit_id: int) -> dict:
     if not current:
         raise MergeError(f'"{name}" has been merged away since -- undo that merge first.', "gone")
     changes = json.loads(changes_json)
+    if "_movePlays" in changes:
+        _undo_move_plays(conn, changes["_movePlays"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_created" in changes:
         _undo_created(conn, entity_id)
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))

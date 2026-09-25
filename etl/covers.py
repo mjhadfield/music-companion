@@ -73,6 +73,35 @@ def fetch_from_cover_art_archive(conn, album_id: int, mbid: str) -> bool:
     return False
 
 
+def download(url: str) -> tuple[bytes | None, str | None]:
+    """-> (image bytes, None) or (None, why not)."""
+    try:
+        resp = requests.get(url, timeout=15, headers=_HEADERS, allow_redirects=True)
+    except requests.RequestException as exc:
+        return None, str(exc)
+    if resp.status_code != 200:
+        return None, f"that url returned HTTP {resp.status_code}"
+    if not _looks_like_image(resp):
+        return None, f"doesn't look like an image (content-type: {resp.headers.get('Content-Type', '(none)')})"
+    return resp.content, None
+
+
+def sniff_image(content: bytes) -> bool:
+    """JPEG / PNG / WebP by their magic bytes (an uploaded file's declared type means nothing)."""
+    return content[:3] == b"\xff\xd8\xff" or content[:8] == b"\x89PNG\r\n\x1a\n" or (content[:4] == b"RIFF" and content[8:12] == b"WEBP")
+
+
+def save_holding_cover(holding_id: int, content: bytes) -> str:
+    """One copy's own cover -> its file name. Named by content, so every image gets its own file:
+    undoing a change just points back at the previous file (still there), and the site's
+    browsers can never show a stale cached one."""
+    import hashlib
+    name = f"h{int(holding_id)}-{hashlib.sha1(content).hexdigest()[:10]}.jpg"
+    COVERS_DIR.mkdir(parents=True, exist_ok=True)
+    (COVERS_DIR / name).write_bytes(content)
+    return name
+
+
 def fetch_from_url(conn, album_id: int, url: str) -> tuple[bool, str | None]:
     """Manual override. Returns (ok, error_message) -- error_message is set only when ok is
     False, for the maintenance UI to show back to whoever pasted the url."""

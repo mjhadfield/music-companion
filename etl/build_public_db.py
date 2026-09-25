@@ -44,6 +44,8 @@ PUBLIC_TABLES = [
     "genres",
     "album_genres",
     "vinyl_details",
+    "album_tracklists",
+    "album_tracklist_sources",
 ]
 # Views are recreated from schema.sql (no rows to copy) -- also listed explicitly.
 PUBLIC_VIEWS = [

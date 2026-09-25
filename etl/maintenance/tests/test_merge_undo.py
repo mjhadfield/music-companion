@@ -132,6 +132,58 @@ class MergeUndoTests(unittest.TestCase):
         self.conn.commit()
         self.assertEqual(checksum(self.conn), before)
 
+    def test_move_album_plays_undo(self):
+        """Plays that arrived as "Paranoid (Remastered)" filed under Master of Reality by mistake:
+        moved to Paranoid (with their alias), then undone exactly."""
+        self.conn.execute("UPDATE scrobbles SET album_id = 12 WHERE id = 2")
+        self.conn.execute("UPDATE songs SET album_id = 12 WHERE id = 101")
+        self.conn.execute("UPDATE artists SET id = id WHERE 0")
+        self.conn.execute("UPDATE albums SET artist_id = 1 WHERE id = 12")
+        self.conn.execute("INSERT INTO alias_overrides (source, source_key, canonical_type, canonical_id) VALUES ('lastfm', '1:paranoid (remastered)', 'album', 12)")
+        self.conn.commit()
+        before = checksum(self.conn)
+        r = merge.move_album_plays(self.conn, 12, 11, ["Paranoid (Remastered)"], "test")
+        self.assertEqual((r["scrobbles"], r["songs"], r["aliases"]), (1, 1, 1))
+        self.assertEqual(self.conn.execute("SELECT album_id FROM scrobbles WHERE id = 2").fetchone()[0], 11)
+        self.assertEqual(self.conn.execute("SELECT album_id FROM scrobbles WHERE id = 3").fetchone()[0], 12)  # different name: stays
+        self.assertEqual(self.conn.execute("SELECT canonical_id FROM alias_overrides WHERE source_key = '1:paranoid (remastered)'").fetchone()[0], 11)
+        merge.undo_edit(self.conn, r["editId"])
+        self.conn.commit()
+        self.assertEqual(checksum(self.conn), before)
+
+    def test_move_album_plays_refuses_other_artist(self):
+        with self.assertRaises(merge.MergeError):
+            merge.move_album_plays(self.conn, 12, 10, ["Master of Reality"], "test")  # 12 is artist 2's, 10 artist 1's
+
+    def _tracklists(self):
+        return (sorted(self.conn.execute("SELECT * FROM album_tracklists").fetchall()),
+                sorted(self.conn.execute("SELECT album_id, source, release_mbid FROM album_tracklist_sources").fetchall()))
+
+    def _give_tracklist(self, album_id, titles):
+        self.conn.executemany("INSERT INTO album_tracklists (album_id, position, number, title) VALUES (?, ?, ?, ?)",
+                              [(album_id, i + 1, str(i + 1), t) for i, t in enumerate(titles)])
+        self.conn.execute("INSERT INTO album_tracklist_sources (album_id, source, release_mbid) VALUES (?, 'musicbrainz', ?)", (album_id, f"rel-{album_id}"))
+
+    def test_album_merge_carries_tracklist(self):
+        self._give_tracklist(11, ["Paranoid", "Iron Man"])
+        self.conn.commit()
+        before = self._tracklists()
+        r = merge.merge_albums(self.conn, 11, 10)
+        self.assertEqual(self.conn.execute("SELECT album_id FROM album_tracklist_sources").fetchall(), [(10,)])
+        merge.undo_merge(self.conn, r["logId"])
+        self.assertEqual(self._tracklists(), before)
+
+    def test_album_merge_drops_absorbed_tracklist_and_undoes(self):
+        self._give_tracklist(11, ["Paranoid (Remastered)"])
+        self._give_tracklist(10, ["War Pigs", "Paranoid"])
+        self.conn.commit()
+        before = self._tracklists()
+        r = merge.merge_albums(self.conn, 11, 10)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM album_tracklists WHERE album_id = 11").fetchone()[0], 0)
+        self.assertEqual(self.conn.execute("SELECT count(*) FROM album_tracklists WHERE album_id = 10").fetchone()[0], 2)
+        merge.undo_merge(self.conn, r["logId"])
+        self.assertEqual(self._tracklists(), before)
+
     def test_song_merge_undo(self):
         r = self._roundtrip(lambda: merge.merge_songs(self.conn, 101, 100))
         self.assertEqual(r["rowsMoved"]["setlist_songs"], 1)

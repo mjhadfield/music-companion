@@ -62,6 +62,19 @@
   .group:last-child { border-bottom: none; }
   .group-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 14px 2px; }
   .group .merge-foot { padding: 6px 14px 10px; margin: 0; }
+  .sg-rows { display: flex; flex-direction: column; gap: 2px; }
+  .sg-row { font-size: 0.82rem; }
+  .sg-row i { font-style: normal; color: var(--text-muted); font-size: 0.74rem; margin-left: 4px; }
+  .sg-row.live-only { color: var(--accent-soft); }
+  .tl-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--edge); background: var(--bg-2); }
+  .tl-head h2 { margin: 0; }
+  .tl-table tr.no-song td { opacity: .55; }
+  .tl-sec { padding: 14px 18px; border-top: 1px solid var(--edge); }
+  .tl-sec h3 { margin: 0 0 6px; }
+  .tl-extra { padding: 4px 0; border-bottom: 1px dashed var(--edge); }
+  .wa-h { margin: 18px 0 8px; }
+  .tl-fetch { margin-bottom: 14px; }
+  .livedot { color: var(--accent-live, #f43f5e); font-style: normal; }
 </style>
 </head>
 <body>
@@ -72,7 +85,10 @@
 
   <div class="tabs" id="tabs">
     <button data-tab="live">Live sets</button>
+    <button data-tab="splits">Splits</button>
     <button data-tab="dupes">Duplicates</button>
+    <button data-tab="tracklists">Tracklists</button>
+    <button data-tab="wrongalbum">Wrong album</button>
     <button data-tab="recordings">Recording ids</button>
     <button data-tab="activity">Activity</button>
   </div>
@@ -112,6 +128,10 @@
     </div>
   </section>
 
+  <section data-panel="splits" hidden><div class="card" id="splits"></div></section>
+  <section data-panel="tracklists" hidden><div id="tracklists"></div></section>
+  <section data-panel="wrongalbum" hidden><div class="card" id="wrongalbum"></div></section>
+
   <section data-panel="recordings" hidden><div id="recordings"></div></section>
 
   <section data-panel="activity" hidden>
@@ -122,6 +142,7 @@
 <script src="shared.js"></script>
 <script src="album-ui.js"></script>
 <script src="recordings-ui.js"></script>
+<script src="songtools-ui.js"></script>
 <script>
 mountNav("Songs");
 
@@ -743,16 +764,21 @@ document.addEventListener("keydown", (e) => {
   if (t === "dupes" && dupeArtist) { e.preventDefault(); nextDupe(); }
 });
 
+let splitsView = null, tracklistsView = null;
 const tabs = mountTabs(document.getElementById("tabs"), {
   live: loadLiveQueue,
   dupes: loadDupeQueue,
   recordings: () => mountRecordings(document.getElementById("recordings")).load(),
+  splits: () => (splitsView = mountSplits(document.getElementById("splits"))).load(),
+  tracklists: () => (tracklistsView = mountTracklists(document.getElementById("tracklists"))).load(),
+  wrongalbum: () => mountWrongAlbums(document.getElementById("wrongalbum")).load(),
   activity: () => mountActivity(document.getElementById("activity"), { entityType: "song", limit: 60 }),
 }, {
   onSubpath: (tab, sub) => {
     if (!/^\d+$/.test(sub)) return;
     if (tab === "live") { if (!liveQueue.length) loadLiveQueue(); openLive(parseInt(sub, 10)); }
     if (tab === "dupes") { if (!dupeQueue.length) loadDupeQueue(); openDupes(parseInt(sub, 10)); }
+    if (tab === "tracklists") { if (!tracklistsView) (tracklistsView = mountTracklists(document.getElementById("tracklists"))).load(); tracklistsView.open(parseInt(sub, 10)); }
   },
 });
 </script>

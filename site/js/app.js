@@ -65,6 +65,13 @@ function applyTheme(theme) {
   } else {
     delete document.documentElement.dataset.theme;
   }
+  // the button shows the mode you're in: a moon in dark mode (the default), a sun in light
+  const btn = document.getElementById("theme-toggle");
+  if (btn) {
+    const dark = theme !== "light";
+    btn.innerHTML = `<svg class="i"><use href="#i-${dark ? "moon" : "sun"}"/></svg>`;
+    btn.title = dark ? "Dark mode — switch to light" : "Light mode — switch to dark";
+  }
 }
 
 function initTheme() {
@@ -256,15 +263,6 @@ function renderHome() {
     GROUP BY ar.id ORDER BY plays DESC LIMIT 10
   `);
 
-  const recentVinyl = query(`
-    SELECT v.id AS holding_id, al.id AS album_id, al.cover_status, al.cover_updated_at, al.title, ar.name AS artist_name, v.date_added, v.format
-    FROM vinyl_holdings v
-    JOIN albums al ON al.id = v.album_id
-    JOIN artists ar ON ar.id = al.artist_id
-    WHERE v.date_added IS NOT NULL AND v.date_added != ''
-    ORDER BY v.date_added DESC LIMIT 8
-  `);
-
   const g = GRANULARITIES[homeState.granularity];
   const chartRows = query(`
     SELECT strftime('${g.fmt}', played_at) AS bucket, count(*) AS c
@@ -317,18 +315,9 @@ function renderHome() {
       </div>
     </div>
 
-    <div class="section">
-      <h2>Latest record buys</h2>
-      <div class="vinyl-tile-grid">
-        ${recentVinyl.map((v) => `
-          <div class="vinyl-tile" data-album-id="${v.album_id}" data-holding-id="${v.holding_id}">
-            <img class="vinyl-tile-cover" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" data-cover-version="${esc(v.cover_updated_at || "")}" alt="" loading="lazy" />
-            <div class="vinyl-tile-title">${esc(v.title)}</div>
-            <div class="vinyl-tile-sub">${esc(v.artist_name)}</div>
-            <div class="vinyl-tile-meta">${esc(v.format || "")} · ${esc((v.date_added || "").slice(0, 10))}</div>
-          </div>
-        `).join("") || '<div class="subtle">No dated additions yet.</div>'}
-      </div>
+    <div class="section" id="latest-records">
+      <div class="section-head"><h2>Latest record buys</h2><a class="section-link" href="#/vinyl">The whole collection →</a></div>
+      ${latestRecordsHtml(8)}
     </div>
   `;
 
@@ -360,10 +349,7 @@ function renderHome() {
       },
     }
   );
-  app.querySelectorAll("img.vinyl-tile-cover").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus, img.dataset.coverVersion));
-  app.querySelectorAll(".vinyl-tile[data-holding-id]").forEach((el) => {
-    el.addEventListener("click", () => { location.hash = `#/vinyl/${el.dataset.holdingId}`; });
-  });
+  wireLatestRecords(document.getElementById("latest-records"));
 }
 
 // ---------------------------------------------------------------------
@@ -400,7 +386,7 @@ function renderArtistsBrowse() {
   `, params);
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <div class="page-header"><h1>Artists</h1><div class="subtle">${total.toLocaleString()} artists</div></div>
     <div class="filter-bar">
       <input type="text" id="browse-search" placeholder="Search artists…" value="${esc(st.q)}" />
@@ -484,7 +470,7 @@ function renderShowsBrowse() {
   `, searchParams);
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <div class="page-header"><h1>Shows attended</h1><div class="subtle">${rows.length.toLocaleString()} shows</div></div>
     <div class="section">
       <h2>Shows</h2>
@@ -603,7 +589,7 @@ function renderScrobblesBrowse() {
   `, searchParams);
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <div class="page-header"><h1>Scrobbles</h1><div class="subtle">${total.toLocaleString()} plays</div></div>
     <div class="section">
       <h2>Activity</h2>
@@ -847,13 +833,15 @@ function renderArtist(id) {
   `, [id]);
   const maxAlbumPlays = topAlbums.length ? topAlbums[0].plays : 1;
 
+  const ownLook = hasColumn("vinyl_holdings", "cover_file"); // a copy's own cover / title / year (e.g. Part 1, Part 2)
   const vinylRows = query(`
     SELECT DISTINCT al.id AS album_id, al.cover_status, al.cover_updated_at, al.title, al.year, v.format, v.media_condition
+      ${ownLook ? ", v.id AS holding_id, v.cover_file, v.display_title, v.release_year" : ""}
     FROM vinyl_holdings v
     JOIN album_artists aa ON aa.album_id = v.album_id
     JOIN albums al ON al.id = v.album_id
     WHERE aa.artist_id = ?
-    ORDER BY al.year
+    ORDER BY ${ownLook ? "coalesce(v.release_year, al.year)" : "al.year"}
   `, [id]);
 
   const setlistRows = query(`
@@ -864,7 +852,7 @@ function renderArtist(id) {
   `, [id]);
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <div class="artist-header">
       <h1>${esc(artist.name)}${artist.mbid ? '<span class="artist-mbid-badge" title="Matched via MusicBrainz">MBID</span>' : ""}</h1>
     </div>
@@ -894,9 +882,10 @@ function renderArtist(id) {
       <h2>On the shelf</h2>
       ${vinylRows.length ? vinylRows.map((v) => `
         <div class="vinyl-card" data-album-id="${v.album_id}" style="cursor:pointer">
-          <img class="cover-thumb" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" data-cover-version="${esc(v.cover_updated_at || "")}" alt="" loading="lazy" />
+          ${v.cover_file ? `<img class="cover-own" src="public/covers/${encodeURIComponent(v.cover_file)}" alt="" loading="lazy" />`
+            : `<img class="cover-thumb" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" data-cover-version="${esc(v.cover_updated_at || "")}" alt="" loading="lazy" />`}
           <div class="vinyl-body">
-            <div class="title">${esc(v.title)}${v.year ? ` <span class="subtle">(${v.year})</span>` : ""}</div>
+            <div class="title">${esc(v.display_title || v.title)}${v.release_year || v.year ? ` <span class="subtle">(${v.release_year || v.year})</span>` : ""}</div>
             <div class="meta">${esc(v.format || "")}${v.media_condition ? " · " + esc(v.media_condition) : ""}</div>
           </div>
         </div>
@@ -1024,7 +1013,7 @@ function renderSong(id) {
     : false;
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <h1>${esc(song.title)}</h1>
     <div class="subtle">${esc(song.artist_name)}</div>
 
@@ -1116,7 +1105,7 @@ function renderSetlist(id) {
     : venueLabel;
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <h1><span class="link-text" onclick="location.hash='#/artist/${setlist.artist_id}'">${esc(setlist.artist_name)}</span></h1>
     <div class="subtle">
       ${esc(setlist.event_date)} · ${venueHtml}${setlist.city ? ", " + esc(setlist.city) : ""}
@@ -1141,7 +1130,7 @@ function renderVenue(id) {
   `, [id]);
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <h1>${esc(venue.name)}</h1>
     <div class="subtle">${[venue.city, venue.country].filter(Boolean).map(esc).join(", ")}</div>
 
@@ -1169,6 +1158,27 @@ function renderVenue(id) {
 // copy owned (pressings/variants can differ -- catalog#, color, condition)
 // plus whatever tracks we know from that album, with cover art.
 // ---------------------------------------------------------------------
+// The album page's songs: split into the album's own tracklist and bonus / other tracks when a
+// reference tracklist is known (a pressing you own), else just the songs, most played first.
+function albumTracksHtml(albumId, songs) {
+  const liveDot = (x) => (x?.shows ? ` <i class="livedot" title="Heard live at ${x.shows} show${x.shows === 1 ? "" : "s"}">●</i>` : "");
+  const songRow = (x) => `<div class="list-item" data-song-id="${x.id}"><div class="list-title">${esc(x.title)}${liveDot(x)}</div>
+      <div class="list-right">${x.plays.toLocaleString()} play${x.plays === 1 ? "" : "s"}</div></div>`;
+  const ref = albumReferenceTracklist(albumId);
+  if (!ref) return songs.length ? `<div class="section"><h2>Tracks</h2>${songs.map(songRow).join("")}</div>` : "";
+  const { tracks, unlisted } = matchTracklist(ref.tracks, songs);
+  return `<div class="section">
+      <div class="section-head"><h2>Tracklist</h2><span class="subtle">from ${esc(ref.source)}</span></div>
+      ${tracks.map((t) => `<div class="list-item tl-line"${t.song ? ` data-song-id="${t.song.id}"` : ""}>
+        <span class="tl-pos">${esc(t.pos || "")}</span>
+        <div class="list-title">${esc(t.title)}${t.again ? "" : liveDot(t.song)}</div>
+        <div class="list-right">${t.song && !t.again ? `${t.song.plays.toLocaleString()} play${t.song.plays === 1 ? "" : "s"}` : t.again ? `<span class="subtle" title="Counted on its first line above">↑</span>` : `<span class="subtle">not played</span>`}${t.dur ? `<span class="subtle tl-dur">${esc(t.dur)}</span>` : ""}</div></div>`).join("")}
+    </div>
+    ${unlisted.length ? `<div class="section">
+      <div class="section-head"><h2>Bonus &amp; other tracks</h2><span class="subtle">played from this album, not on ${ref.pressing ? "that pressing" : "the original release"} — deluxe and digital extras</span></div>
+      ${unlisted.map(songRow).join("")}</div>` : ""}`;
+}
+
 function renderAlbum(id) {
   const album = query(`
     SELECT al.*, ar.name AS artist_name, ar.id AS artist_id
@@ -1179,14 +1189,10 @@ function renderAlbum(id) {
 
   const holdings = query(`SELECT * FROM vinyl_holdings WHERE album_id = ? ORDER BY date_added`, [id]);
 
-  const tracks = query(`
-    SELECT so.id, so.title, (SELECT count(*) FROM scrobbles WHERE song_id = so.id) AS plays
-    FROM songs so WHERE so.album_id = ?
-    ORDER BY plays DESC
-  `, [id]);
+  const tracks = albumSongGroups(id); // the same per-track counts as the collection's record drawer
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <div class="album-header">
       <img class="album-cover-large" data-album-id="${album.id}" data-cover-status="${album.cover_status || ""}" alt="" />
       <div>
@@ -1196,30 +1202,21 @@ function renderAlbum(id) {
       </div>
     </div>
 
-    <div class="section">
+    ${holdings.length ? `<div class="section">
       <h2>${holdings.length > 1 ? "Your copies" : "Your copy"}</h2>
       ${loadCollection().filter((r) => r.album_id === id).map((r) => `
-        <button class="pressing-card" data-holding="${r.id}">
+        <button class="pressing-card${r.ownLook ? " own-look" : ""}" data-holding="${r.id}">
+          ${r.ownLook ? `<div class="pc-own">${coverImg(r, "pc-own-art")}<div><b>${esc(r.title)}</b>${r.year ? ` <span class="subtle">· ${r.year}</span>` : ""}</div></div>` : ""}
           <div class="rd-line"><b>${esc(r.label || "Unknown label")}</b>${r.catalog_number ? ` · <span class="mono">${esc(r.catalog_number)}</span>` : ""}${r.country ? ` · ${esc(r.country)}` : ""}${r.pressing_year ? ` · ${r.pressing_year}` : ""} ${starsHtml(r.rating)}</div>
           <div class="pbadges">${pressingBadges(r)}</div>
           ${meter(r.grade, "Record")}${meter(r.sleeveGrade, "Sleeve")}
           ${r.notes ? `<div class="subtle pc-note">“${esc(r.notes)}”</div>` : ""}
           <div class="subtle">Added ${esc((r.date_added || "").slice(0, 10))} · open in the collection →</div>
         </button>
-      `).join("") || '<div class="subtle">No holding details recorded.</div>'}
-    </div>
+      `).join("")}
+    </div>` : ""}
 
-    ${tracks.length ? `
-      <div class="section">
-        <h2>Tracks</h2>
-        ${tracks.map((t) => `
-          <div class="list-item" data-song-id="${t.id}">
-            <div class="list-title">${esc(t.title)}</div>
-            <div class="list-right">${t.plays.toLocaleString()} plays</div>
-          </div>
-        `).join("")}
-      </div>
-    ` : ""}
+    ${albumTracksHtml(id, tracks)}
   `;
 
   const img = app.querySelector("img.album-cover-large");
@@ -1260,7 +1257,7 @@ function renderSongsBrowse() {
   `, params);
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <div class="page-header"><h1>Songs</h1><div class="subtle">${total.toLocaleString()} songs</div></div>
     <div class="filter-bar">
       <input type="text" id="browse-search" placeholder="Search track or artist…" value="${esc(st.q)}" />
@@ -1317,7 +1314,7 @@ function renderVenuesBrowse() {
   `, params);
 
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
+    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
     <div class="page-header"><h1>Venues</h1><div class="subtle">${rows.length.toLocaleString()} venues</div></div>
     <div class="filter-bar">
       <input type="text" id="browse-search" placeholder="Search venue or city…" value="${esc(st.q)}" />
@@ -1363,9 +1360,34 @@ function renderVenuesBrowse() {
 // without the hash changing) -- only the former should reset scroll.
 let lastRenderedHash = null;
 
+// How many in-app steps deep this history entry is (kept in history.state), so Back never
+// leaves the site: a deep-linked page's Back goes home instead.
+let navDepth = 0;
+let skipRender = null; // a hash change already handled in place (closing the record drawer)
+window.addEventListener("popstate", () => { if (history.state?.depth != null) navDepth = history.state.depth; });
+function goBack() {
+  if (navDepth > 0) history.back();
+  else location.hash = "#/";
+}
+
+/** The mobile topbar can carry the page's own title in place of the artist search (the
+ * Collection has its own search). Cleared on every render; a page sets it after. */
+function setTopbarTitle(hud, title) {
+  const el = document.getElementById("topbar-title");
+  el.innerHTML = hud ? `<span class="hud">${esc(hud)}</span><span class="tt-name">${esc(title)}</span>` : "";
+  document.body.classList.toggle("has-topbar-title", Boolean(hud));
+}
+
 function render() {
+  if (skipRender !== null && skipRender === location.hash) { skipRender = null; return; }
+  skipRender = null;
   renderToken += 1;
   const hash = location.hash || "#/";
+  if (history.state?.depth == null) history.replaceState({ depth: lastRenderedHash === null ? 0 : navDepth + 1 }, "", location.href);
+  navDepth = history.state.depth;
+  document.body.dataset.route = hash === "#/" || hash === "#" ? "home" : hash.split(/[/?]/)[1] || "home";
+  document.body.classList.remove("search-open");
+  setTopbarTitle(null);
   if (hash !== lastRenderedHash) window.scrollTo(0, 0);
   lastRenderedHash = hash;
   const artistMatch = hash.match(/^#\/artist\/(\d+)/);
@@ -1403,6 +1425,7 @@ function setupTabbar() {
   bar.hidden = false;
   document.getElementById("tabbar-search").addEventListener("click", (e) => {
     e.preventDefault();
+    document.body.classList.add("search-open"); // a page showing its title up top swaps it for the search box
     document.getElementById("search-input").focus();
     document.getElementById("search-input").scrollIntoView({ behavior: "smooth" });
   });
@@ -1458,6 +1481,7 @@ function setupSearch() {
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".search-wrap")) results.hidden = true;
+    if (!e.target.closest(".search-wrap, #tabbar-search") && !input.value.trim()) document.body.classList.remove("search-open");
   });
 }
 

@@ -44,7 +44,7 @@ from common import DB_OVERRIDDEN, DB_PATH, connect as db_connect, load_env  # no
 from migrations import migrate  # noqa: E402
 import covers  # noqa: E402
 import merge  # noqa: E402
-from api import albums as _albums, artists as _artists, editions as _editions, general as _general, genres as _genres, imports as _imports, recordings as _recordings, songs as _songs, vinyl as _vinyl  # noqa: E402,F401  (registers routes)
+from api import albums as _albums, artists as _artists, editions as _editions, general as _general, genres as _genres, imports as _imports, recordings as _recordings, songtools as _songtools, songs as _songs, vinyl as _vinyl  # noqa: E402,F401  (registers routes)
 from api.core import ROUTES, ApiError, Req, merge_error_response  # noqa: E402
 
 load_env()
@@ -71,6 +71,7 @@ STATIC = {"/shared.js": ("shared.js", "application/javascript; charset=utf-8"),
           "/artist-ui.js": ("artist-ui.js", "application/javascript; charset=utf-8"),
           "/editions-ui.js": ("editions-ui.js", "application/javascript; charset=utf-8"),
           "/recordings-ui.js": ("recordings-ui.js", "application/javascript; charset=utf-8"),
+          "/songtools-ui.js": ("songtools-ui.js", "application/javascript; charset=utf-8"),
           "/shared.css": ("shared.css", "text/css; charset=utf-8")}
 FONT_TYPES = {".woff2": "font/woff2", ".ttf": "font/ttf"}
 BACKUP_DIR = DB_PATH.parent / ".refresh_backups"

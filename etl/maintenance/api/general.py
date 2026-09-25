@@ -123,6 +123,12 @@ def undo(req):
                 else:
                     raise ApiError(f"unknown batch item kind {k!r}")
         return {"undone": len(items), "name": f"{len(items)} change{'' if len(items) == 1 else 's'}"}
+    if kind == "remerge":  # undo "un-merge these live versions": fold them back in
+        pairs = req.body.get("ids") or []  # [{absorbedId, canonicalId}]
+        with write_tx() as c:
+            for p in pairs:
+                merge.merge_songs(c, int(p["absorbedId"]), int(p["canonicalId"]))
+        return {"undone": len(pairs), "name": f"{len(pairs)} song{'' if len(pairs) == 1 else 's'}"}
     if kind == "mbalias":  # undo "also releases as"
         from api.artists import remove_mb_alias
         with write_tx() as c:
@@ -199,7 +205,7 @@ def decide_suggestion(req):
 def start_sweep(req):
     kind = req.str("kind")
     # edition lookups are one request each and cache for good -- a bigger batch is fine there
-    limit = max(1, min(req.int("limit", 50), 1000 if kind in ("album-editions", "song-recordings") else 300 if kind == "pressings" else 200))
+    limit = max(1, min(req.int("limit", 50), 1000 if kind in ("album-editions", "song-recordings", "album-tracklists") else 300 if kind == "pressings" else 200))
     job_id = uuid.uuid4().hex
     params = {}
     if req.body.get("artistId"):

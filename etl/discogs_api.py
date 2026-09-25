@@ -63,5 +63,8 @@ def release(release_id: int) -> dict | None:
             "tracklist": [{"position": t.get("position"), "title": t.get("title"), "duration": t.get("duration"), "type": t.get("type_")}
                           for t in d.get("tracklist", [])],
             "notes": d.get("notes") or None,
+            # the release's own photos (sleeve front first) -- the pressing as it really looks
+            "images": [{"type": im.get("type"), "uri": im.get("uri"), "uri150": im.get("uri150"), "width": im.get("width"), "height": im.get("height")}
+                       for im in d.get("images", []) if im.get("uri")],
         }
     return None
