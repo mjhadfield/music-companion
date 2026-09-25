@@ -19,7 +19,7 @@ from common import DB_PATH, artist_mbid_sets, connect, get_or_create_album, get_
 from migrations import migrate  # noqa: E402
 
 DATA_TABLES = ["artists", "albums", "album_artists", "songs", "vinyl_holdings", "scrobbles",
-               "setlists", "setlist_songs", "notes", "alias_overrides", "artist_mb_aliases", "album_parts"]
+               "setlists", "setlist_songs", "notes", "alias_overrides", "artist_mb_aliases", "album_parts", "track_links"]
 
 
 def checksum(conn) -> dict:
@@ -115,6 +115,49 @@ class MergeUndoTests(unittest.TestCase):
         merge.undo_merge(self.conn, r["logId"])
         # and merging the set itself away moves its parts to the survivor
         self._roundtrip(lambda: merge.merge_albums(self.conn, 13, 10))
+
+    def test_track_link_edit_and_undo(self):
+        before = checksum(self.conn)
+        r = merge.set_track_link(self.conn, 10, "Paranoid (Part 1)", 101)
+        self.conn.commit()
+        self.assertEqual(self.conn.execute("SELECT track_title, song_id FROM track_links WHERE album_id = 10").fetchall(), [("Paranoid (Part 1)", 101)])
+        self.assertIsNone(merge.set_track_link(self.conn, 10, "paranoid (part 1)", 101)["editId"])  # no change
+        r2 = merge.set_track_link(self.conn, 10, "Paranoid (Part 1)", 100)  # re-pointed: one link per line
+        self.assertEqual(self.conn.execute("SELECT song_id FROM track_links WHERE album_id = 10").fetchall(), [(100,)])
+        with self.assertRaises(merge.MergeError):
+            merge.undo_edit(self.conn, r["editId"])  # the later change first
+        merge.undo_edit(self.conn, r2["editId"])
+        merge.undo_edit(self.conn, r["editId"])
+        self.conn.commit()
+        self.assertEqual(checksum(self.conn), before)
+        with self.assertRaises(merge.MergeError):
+            merge.set_track_link(self.conn, 10, "Into the Void", 102)  # another artist's song
+
+    def test_merges_carry_track_links(self):
+        merge.set_track_link(self.conn, 11, "Paranoid (Part 1)", 101)
+        self.conn.commit()
+        self._roundtrip(lambda: merge.merge_songs(self.conn, 101, 100))
+        self._roundtrip(lambda: merge.merge_albums(self.conn, 11, 10))
+        merge.merge_songs(self.conn, 101, 100)
+        merge.merge_albums(self.conn, 11, 10)
+        self.assertEqual(self.conn.execute("SELECT album_id, song_id FROM track_links").fetchall(), [(10, 100)])
+        self.assertEqual(self.conn.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+    def test_match_tracklist_honours_links(self):
+        from api.songtools import match_tracklist
+        songs = [{"songId": 1, "title": "Come On (Let the Good Times Roll)", "mbid": None},
+                 {"songId": 2, "title": "Come On (Let the Good Times Roll) - 2010 Remaster", "mbid": None},
+                 {"songId": 3, "title": "Voodoo Chile", "mbid": None}]
+        tracks = [{"position": "B3", "title": "Come On (Part 1)"}, {"position": "C1", "title": "Voodoo Chile"}]
+        lines, extra = match_tracklist(tracks, songs)
+        self.assertEqual([len(ln["rows"]) for ln in lines], [0, 1])
+        lines, extra = match_tracklist(tracks, songs, {"come on (part 1)": 1})
+        self.assertEqual([s["songId"] for s in lines[0]["rows"]], [1, 2])
+        self.assertEqual(lines[0]["how"], "matched by hand")
+        self.assertEqual(extra, [])
+        # a pressing without that line: the linked song is free -- matched by title, or an extra
+        lines, extra = match_tracklist(tracks[1:], songs, {"come on (part 1)": 1})
+        self.assertEqual(sorted(s["songId"] for s in extra), [1, 2])
 
     def test_artist_merge_undo(self):
         r = self._roundtrip(lambda: merge.merge_artists(self.conn, 2, 1))

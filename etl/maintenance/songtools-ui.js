@@ -131,37 +131,73 @@ function mountTracklists(root) {
       ${data.lines.map((ln, i) => `<tr class="${ln.rows.length ? "" : "no-song"}">
         <td>${ln.rows.length > 1 ? `<input type="checkbox" data-line="${i}" ${ln.clean ? "checked" : ""} />` : ""}</td>
         <td class="mono meta">${esc(ln.position || "")}</td>
-        <td>${esc(ln.title)}${ln.how === "close title" ? ` <span class="badge" title="Matched despite a different spelling">close title</span>` : ln.how === "recording id" ? ` <span class="badge ok" title="Same MusicBrainz recording">recording id</span>` : ""}</td>
-        <td>${ln.rows.length ? `<div class="sg-rows">${ln.rows.map(sgRow).join("")}</div>` : `<span class="meta">no song — never played or seen live</span>`}</td>
+        <td>${esc(ln.title)}${ln.how === "close title" ? ` <span class="badge" title="Matched despite a different spelling">close title</span>` : ln.how === "recording id" ? ` <span class="badge ok" title="Same MusicBrainz recording">recording id</span>`
+          : ln.how === "matched by hand" ? ` <span class="badge accent">matched by hand</span> <button class="small" data-unlink="${i}" title="Back to matching by title">Un-match</button>` : ""}</td>
+        <td>${ln.rows.length > 1 ? `<div class="sg-rows">${ln.rows.map((r) => r.songId === ln.primary
+            ? `<label class="tl-pick"><span class="tl-keep" title="The others merge into this row">⇐</span>${sgRow(r)}</label>`
+            : `<label class="tl-pick"><input type="checkbox" data-row="${i}" data-song="${r.songId}" ${ln.clean ? "checked" : ""} />${sgRow(r)}</label>`).join("")}</div>`
+          : ln.rows.length ? `<div class="sg-rows">${ln.rows.map(sgRow).join("")}</div>` : `<span class="meta">no song — never played or seen live</span>`}</td>
         <td class="num">${ln.plays || ""}${ln.shows ? ` <b class="livedot" title="${plural(ln.shows, "show")}">●</b>` : ""}</td></tr>`).join("")}
       </tbody></table>
       ${data.wrongAlbum.length ? `<div class="tl-sec"><h3>Filed here by mistake?</h3>${data.wrongAlbum.map((w) => wrongAlbumHtml(w)).join("")}</div>` : ""}
       ${data.extra.length ? `<div class="tl-sec"><h3>Filed under this album, not on this pressing <span class="meta">${data.extra.length}</span></h3>
-        <p class="meta">Usually bonus tracks from a deluxe or digital edition — fine where they are. A song another of your records lists is marked, in case it's really from there.</p>
-        ${data.extra.map((e) => `<div class="tl-extra">${sgRow(e)}${e.homes.length ? ` <span class="badge accent">on your ${e.homes.map((h) => `<a href="/albums.html#discography/${a.artistId}">${esc(h.title)}</a>`).join(", ")}</span>` : ""}</div>`).join("")}</div>` : ""}`;
+        <p class="meta">Usually bonus tracks from a deluxe or digital edition — fine where they are. A song another of your records lists is marked, in case it's really from there. If one <i>is</i> a track here under another name, put it on that track: onto a track with songs it merges into them; onto an empty one it's matched to it.</p>
+        ${data.extra.map((e, x) => `<div class="tl-extra"><span class="grow">${sgRow(e)}${e.homes.length ? ` <span class="badge accent">on your ${e.homes.map((h) => `<a href="/albums.html#discography/${a.artistId}">${esc(h.title)}</a>`).join(", ")}</span>` : ""}</span>
+          <select class="small" data-extra="${x}"><option value="">Put on track…</option>${data.lines.map((ln, i) => `<option value="${i}">${esc([ln.position, ln.title].filter(Boolean).join(" · "))}${ln.rows.length ? ` — merge into “${esc(ln.rows.find((r) => r.songId === ln.primary).title)}”` : " — no song yet"}</option>`).join("")}</select></div>`).join("")}</div>` : ""}`;
+    // the line's box ticks / unticks all its rows; untick a row (a live version) to leave it out
     const boxes = () => [...view.querySelectorAll("input[data-line]")];
-    const sync = () => { const n = boxes().filter((b) => b.checked).length; view.querySelector("[data-role='merge']").disabled = !n; view.querySelector("[data-role='merge']").textContent = n ? `Merge ${n} ticked track${n === 1 ? "" : "s"}` : "Merge ticked tracks"; };
-    view.addEventListener("change", sync);
+    const rowBoxes = (i) => [...view.querySelectorAll(`input[data-row="${i}"]`)];
+    const sync = (e) => {
+      const t = e && e.target;
+      if (t && t.dataset.line) rowBoxes(t.dataset.line).forEach((r) => { r.checked = t.checked; });
+      boxes().forEach((b) => {
+        const rs = rowBoxes(b.dataset.line), n = rs.filter((r) => r.checked).length;
+        b.checked = n > 0; b.indeterminate = n > 0 && n < rs.length;
+      });
+      const n = boxes().filter((b) => b.checked).length; view.querySelector("[data-role='merge']").disabled = !n; view.querySelector("[data-role='merge']").textContent = n ? `Merge ${n} ticked track${n === 1 ? "" : "s"}` : "Merge ticked tracks"; };
+    view.onchange = (e) => (e.target.dataset.extra !== undefined ? putOnTrack(e.target) : sync(e)); // one handler: view is reused across albums
     sync();
     view.querySelector("[data-role='merge']").addEventListener("click", async () => {
-      const items = boxes().filter((b) => b.checked).flatMap((b) => {
-        const ln = data.lines[+b.dataset.line];
-        return ln.rows.filter((r) => r.songId !== ln.primary).map((r) => ({ type: "merge", absorbedId: r.songId, canonicalId: ln.primary }));
-      });
+      const items = [...view.querySelectorAll("input[data-row]:checked")]
+        .map((r) => ({ type: "merge", absorbedId: +r.dataset.song, canonicalId: data.lines[+r.dataset.row].primary }));
       const { ok: ok2, data: d2 } = await api("/api/songs/apply", { items });
       if (!ok2) { toast(esc(d2.message), { error: true, timeout: 9000 }); return; }
       toast(`${esc(a.title)}: ${plural(d2.applied, "song row")} merged`, { undo: { kind: "batch", id: d2.undo } });
-      notifyChanged(); open(albumId); loadQueue();
+      notifyChanged(); loadQueue(); openNext(albumId);
     });
+    // an extra song that IS one of the tracks, under another name: merge it into the track's songs,
+    // or -- an empty track -- match it to the track (track_links)
+    async function putOnTrack(sel) {
+      if (sel.value === "") return;
+      const e = data.extra[+sel.dataset.extra], ln = data.lines[+sel.value];
+      sel.disabled = true;
+      const { ok: ok2, data: d2 } = ln.rows.length
+        ? await api("/api/songs/apply", { items: [{ type: "merge", absorbedId: e.songId, canonicalId: ln.primary }] })
+        : await api("/api/songs/track-link", { albumId, title: ln.title, songId: e.songId });
+      if (!ok2) { toast(esc(d2.message), { error: true, timeout: 9000 }); sel.disabled = false; sel.value = ""; return; }
+      toast(ln.rows.length ? `“${esc(e.title)}” merged into “${esc(ln.rows.find((r) => r.songId === ln.primary).title)}”` : `“${esc(e.title)}” is now ${esc(ln.position || "")} “${esc(ln.title)}”`,
+        { undo: d2.undo ? { ...(ln.rows.length ? { kind: "batch", id: d2.undo } : d2.undo), onUndone: () => { open(albumId); loadQueue(); } } : undefined });
+      notifyChanged(); open(albumId); loadQueue();
+    }
+    view.querySelectorAll("[data-unlink]").forEach((b) => b.addEventListener("click", async () => {
+      const ln = data.lines[+b.dataset.unlink];
+      const { ok: ok2, data: d2 } = await api("/api/songs/track-link", { albumId, title: ln.title, songId: null });
+      if (!ok2) { toast(esc(d2.message), { error: true }); return; }
+      toast(`“${esc(ln.title)}” un-matched`, d2.undo ? { undo: d2.undo } : {});
+      notifyChanged(); open(albumId); loadQueue();
+    }));
     view.querySelector("[data-role='done']").addEventListener("click", async () => {
       const { ok: ok2, data: d2 } = await api("/api/songs/tracklist-reviewed", { albumId });
       if (!ok2) { toast(esc(d2.message), { error: true }); return; }
       toast(`${esc(a.title)} marked reviewed`, d2.undo ? { undo: d2.undo } : {});
-      loadQueue();
-      const next = queue.find((x) => x.albumId !== albumId && !x.reviewed && (x.toMerge || x.extra));
-      if (next) open(next.albumId);
+      loadQueue(); openNext(albumId);
     });
     wireWrongAlbum(view, () => { open(albumId); loadQueue(); });
+  }
+  // after a merge or a review: on to the next album with something to do (or stay put if none)
+  function openNext(albumId) {
+    const next = queue.find((x) => x.albumId !== albumId && !x.reviewed && (x.toMerge || x.extra));
+    open(next ? next.albumId : albumId);
   }
   return { load: loadQueue, open };
 }

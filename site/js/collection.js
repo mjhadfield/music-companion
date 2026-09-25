@@ -779,7 +779,7 @@ function recordDetailHtml(r, all) {
   const live = songs.filter((x) => x.shows > 0);
   const liveShows = new Set(live.flatMap((x) => [...x.setlists])).size;
   const discogsTracks = jsonOr(r.tracklist, []).filter((t) => (t.type || "track") === "track" && t.title);
-  const matched = matchTracklist(discogsTracks, songs);
+  const matched = matchTracklist(discogsTracks, songs, r.album_id);
   const tracks = discogsTracks.length ? matched.tracks : songs.map((x) => ({ pos: "", title: x.title, song: x }));
   // anything you've played from this album that this pressing's tracklist doesn't list -- so the
   // tracklist accounts for every play the album page counts
@@ -882,7 +882,7 @@ function albumSongGroups(albumId) {
   const songs = [...byKey.values()].map((g) => {
     const plain = g.rows.find((x) => !/\s-\s|[([]/.test(x.title)) || g.rows.find((x) => !EDITION_TAIL.test(x.title));
     const best = plain || g.rows[0];
-    return { id: best.id, title: best.title, plays: g.plays, shows: g.setlists.size, setlists: g.setlists, mbids: g.mbids, variant: variantOf(best.title) };
+    return { id: best.id, rowIds: new Set(g.rows.map((x) => x.id)), title: best.title, plays: g.plays, shows: g.setlists.size, setlists: g.setlists, mbids: g.mbids, variant: variantOf(best.title) };
   }).sort((a, b) => b.plays - a.plays);
   return songs;
 }
@@ -891,11 +891,23 @@ function albumSongGroups(albumId) {
 // winner only -- spacing-blind ("Good Morning" = "Goodmorning"), a prefix ("Wheels Of Confusion" /
 // "... / The Straightener") or a near-identical spelling ("Seperate"). A song listed twice (a
 // deluxe "Snowblind (Live)" after "Snowblind") is counted on its first line only (again: true).
+// A line matched by hand in maintenance (track_links: "Come On (Part 1)" = "Come On (Let the Good
+// Times Roll)") takes its song first, and no other line claims that song by title.
 // -> {tracks: [{pos, title, dur, song, again}], unlisted: [songs not on it]}
-function matchTracklist(pressingTracks, songs) {
+function matchTracklist(pressingTracks, songs, albumId) {
   const bySong = Object.fromEntries(songs.map((x) => [trackKey(x.title), x]));
-  const used = new Set();
+  const linked = new Map();
+  if (albumId != null && hasTable("track_links")) {
+    const scope = albumScope(albumId), onIt = new Set(pressingTracks.map((t) => t.title.trim().toLowerCase()));
+    for (const l of query(`SELECT track_title, song_id FROM track_links WHERE album_id IN (${scope.map(() => "?").join(",")}) ORDER BY id`, scope)) {
+      const k = l.track_title.trim().toLowerCase(), song = songs.find((x) => x.rowIds?.has(l.song_id));
+      if (song && onIt.has(k) && !linked.has(k)) linked.set(k, song); // a line this pressing doesn't have is no claim here
+    }
+  }
+  const used = new Set([...linked.values()].map((x) => x.id));
   const matchTrack = (title, recording) => {
+    const mine = linked.get(title.trim().toLowerCase());
+    if (mine) { linked.delete(title.trim().toLowerCase()); return { song: mine, again: false }; }
     const k = normTitle(title), c = k.replace(/ /g, ""), v = variantOf(title);
     const free = () => songs.filter((x) => !used.has(x.id) && (x.variant || "") === v); // a live track only matches live songs
     const only = (list) => (list.length === 1 ? list[0] : null);

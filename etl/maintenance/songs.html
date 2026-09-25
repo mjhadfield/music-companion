@@ -69,9 +69,14 @@
   .tl-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--edge); background: var(--bg-2); }
   .tl-head h2 { margin: 0; }
   .tl-table tr.no-song td { opacity: .55; }
+  .tl-pick { display: flex; align-items: baseline; gap: 6px; cursor: pointer; }
+  .tl-pick input { margin: 0; }
+  .tl-keep { width: 13px; text-align: center; color: var(--text-muted); font-size: 0.8rem; }
   .tl-sec { padding: 14px 18px; border-top: 1px solid var(--edge); }
   .tl-sec h3 { margin: 0 0 6px; }
-  .tl-extra { padding: 4px 0; border-bottom: 1px dashed var(--edge); }
+  .tl-extra { display: flex; align-items: center; gap: 10px; padding: 4px 0; border-bottom: 1px dashed var(--edge); }
+  .tl-extra .grow { flex: 1; min-width: 0; }
+  .tl-extra select { width: 340px; max-width: 45%; }
   .wa-h { margin: 18px 0 8px; }
   .tl-fetch { margin-bottom: 14px; }
   .livedot { color: var(--accent-live, #f43f5e); font-style: normal; }

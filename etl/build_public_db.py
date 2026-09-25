@@ -33,6 +33,7 @@ PUBLIC_TABLES = [
     "artists",
     "albums",
     "album_parts",
+    "track_links",
     "album_artists",
     "songs",
     "vinyl_holdings",
@@ -106,6 +107,10 @@ def build(source_db: Path = SOURCE_DB, public_db: Path = PUBLIC_DB, covers: bool
         raise SystemExit(f"{SOURCE_DB} doesn't exist yet -- run the ETL scripts first.")
 
     PUBLIC_DB.parent.mkdir(parents=True, exist_ok=True)
+    # Built beside it and swapped in only once complete: a build that fails part-way (a table the
+    # working database doesn't have yet...) leaves the previous public database serving, not an
+    # empty one.
+    final_db, PUBLIC_DB = PUBLIC_DB, PUBLIC_DB.with_name(PUBLIC_DB.name + ".building")  # noqa: N806
     if PUBLIC_DB.exists():
         PUBLIC_DB.unlink()
 
@@ -115,7 +120,11 @@ def build(source_db: Path = SOURCE_DB, public_db: Path = PUBLIC_DB, covers: bool
 
     conn.execute("ATTACH DATABASE ? AS src", (str(SOURCE_DB),))
     total_rows = 0
+    src_tables = {r[0] for r in conn.execute("SELECT name FROM src.sqlite_master WHERE type = 'table'")}
     for table in PUBLIC_TABLES:
+        if table not in src_tables:  # added by a migration the working database hasn't had yet (the maintenance server runs them at startup)
+            print(f"  {table}: not in the working database yet -- published empty")
+            continue
         # Named columns, not SELECT * -- a positional copy silently shuffles values between
         # columns whenever the working database's column order differs from schema.sql's
         # (ALTER TABLE ADD COLUMN always appends, wherever schema.sql declares it).
@@ -127,6 +136,8 @@ def build(source_db: Path = SOURCE_DB, public_db: Path = PUBLIC_DB, covers: bool
     conn.execute("DETACH DATABASE src")
     conn.execute("VACUUM")
     conn.close()
+    PUBLIC_DB.replace(final_db)
+    PUBLIC_DB = final_db  # noqa: N806
 
     size_bytes = PUBLIC_DB.stat().st_size
     # The frontend's loading-progress bar needs the real, uncompressed byte

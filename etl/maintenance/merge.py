@@ -146,6 +146,46 @@ def _undo_parts(conn, album_id: int, d: dict) -> None:
                      [(album_id, pid, i) for i, pid in enumerate(d["before"])])
 
 
+def set_track_link(conn, album_id: int, track_title: str, song_id: int | None, reason: str = "tracklist match") -> dict:
+    """This album's tracklist line `track_title` is song `song_id` (None: no hand match, back to
+    matching by title). Replaces any link the line had. Journaled in edit_log as {"_trackLink":
+    {"before": [[id, song_id], ...], "after": [id, song_id] | None, "title"}}; undo_edit puts "before" back."""
+    album = _row_dict(conn, "albums", album_id)
+    if not album:
+        raise MergeError("album not found", "not_found")
+    title = (track_title or "").strip()
+    if not title:
+        raise MergeError("a track title is required")
+    song = None
+    if song_id is not None:
+        song = _row_dict(conn, "songs", song_id)
+        if not song:
+            raise MergeError("song not found", "not_found")
+        if song["artist_id"] != album["artist_id"]:
+            raise MergeError("That song is another artist's -- only this album's artist's songs can go on its tracklist.", "different_artist")
+    key = title.lower()
+    before = [list(r) for r in conn.execute("SELECT id, song_id FROM track_links WHERE album_id = ? AND lower(track_title) = ?", (album_id, key))]
+    if [s for _i, s in before] == ([song_id] if song_id is not None else []):
+        return {"editId": None}
+    conn.execute("DELETE FROM track_links WHERE album_id = ? AND lower(track_title) = ?", (album_id, key))
+    after = [conn.execute("INSERT INTO track_links (album_id, track_title, song_id) VALUES (?, ?, ?)",
+                          (album_id, title, song_id)).lastrowid, song_id] if song_id is not None else None
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('album', ?, ?, ?, ?)",
+                           (album_id, album["title"], json.dumps({"_trackLink": {"title": title, "before": before, "after": after, "song": song["title"] if song_id is not None else None}}), reason)).lastrowid
+    return {"editId": edit_id}
+
+
+def _undo_track_link(conn, album_id: int, d: dict) -> None:
+    # (id, song): a replaced link can get the same rowid back, so the id alone doesn't show a change
+    now = [list(r) for r in conn.execute("SELECT id, song_id FROM track_links WHERE album_id = ? AND lower(track_title) = ?", (album_id, d["title"].lower()))]
+    if now != ([d["after"]] if d["after"] is not None else []):
+        raise MergeError("That track's match has changed again since -- undo the later change first.", "diverged")
+    conn.execute("DELETE FROM track_links WHERE album_id = ? AND lower(track_title) = ?", (album_id, d["title"].lower()))
+    for link_id, song_id in d["before"]:  # a song merged away since is gone -- nothing to put back
+        if _row_dict(conn, "songs", song_id):
+            conn.execute("INSERT INTO track_links (id, album_id, track_title, song_id) VALUES (?, ?, ?, ?)", (link_id, album_id, d["title"], song_id))
+
+
 _TRACKLIST_COLS = "position, number, disc, title, recording_mbid, length_ms"
 _TL_SOURCE_COLS = "source, release_mbid, release_title, release_date, country, format, fetched_at"
 
@@ -383,7 +423,7 @@ def merge_albums(conn, absorbed_id: int, canonical_id: int, identity: dict | Non
     rows_moved["album_artists_collisions_dropped"] = len(dropped)
     rows_moved["album_artists_reassigned"] = len(moved_aa)
 
-    for table in ("songs", "vinyl_holdings", "scrobbles", "album_releases"):  # editions follow the album
+    for table in ("songs", "vinyl_holdings", "scrobbles", "album_releases", "track_links"):  # editions / hand-matched tracks follow the album
         _move(conn, journal, rows_moved, table, "album_id", absorbed_id, canonical_id)
     _move_album_genres(conn, journal, rows_moved, absorbed_id, canonical_id)
     _move_album_tracklist(conn, journal, absorbed_id, canonical_id)
@@ -447,6 +487,7 @@ def merge_songs(conn, absorbed_id: int, canonical_id: int, identity: dict | None
     _move(conn, journal, rows_moved, "scrobbles", "song_id", absorbed_id, canonical_id)
     _move(conn, journal, rows_moved, "setlist_songs", "song_id", absorbed_id, canonical_id)
     _move(conn, journal, rows_moved, "song_tracks", "song_id", absorbed_id, canonical_id)  # track ids follow the song
+    _move(conn, journal, rows_moved, "track_links", "song_id", absorbed_id, canonical_id)  # so do hand-matched tracklist lines
     _note_rows(conn, journal, rows_moved, "song", absorbed_id, canonical_id)
     _repoint_aliases(conn, journal, rows_moved, "song", absorbed_id, canonical_id)
 
@@ -884,6 +925,10 @@ def undo_edit(conn, edit_id: int) -> dict:
     changes = json.loads(changes_json)
     if "_parts" in changes:
         _undo_parts(conn, entity_id, changes["_parts"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
+    if "_trackLink" in changes:
+        _undo_track_link(conn, entity_id, changes["_trackLink"])
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_movePlays" in changes:

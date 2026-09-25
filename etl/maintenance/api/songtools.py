@@ -91,18 +91,35 @@ def album_song_rows(c, album_id: int) -> list[int]:
         (album_id, album_id))]
 
 
-def match_tracklist(tracks: list[dict], songs: list[dict]) -> tuple[list[dict], list[dict]]:
+def track_links(c, album_id: int) -> dict[str, int]:
+    """Hand-matched tracklist lines: lower-cased track title -> song id (merge.set_track_link)."""
+    return {t.lower(): s for t, s in c.execute("SELECT track_title, song_id FROM track_links WHERE album_id = ? ORDER BY id", (album_id,))}
+
+
+def match_tracklist(tracks: list[dict], songs: list[dict], links: dict[str, int] | None = None) -> tuple[list[dict], list[dict]]:
     """Pressing tracks -> the song rows behind each (every row with the same track title), then,
     for tracks still empty, one clear winner by spacing-blind title, unique prefix ("Wheels of
-    Confusion" / "... / The Straightener") or near-identical spelling ("Seperate"). -> (lines, extra
-    songs not on the tracklist). Rows are grouped per title, so one line can hold several rows."""
+    Confusion" / "... / The Straightener") or near-identical spelling ("Seperate"). A line matched
+    by hand (`links`, from track_links) takes its song first. -> (lines, extra songs not on the
+    tracklist). Rows are grouped per title, so one line can hold several rows."""
     by_key = defaultdict(list)
     for s in songs:
         by_key[track_key(s["title"])].append(s)
     by_rec = {s["mbid"]: s for s in songs if s.get("mbid")}
-    used, lines = set(), []
+    by_id = {s["songId"]: s for s in songs}
+    on_it = {t["title"].strip().lower() for t in tracks}  # a link for a line this tracklist doesn't have is no claim here
+    linked = {t: by_id[sid] for t, sid in (links or {}).items() if sid in by_id and t in on_it}
+    # a hand-matched song is spoken for: no other line claims it by title
+    used, lines = {s["songId"] for s in linked.values()}, []
     for t in tracks:
         k = track_key(t["title"])
+        mine = linked.pop(t["title"].strip().lower(), None)
+        if mine:  # plus the rows sharing its title (its remaster, a live version...)
+            rows = [mine, *[s for s in by_key.get(track_key(mine["title"]), []) if s["songId"] not in used and s is not mine]]
+            for s in rows:
+                used.add(s["songId"])
+            lines.append({"position": t.get("position"), "title": t["title"], "duration": t.get("duration"), "how": "matched by hand", "rows": rows})
+            continue
         rows = [s for s in by_key.get(k, []) if s["songId"] not in used]
         how = "title" if rows else None
         exact = by_rec.get(t.get("recordingMbid"))
@@ -154,7 +171,7 @@ def tracklist_queue(req):
             if aid in reviewed and not show_reviewed:
                 continue
             prof = song_profiles(c, album_song_rows(c, aid))
-            lines, extra = match_tracklist(album_tracklist(c, aid), list(prof.values()))
+            lines, extra = match_tracklist(album_tracklist(c, aid), list(prof.values()), track_links(c, aid))
             to_merge = sum(1 for ln in lines if len(ln["rows"]) > 1)
             extra_played = sum(1 for s in extra if s["scrobbleCount"])
             items.append({"albumId": aid, "title": title, "year": year, "artistId": arid, "artistName": artist, "plays": plays,
@@ -192,7 +209,7 @@ def tracklist(req):
             raise ApiError("album not found", 404)
         prof = song_profiles(c, album_song_rows(c, album_id))
         tracks = album_tracklist(c, album_id)
-        lines, extra = match_tracklist(tracks, list(prof.values()))
+        lines, extra = match_tracklist(tracks, list(prof.values()), track_links(c, album_id))
         # where might each extra song belong? another of the artist's albums listing it
         homes = _track_homes(c, al[4], exclude=album_id)
         reviewed = c.execute("SELECT 1 FROM review_marks WHERE entity_type = 'album' AND entity_id = ? AND mark = ?",
@@ -332,6 +349,16 @@ def wrong_album_ok(req):
     with write_tx() as c:
         cur = c.execute("INSERT OR IGNORE INTO review_marks (entity_type, entity_id, mark) VALUES ('album', ?, ?)", (album_id, WRONG_ALBUM_OK + raw))
     return {"undo": {"kind": "mark", "id": cur.lastrowid} if cur.rowcount else None}
+
+
+@route("POST", "/api/songs/track-link", mutating=True)
+def track_link(req):
+    """Put a song on a tracklist line whose title doesn't say so (songId null: take it off again)."""
+    album_id, title = req.int("albumId", required=True), req.str("title")
+    song_id = req.body.get("songId")
+    with write_tx() as c:
+        r = merge.set_track_link(c, album_id, title, int(song_id) if song_id is not None else None)
+    return {"undo": {"kind": "edit", "id": r["editId"]} if r["editId"] else None}
 
 
 @route("POST", "/api/songs/tracklist-reviewed", mutating=True)

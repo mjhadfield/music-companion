@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS album_parts (
 );
 CREATE INDEX IF NOT EXISTS idx_album_parts_part ON album_parts(part_album_id);
 
+-- A tracklist line matched to a song by hand, where the titles don't say so (a pressing's "Come On
+-- (Part 1)" = the scrobbled "Come On (Let the Good Times Roll)"). Keyed by the track's title as the
+-- tracklist spells it. Song / album merges carry the rows along.
+CREATE TABLE IF NOT EXISTS track_links (
+    id              INTEGER PRIMARY KEY,
+    album_id        INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+    track_title     TEXT NOT NULL,
+    song_id         INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_track_links_album ON track_links(album_id);
+CREATE INDEX IF NOT EXISTS idx_track_links_song ON track_links(song_id);
+
 -- ---------------------------------------------------------------------
 -- Listening history (Last.fm)
 -- ---------------------------------------------------------------------

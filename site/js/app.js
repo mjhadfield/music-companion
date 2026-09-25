@@ -1166,7 +1166,7 @@ function albumTracksHtml(albumId, songs) {
       <div class="list-right">${x.plays.toLocaleString()} play${x.plays === 1 ? "" : "s"}</div></div>`;
   const ref = albumReferenceTracklist(albumId);
   if (!ref) return songs.length ? `<div class="section"><h2>Tracks</h2>${songs.map(songRow).join("")}</div>` : "";
-  const { tracks, unlisted } = matchTracklist(ref.tracks, songs);
+  const { tracks, unlisted } = matchTracklist(ref.tracks, songs, albumId);
   return `<div class="section">
       <div class="section-head"><h2>Tracklist</h2><span class="subtle">from ${esc(ref.source)}</span></div>
       ${tracks.map((t) => `<div class="list-item tl-line"${t.song ? ` data-song-id="${t.song.id}"` : ""}>

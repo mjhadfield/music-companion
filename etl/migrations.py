@@ -433,6 +433,25 @@ def _m011_album_parts(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m012_track_links(conn: sqlite3.Connection) -> None:
+    """A tracklist line you've matched to a song by hand, where the titles don't say so (the UK
+    pressing's "Come On (Part 1)" = the scrobbled "Come On (Let the Good Times Roll)"). Keyed by
+    the album and the track's title as the tracklist spells it, so any pressing's tracklist, or
+    MusicBrainz's, listing that title picks it up. Rows have ids so song / album merges carry them
+    (merge._move, journaled). Public: the site's tracklists honour them too."""
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS track_links (
+            id              INTEGER PRIMARY KEY,
+            album_id        INTEGER NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            track_title     TEXT NOT NULL,
+            song_id         INTEGER NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_track_links_album ON track_links(album_id);
+        CREATE INDEX IF NOT EXISTS idx_track_links_song ON track_links(song_id)
+    """)
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -445,6 +464,7 @@ MIGRATIONS = [
     ("009_album_tracklists", _m009_album_tracklists),
     ("010_copy_look", _m010_copy_look),
     ("011_album_parts", _m011_album_parts),
+    ("012_track_links", _m012_track_links),
 ]
 
 
