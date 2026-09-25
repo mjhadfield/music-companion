@@ -976,6 +976,8 @@ body.drawer-open { overflow: hidden; }
 .rd-other-art { width: 48px; height: 48px; flex: none; object-fit: cover; }
 .rd-other-art.noart { display: grid; place-items: center; background: var(--surface-3); color: var(--text-muted); }
 .rd-other-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pc-set { font-size: 0.85rem; margin-bottom: 6px; color: var(--accent-vinyl); }
+.album-set { margin-top: 4px; }
 .pc-own { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .pc-own-art { width: 56px; height: 56px; object-fit: cover; flex: none; }
 .pc-own-art.noart { display: grid; place-items: center; background: var(--surface-3); color: var(--text-muted); }

@@ -205,6 +205,9 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
       } else if (i.changes._split) {
         const d = i.changes._split;
         what = `Split <span class="who">${esc(i.name)}</span> back out of <span class="who">${esc(d.fromTitle)}</span> <span class="meta">— ${plural(d.scrobbleIds.length, "play")}, ${plural(d.songIds.length, "song")}${d.vinylIds.length ? ", " + plural(d.vinylIds.length, "pressing") : ""}</span>`;
+      } else if (i.changes._parts) {
+        const d = i.changes._parts;
+        what = d.after.length ? `Marked <span class="who">${esc(i.name)}</span> as a set of ${plural(d.after.length, "album")}` : `<span class="who">${esc(i.name)}</span> is no longer a set`;
       } else if (i.changes._relink) {
         const r = i.changes._relink;
         what = `Re-linked ${plural(r.setlistSongIds.length, "live play")} of <span class="who">${esc(i.name)}</span> to <span class="who">${esc(r.toTitle || "#" + r.to)}</span>${r.createdSong ? " <span class='meta'>(new song)</span>" : ""}`;

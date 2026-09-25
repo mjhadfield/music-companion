@@ -125,6 +125,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
         f"SELECT canonical_id, count(*) FROM merge_log WHERE entity_type = 'album' AND undone_at IS NULL AND canonical_id IN ({ain}) GROUP BY canonical_id",
         album_ids).fetchall())
     reviewed = {r[0] for r in c.execute("SELECT entity_id FROM review_marks WHERE entity_type = 'album' AND mark = 'verified:album-mbid'")}
+    # "keep this title": edition words you've decided belong (tied to the exact title -- a rename re-checks it)
+    titles_kept = {(r[0], r[1]) for r in c.execute("SELECT entity_id, mark FROM review_marks WHERE entity_type = 'album' AND mark LIKE 'title-ok:%'")}
 
     cache = _cache(c, {f"lookup:release-group:{r[16]}" for r in rows if r[16]}
                    | {f"rg-first-release:{r[16]}" for r in rows if r[16]}
@@ -134,6 +136,10 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
 
     look_cols = {r[1] for r in c.execute("PRAGMA table_info(vinyl_holdings)")}
     looks = {r[0]: r[1:] for r in c.execute("SELECT id, cover_file, display_title, release_year FROM vinyl_holdings")} if "cover_file" in look_cols else {}
+    parts_of = defaultdict(list)  # a set's albums (migration 011)
+    for set_id, pid, ptitle, pyear, pmbid in c.execute(
+            "SELECT ap.album_id, al.id, al.title, al.year, al.mbid FROM album_parts ap JOIN albums al ON al.id = ap.part_album_id ORDER BY ap.position"):
+        parts_of[set_id].append({"albumId": pid, "title": ptitle, "year": pyear, "mbid": pmbid})
     out = []
     for (vid, album_id, rel_id, cat, label, fmt, media_c, sleeve_c, added, rating, notes, raw_artist, raw_title, mb_rel,
          title, year, mbid, cover, artist_id) in rows:
@@ -163,7 +169,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
             "pressingTitle": raw_title if raw_title and base_key(raw_title) != base_key(title) else None,
             "album": {"albumId": album_id, "title": title, "year": year, "mbid": mbid, "coverStatus": cover,
                       "baseTitle": split_title(title)[0], "editionTags": sorted(split_title(title)[1]),
-                      "scrobbleCount": plays.get(album_id, 0), "mergedIn": merged_in.get(album_id, 0)},
+                      "scrobbleCount": plays.get(album_id, 0), "mergedIn": merged_in.get(album_id, 0),
+                      "parts": parts_of.get(album_id, []), "titleKept": (album_id, TITLE_OK + title.lower()) in titles_kept},
             "artist": artist, "credits": creds,
             "artistMbidSet": sorted({m for x in creds for m in mbid_sets.get(x["artistId"], set())}),
             "otherPressings": [p for p in pressings[album_id] if p != vid],
@@ -195,77 +202,97 @@ def _checks(h: dict, rg_checked: bool, reviewed: bool) -> list[dict]:
     add("artist", "Artist MBID", "bad" if missing_artists else "ok",
         f"No MBID for {', '.join(missing_artists)}" if missing_artists else "Every credited artist has an MBID")
 
-    sets = [x for x in h["suggestions"] if x["evidence"].get("relation") == "sets"]
-    add("album", "Album MBID", "ok" if a["mbid"] else "bad",
-        "Album is linked to a MusicBrainz release group" if a["mbid"]
-        else "Album has no MusicBrainz release group yet" + (" — an exact match is waiting for review" if sets else ""),
-        None if a["mbid"] else "suggestion" if sets else "identity")
-
-    release_suggestions = [x for x in h["suggestions"] if x["evidence"].get("kind") != "master"]
-    if h["mbReleaseId"]:
-        add("pressing", "Pressing linked", "ok", "This exact pressing is linked to its MusicBrainz release")
-    elif release_suggestions:
-        add("pressing", "Pressing linked", "warn", "MusicBrainz links this Discogs release to a release — review it", "suggestion")
-    elif h["discogsChecked"] and not h["discogsLinks"]:
-        # Nothing a human can do about it here -- counts as done ("na"), so a record can still be complete.
-        add("pressing", "Pressing linked", "na", "MusicBrainz doesn't list this exact pressing yet — nothing to link (the album is identified separately)")
-    elif h["discogsChecked"]:
-        add("pressing", "Pressing linked", "unknown", "The MusicBrainz link for this pressing was rejected")
+    is_set = not a["mbid"] and bool(a["parts"])
+    if is_set:
+        # A set of albums (a 2-on-1 with no release group of its own): identified by its parts --
+        # nothing on MusicBrainz to link, verify or date, so those count as done.
+        names = " & ".join(f"“{p['title']}”" for p in a["parts"])
+        add("album", "Album MBID", "na", f"A set of {names} — not on MusicBrainz as one release; identified by its albums")
+        add("pressing", "Pressing linked", "na", "A set — MusicBrainz has no release of it to link")
+        unlinked = [p["title"] for p in a["parts"] if not p["mbid"]]
+        add("identity", "Identity verified", "warn" if unlinked else "na",
+            f"{', '.join(unlinked)} {'has' if len(unlinked) == 1 else 'have'} no MusicBrainz id yet" if unlinked else "Its albums are each on MusicBrainz",
+            "parts" if unlinked else None)
+        add("year", "Original year", "na" if a["year"] else "warn", f"{a['year']} — the set's own year" if a["year"] else "The set has no year", None if a["year"] else "parts")
+        cover = a["coverStatus"]
+        add("cover", "Cover art", "ok" if cover == "ok" else "warn", "Has cover art" if cover == "ok" else "No cover — paste the set's sleeve as an image link",
+            None if cover == "ok" else "cover")
     else:
-        add("pressing", "Pressing linked", "unknown", "Not checked against MusicBrainz yet", "lookup")
+        sets = [x for x in h["suggestions"] if x["evidence"].get("relation") == "sets"]
+        add("album", "Album MBID", "ok" if a["mbid"] else "bad",
+            "Album is linked to a MusicBrainz release group" if a["mbid"]
+            else "Album has no MusicBrainz release group yet" + (" — an exact match is waiting for review" if sets else ""),
+            None if a["mbid"] else "suggestion" if sets else "identity")
 
-    prg, rg = h["pressingRg"], h["rg"]
-    if a["mbid"] and prg:
-        if prg.get("mbid") == a["mbid"]:
-            add("identity", "Identity verified", "ok", "This pressing belongs to the album's release group")
+        release_suggestions = [x for x in h["suggestions"] if x["evidence"].get("kind") != "master"]
+        if h["mbReleaseId"]:
+            add("pressing", "Pressing linked", "ok", "This exact pressing is linked to its MusicBrainz release")
+        elif release_suggestions:
+            add("pressing", "Pressing linked", "warn", "MusicBrainz links this Discogs release to a release — review it", "suggestion")
+        elif h["discogsChecked"] and not h["discogsLinks"]:
+            # Nothing a human can do about it here -- counts as done ("na"), so a record can still be complete.
+            add("pressing", "Pressing linked", "na", "MusicBrainz doesn't list this exact pressing yet — nothing to link (the album is identified separately)")
+        elif h["discogsChecked"]:
+            add("pressing", "Pressing linked", "unknown", "The MusicBrainz link for this pressing was rejected")
         else:
-            add("identity", "Identity verified", "bad", f"This pressing belongs to “{prg.get('title')}” ({prg.get('firstReleaseDate') or '?'}), "
-                "not the album's release group — the album's MBID or the pressing's album is wrong", "identity")
-    elif a["mbid"] and any(x["evidence"].get("relation") == "differs" for x in h["suggestions"]):
-        add("identity", "Identity verified", "bad", "Discogs/MusicBrainz point this record at a different release group — review the link", "suggestion")
-    elif a["mbid"] and rg_checked:
-        artist_mbids = set(h["artistMbidSet"])  # incl. "also releases as" credits
-        if rg is None:
-            add("identity", "Identity verified", "bad", "The album's MBID isn't a release group on MusicBrainz", "identity")
-        elif artist_mbids and not artist_mbids & set(rg.get("artistMbids") or []):
-            add("identity", "Identity verified", "bad", f"MusicBrainz credits that release group to “{rg.get('artistCredit')}”", "credit")
-            checks[-1]["credit"] = {"mbids": rg.get("artistMbids") or [], "name": rg.get("artistCredit"), "artistId": h["artist"]["artistId"],
-                                    "artistName": h["artist"]["name"]}
+            add("pressing", "Pressing linked", "unknown", "Not checked against MusicBrainz yet", "lookup")
+
+        prg, rg = h["pressingRg"], h["rg"]
+        if a["mbid"] and prg:
+            if prg.get("mbid") == a["mbid"]:
+                add("identity", "Identity verified", "ok", "This pressing belongs to the album's release group")
+            else:
+                add("identity", "Identity verified", "bad", f"This pressing belongs to “{prg.get('title')}” ({prg.get('firstReleaseDate') or '?'}), "
+                    "not the album's release group — the album's MBID or the pressing's album is wrong", "identity")
+        elif a["mbid"] and any(x["evidence"].get("relation") == "differs" for x in h["suggestions"]):
+            add("identity", "Identity verified", "bad", "Discogs/MusicBrainz point this record at a different release group — review the link", "suggestion")
+        elif a["mbid"] and rg_checked:
+            artist_mbids = set(h["artistMbidSet"])  # incl. "also releases as" credits
+            if rg is None:
+                add("identity", "Identity verified", "bad", "The album's MBID isn't a release group on MusicBrainz", "identity")
+            elif artist_mbids and not artist_mbids & set(rg.get("artistMbids") or []):
+                add("identity", "Identity verified", "bad", f"MusicBrainz credits that release group to “{rg.get('artistCredit')}”", "credit")
+                checks[-1]["credit"] = {"mbids": rg.get("artistMbids") or [], "name": rg.get("artistCredit"), "artistId": h["artist"]["artistId"],
+                                        "artistName": h["artist"]["name"]}
+            else:
+                add("identity", "Identity verified", "ok", "Release group is credited to this artist")
+        elif a["mbid"] and h["inArtistDiscography"]:
+            add("identity", "Identity verified", "ok", "In this artist's own MusicBrainz discography")
+        elif a["mbid"] and reviewed:
+            add("identity", "Identity verified", "ok", "Confirmed (Discogs master or by hand)")
+        elif a["mbid"]:
+            # its own button: the pressing lookup can't help when MusicBrainz doesn't list the pressing
+            add("identity", "Identity verified", "unknown", "Not checked against MusicBrainz yet", "check")
         else:
-            add("identity", "Identity verified", "ok", "Release group is credited to this artist")
-    elif a["mbid"] and h["inArtistDiscography"]:
-        add("identity", "Identity verified", "ok", "In this artist's own MusicBrainz discography")
-    elif a["mbid"] and reviewed:
-        add("identity", "Identity verified", "ok", "Confirmed (Discogs master or by hand)")
-    elif a["mbid"]:
-        # its own button: the pressing lookup can't help when MusicBrainz doesn't list the pressing
-        add("identity", "Identity verified", "unknown", "Not checked against MusicBrainz yet", "check")
+            add("identity", "Identity verified", "unknown", "Needs an album MBID first")
+
+        if not a["year"]:
+            add("year", "Original year", "bad", "Album has no year" + (f" — originally {h['originalYear']}" if h["originalYear"] else ""),
+                "year" if h["originalYear"] else None)
+        elif h["originalYear"] and a["year"] != h["originalYear"]:
+            add("year", "Original year", "warn", f"Album says {a['year']}, but it was first released in {h['originalYear']}"
+                + (f" (this pressing is from {h['pressingYear']})" if h["pressingYear"] else ""), "year")
+        elif h["originalYear"]:
+            add("year", "Original year", "ok", f"{a['year']} matches the original release")
+        elif h["formatInfo"]["reissue"] and h["pressingYear"] and a["year"] >= h["pressingYear"]:
+            # no MusicBrainz date needed to know this one's wrong: a reissue can't predate the album
+            add("year", "Original year", "bad", f"{a['year']} is this reissue's own pressing year, not the album's — look it up to get the original",
+                "lookup")
+        else:
+            add("year", "Original year", "unknown", f"{a['year']} — not confirmed against MusicBrainz yet")
+
+    if a["editionTags"] and a["titleKept"]:
+        add("title", "Clean title", "ok", f"Kept as it is — its edition words ({', '.join(a['editionTags'])}) are your call")
     else:
-        add("identity", "Identity verified", "unknown", "Needs an album MBID first")
+        add("title", "Clean title", "warn" if a["editionTags"] else "ok",
+            f"Title carries edition words ({', '.join(a['editionTags'])}) — the album should be named after the original"
+            if a["editionTags"] else "Title has no edition suffix", "title" if a["editionTags"] else None)
 
-    if not a["year"]:
-        add("year", "Original year", "bad", "Album has no year" + (f" — originally {h['originalYear']}" if h["originalYear"] else ""),
-            "year" if h["originalYear"] else None)
-    elif h["originalYear"] and a["year"] != h["originalYear"]:
-        add("year", "Original year", "warn", f"Album says {a['year']}, but it was first released in {h['originalYear']}"
-            + (f" (this pressing is from {h['pressingYear']})" if h["pressingYear"] else ""), "year")
-    elif h["originalYear"]:
-        add("year", "Original year", "ok", f"{a['year']} matches the original release")
-    elif h["formatInfo"]["reissue"] and h["pressingYear"] and a["year"] >= h["pressingYear"]:
-        # no MusicBrainz date needed to know this one's wrong: a reissue can't predate the album
-        add("year", "Original year", "bad", f"{a['year']} is this reissue's own pressing year, not the album's — look it up to get the original",
-            "lookup")
-    else:
-        add("year", "Original year", "unknown", f"{a['year']} — not confirmed against MusicBrainz yet")
-
-    add("title", "Clean title", "warn" if a["editionTags"] else "ok",
-        f"Title carries edition words ({', '.join(a['editionTags'])}) — the album should be named after the original"
-        if a["editionTags"] else "Title has no edition suffix", "title" if a["editionTags"] else None)
-
-    cover = a["coverStatus"]
-    add("cover", "Cover art", "ok" if cover == "ok" else "bad" if cover == "none" else "warn",
-        {"ok": "Has cover art", "none": "Cover Art Archive had nothing — paste an image URL"}.get(cover, "No cover fetched yet"),
-        None if cover == "ok" else "cover")
+    if not is_set:  # a set's cover was checked above: there's no MusicBrainz art to fetch for it
+        cover = a["coverStatus"]
+        add("cover", "Cover art", "ok" if cover == "ok" else "bad" if cover == "none" else "warn",
+            {"ok": "Has cover art", "none": "Cover Art Archive had nothing — paste an image URL"}.get(cover, "No cover fetched yet"),
+            None if cover == "ok" else "cover")
 
     # Several copies of one album: a copy that's really its own release (its own title on Discogs --
     # "Electric Ladyland Part 1" -- or a picture disc) should look like itself on the site.
@@ -429,6 +456,57 @@ def disc_colour(req):
     with write_tx() as c:
         e = merge.edit_entity(c, "vinyl", vid, {"disc_colour": value}, "record colour")
     return {"vinylId": vid, "discColour": json.loads(value) if value else None, "editId": e["editId"]}
+
+
+@route("GET", "/api/vinyl/set-candidates")
+def set_candidates(req):
+    """The albums a set could contain: its credited artists' other albums (not sets themselves)."""
+    vid = req.int("vinylId", required=True)
+    with read_conn() as c:
+        row = c.execute("SELECT album_id FROM vinyl_holdings WHERE id = ?", (vid,)).fetchone()
+        if not row:
+            raise ApiError("holding not found", 404)
+        rows = c.execute(
+            "SELECT DISTINCT al.id, al.title, al.year, al.mbid, (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) "
+            "FROM albums al JOIN album_artists aa ON aa.album_id = al.id "
+            "WHERE aa.artist_id IN (SELECT artist_id FROM album_artists WHERE album_id = ?) AND al.id != ? "
+            "  AND NOT EXISTS (SELECT 1 FROM album_parts ap WHERE ap.album_id = al.id) "
+            "ORDER BY coalesce(al.year, 9999), al.title", (row[0], row[0])).fetchall()
+    return {"albumId": row[0], "albums": [{"albumId": r[0], "title": r[1], "year": r[2], "mbid": r[3], "plays": r[4]} for r in rows]}
+
+
+@route("POST", "/api/vinyl/set-parts", mutating=True)
+def set_parts(req):
+    """This record's album is a set of these albums ([] = it isn't). Undoable (an edit)."""
+    vid = req.int("vinylId", required=True)
+    part_ids = [int(x) for x in (req.body.get("partIds") or [])]
+    if len(part_ids) == 1:
+        raise ApiError("A set is two or more albums -- for one album, fix the identity instead.")
+    with write_tx() as c:
+        row = c.execute("SELECT album_id FROM vinyl_holdings WHERE id = ?", (vid,)).fetchone()
+        if not row:
+            raise ApiError("holding not found", 404)
+        try:
+            r = merge.set_album_parts(c, row[0], part_ids)
+        except merge.MergeError as exc:
+            raise ApiError(str(exc))
+    return {"vinylId": vid, **r}
+
+
+TITLE_OK = "title-ok:"
+
+
+@route("POST", "/api/vinyl/keep-title", mutating=True)
+def keep_title(req):
+    """This album's title stays as it is, edition words and all (e.g. "Star Trek (Original
+    Soundtrack) (30th Anniversary)" -- the anniversary IS the album). Undoable (a mark)."""
+    vid = req.int("vinylId", required=True)
+    with write_tx() as c:
+        row = c.execute("SELECT al.id, al.title FROM vinyl_holdings v JOIN albums al ON al.id = v.album_id WHERE v.id = ?", (vid,)).fetchone()
+        if not row:
+            raise ApiError("holding not found", 404)
+        cur = c.execute("INSERT OR IGNORE INTO review_marks (entity_type, entity_id, mark) VALUES ('album', ?, ?)", (row[0], TITLE_OK + row[1].lower()))
+    return {"albumId": row[0], "title": row[1], "undo": {"kind": "mark", "id": cur.lastrowid} if cur.rowcount else None}
 
 
 @route("POST", "/api/vinyl/check-album", mutating=True)

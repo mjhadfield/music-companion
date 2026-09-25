@@ -32,6 +32,7 @@ PUBLIC_COVERS = ROOT / "site" / "public" / "covers"
 PUBLIC_TABLES = [
     "artists",
     "albums",
+    "album_parts",
     "album_artists",
     "songs",
     "vinyl_holdings",

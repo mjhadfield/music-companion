@@ -28,12 +28,12 @@ def overview(req):
             },
             "vinyl": {
                 "total": one("SELECT count(*) FROM vinyl_holdings"),
-                "missingAlbumMbid": one("SELECT count(*) FROM vinyl_holdings vh JOIN albums al ON al.id = vh.album_id WHERE al.mbid IS NULL"),
+                "missingAlbumMbid": one("SELECT count(*) FROM vinyl_holdings vh JOIN albums al ON al.id = vh.album_id WHERE al.mbid IS NULL AND NOT EXISTS (SELECT 1 FROM album_parts ap WHERE ap.album_id = al.id)"),
                 "missingCover": one("SELECT count(*) FROM vinyl_holdings vh JOIN albums al ON al.id = vh.album_id WHERE coalesce(al.cover_status, '') != 'ok'"),
             },
             "albums": {
                 "total": one("SELECT count(*) FROM albums"),
-                "missingMbid": one("SELECT count(*) FROM albums WHERE mbid IS NULL"),
+                "missingMbid": one("SELECT count(*) FROM albums al WHERE al.mbid IS NULL AND NOT EXISTS (SELECT 1 FROM album_parts ap WHERE ap.album_id = al.id)"),
                 "merged": one("SELECT count(*) FROM merge_log WHERE entity_type = 'album' AND undone_at IS NULL"),
             },
             "imports": {

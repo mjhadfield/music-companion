@@ -115,6 +115,16 @@ CREATE TABLE IF NOT EXISTS vinyl_holdings (
 
 CREATE INDEX IF NOT EXISTS idx_vinyl_album ON vinyl_holdings(album_id);
 
+-- A record that's a set of albums (a 2-on-1 / double pack with no release group of its own on
+-- MusicBrainz): the set's album row lists the albums it contains.
+CREATE TABLE IF NOT EXISTS album_parts (
+    album_id        INTEGER NOT NULL REFERENCES albums(id),  -- the set
+    part_album_id   INTEGER NOT NULL REFERENCES albums(id),  -- an album it contains
+    position        INTEGER NOT NULL,
+    PRIMARY KEY (album_id, part_album_id)
+);
+CREATE INDEX IF NOT EXISTS idx_album_parts_part ON album_parts(part_album_id);
+
 -- ---------------------------------------------------------------------
 -- Listening history (Last.fm)
 -- ---------------------------------------------------------------------

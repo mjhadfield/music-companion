@@ -9,7 +9,7 @@
   main.wide { max-width: 1400px; }
 
   /* Health strip: one tile per check, click to filter to the records failing it. */
-  .health { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; margin-bottom: 18px; padding: 0; }
+  .health { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 0; margin-bottom: 18px; padding: 0; }
   .health .tile { padding: 12px 14px; border-right: 1px solid var(--edge); cursor: pointer; background: none; border-top: none; border-bottom: none; border-left: none; border-radius: 0; text-align: left; }
   .health .tile:last-child { border-right: none; }
   .health .tile:hover { background: var(--accent-wash); }
@@ -85,6 +85,9 @@
   .inline-edit { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .inline-edit input[type="text"] { flex: 1; min-width: 220px; }
   .inline-edit input[type="number"] { width: 90px; }
+  .parts-list { display: grid; gap: 2px; max-height: 260px; overflow-y: auto; border: 1px solid var(--edge); padding: 6px 8px; }
+  .parts-row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; cursor: pointer; }
+  .parts-row[hidden] { display: none; }
   .look-grid { display: grid; grid-template-columns: 150px 1fr; gap: 16px; align-items: start; }
   .look-preview { display: grid; gap: 3px; }
   .look-preview img, .look-preview .placeholder-art { width: 150px; height: 150px; object-fit: cover; border: 1px solid var(--edge); }
@@ -173,7 +176,7 @@ mountNav("Vinyl");
 
 const CHECKS = [
   ["artist", "Artist MBID"], ["album", "Album MBID"], ["pressing", "Pressing linked"], ["identity", "Verified"],
-  ["year", "Original year"], ["title", "Clean title"], ["cover", "Cover art"], ["versions", "No duplicates"],
+  ["year", "Original year"], ["title", "Clean title"], ["cover", "Cover art"], ["versions", "No duplicates"], ["look", "Own look"],
 ];
 let all = [];           // /api/vinyl/holdings
 let shown = [];         // after filter + sort (drawer j/k walks this)
@@ -181,7 +184,7 @@ let checkFilter = null; // a CHECKS key: show records where that check isn't ok
 const extra = new Set();
 let openId = null;
 
-const check = (h, key) => h.checks.find((c) => c.key === key);
+const check = (h, key) => h.checks.find((c) => c.key === key) || { key, status: "na" }; // a check that doesn't apply to this record is nothing to do
 const done = (c) => c.status === "ok" || c.status === "na"; // "na": nothing to do (e.g. MusicBrainz doesn't list the pressing)
 // this copy's own cover when it has one (a Part 1, a picture disc), else the album's
 const artUrl = (h) => h.look?.coverFile ? `/covers/${h.look.coverFile}` : h.album.coverStatus === "ok" ? `/covers/${h.album.albumId}.jpg` : null;
@@ -220,7 +223,8 @@ function renderHealth(summary) {
       <div class="t-bar"><i style="width:${total ? (100 * complete) / total : 0}%"></i></div></button>`];
   for (const [key, label] of CHECKS) {
     const s = summary[key] || {};
-    const okN = (s.ok || 0) + (s.na || 0), todo = total - okN;
+    // records the check doesn't apply to (e.g. "Own look" when there's one copy) count as done
+    const todo = Object.entries(s).filter(([st]) => st !== "ok" && st !== "na").reduce((n, [, c]) => n + c, 0), okN = total - todo;
     tiles.push(`<button class="tile" data-check="${key}" aria-pressed="${checkFilter === key}" title="Show records where “${label}” isn't done">
       <div class="t-label">${label}</div><div class="t-num">${okN}<small> / ${total}</small></div>
       <div class="t-bar"><i style="width:${total ? (100 * okN) / total : 0}%"></i></div>
@@ -365,7 +369,9 @@ function renderDrawer(h) {
         <div class="credits">${credits}</div>
         <div class="facts">
           <div>${a.year ? `<b>${a.year}</b>` : `<span class="badge warn">no year</span>`} ${h.originalYear && h.originalYear !== a.year ? `<span class="warn-text">· originally ${h.originalYear}</span>` : ""} ${pressingKind(h)}</div>
-          <div>${a.mbid ? `${mbLink("album", a.mbid, "release group " + a.mbid.slice(0, 8))} <span class="meta">${rgLine}</span>` : `<span class="badge bad">no album MBID</span>`}</div>
+          <div>${a.mbid ? `${mbLink("album", a.mbid, "release group " + a.mbid.slice(0, 8))} <span class="meta">${rgLine}</span>`
+            : a.parts.length ? `<span class="badge accent">a set</span> <span class="meta">of ${a.parts.map((p) => `${esc(p.title)}${p.year ? ` (${p.year})` : ""}`).join(" + ")}</span>`
+            : `<span class="badge bad">no album MBID</span>`}</div>
           <div class="meta">${plural(a.scrobbleCount, "scrobble")}${a.mergedIn ? ` · ${plural(a.mergedIn, "version")} merged in` : ""}${h.otherPressings.length ? ` · ${plural(h.otherPressings.length + 1, "pressing")} owned` : ""}</div>
         </div>
       </div>
@@ -380,6 +386,7 @@ function renderDrawer(h) {
     ${sec("Cover art", `<div data-role="cover"></div>`, { role: "cover" })}
     ${h.versionProfiles.length ? sec(`Other versions of this album <span class="meta">(${h.versionProfiles.length})</span>`, `<div data-role="versions"></div>`, { role: "versions" }) : ""}
     ${h.otherPressingDetails.length ? sec(`Your other pressings of this album <span class="meta">— each keeps its own card; plays count once, toward the album</span>`, otherPressingsHtml(h)) : ""}
+    ${!a.mbid || a.parts.length ? sec("A set of albums?", `<div data-role="parts"></div>`, { role: "parts" }) : ""}
     ${sec("Album identity", `<button class="small" data-role="open-identity">Search / change the album's MusicBrainz identity…</button><div data-role="identity"></div>`, { role: "identity" })}
     ${sec("Move this pressing", `<div class="meta" style="margin-bottom:6px">If this record is attached to the wrong album, move it to the right one (same artist).</div><input type="text" data-role="move-q" placeholder="Search ${esc(h.artist.name)}'s albums…" style="width:100%" /><div data-role="move-slot"></div>`, { role: "move" })}
   `;
@@ -391,6 +398,7 @@ function renderDrawer(h) {
   renderTitleYear($("titleyear"), h);
   renderCover($("cover"), h);
   renderCopyLook($("look"), h);
+  if ($("parts")) renderSetParts($("parts"), h);
   dBody.querySelector("[data-act='check-album']")?.addEventListener("click", async (e) => {
     e.currentTarget.disabled = true;
     const { ok, data } = await api("/api/vinyl/check-album", { vinylId: h.vinylId });
@@ -487,18 +495,20 @@ function fixButton(h, c) {
   if (done(c)) return "";
   switch (c.fix) {
     case "year": return keyBtn("y", `Use ${h.originalYear}`, "good", 'data-act="use-year"');
-    case "title": return keyBtn("t", `Use “${esc(h.album.baseTitle)}”`, "", 'data-act="clean-title"');
+    case "title": return `${keyBtn("t", `Use “${esc(h.album.baseTitle)}”`, "", 'data-act="clean-title"')} <button class="small" data-act="keep-title" title="The edition words belong in this album's name — stop flagging it">Keep as it is</button>`;
     case "suggestion": return `<button class="small" data-jump="link">Review ↓</button>`;
     case "lookup": return `<button class="small" data-jump="link">Look up ↓</button>`;
+    case "parts": return `<button class="small" data-jump="parts">Review ↓</button>`;
     case "check": return `<button class="small" data-act="check-album">Check on MusicBrainz</button>`;
     case "cover": return `<button class="small" data-jump="cover">Fix ↓</button>`;
     case "look": return `<button class="small" data-jump="look">Set ↓</button>`;
     case "versions": return `<button class="small" data-jump="versions">Review ↓</button>`;
-    case "identity": return `<button class="small" data-jump="identity">Fix ↓</button>`;
+    case "identity": return `<button class="small" data-jump="identity">Fix ↓</button>${c.key === "album"
+      ? ` <button class="small" data-jump="parts" title="A 2-on-1 / double pack with no release of its own on MusicBrainz">It's a set ↓</button>` : ""}`;
     case "credit": return `${creditAliasButton(c.credit)} <button class="small" data-jump="identity">Wrong album ↓</button>`;
     default:
       if (c.key === "artist") return keyBtn("i", "Resolve ↓", "", 'data-jump="artist"');
-      if (c.key === "album") return `<button class="small" data-jump="identity">Set ↓</button>`;
+      if (c.key === "album") return `<button class="small" data-jump="identity">Set ↓</button> <button class="small" data-jump="parts" title="A 2-on-1 / double pack with no release of its own on MusicBrainz">It's a set ↓</button>`;
       return "";
   }
 }
@@ -694,6 +704,13 @@ function renderTitleYear(el, h) {
   // checklist quick fixes
   dBody.querySelector("[data-act='use-year']")?.addEventListener("click", () => save({ year: h.originalYear }));
   dBody.querySelector("[data-act='clean-title']")?.addEventListener("click", () => save({ title: a.baseTitle }));
+  dBody.querySelector("[data-act='keep-title']")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    const { ok, data } = await api("/api/vinyl/keep-title", { vinylId: h.vinylId });
+    if (!ok) { toast(esc(data.message), { error: true }); e.currentTarget.disabled = false; return; }
+    toast(`Keeping the title <b>${esc(data.title)}</b>`, { undo: data.undo ? { ...data.undo, onUndone: refresh } : undefined });
+    refresh();
+  });
 }
 
 // -- Cover ---------------------------------------------------------------------------------------
@@ -728,6 +745,48 @@ function renderCover(el, h) {
     toast(`Cover art saved for <b>${esc(a.title)}</b>`);
     refresh();
   });
+}
+
+// -- A set of albums ---------------------------------------------------------------------------
+// A record that combines albums -- a 2-on-1 / double pack like the 1976 "Rainbow Rising /
+// Ritchie Blackmore's Rainbow" gatefold -- has no release group of its own on MusicBrainz. Tick
+// the albums it contains: it then counts as identified, and the site shows their plays and songs
+// on the record (and the record on their pages). Undoable.
+async function renderSetParts(el, h) {
+  const a = h.album;
+  el.innerHTML = `<span class="meta">Loading this artist's albums…</span>`;
+  const { ok, data } = await api(`/api/vinyl/set-candidates?vinylId=${h.vinylId}`);
+  if (!ok) { el.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const chosen = new Set(a.parts.map((p) => p.albumId));
+  el.innerHTML = `
+    <div class="meta" style="margin-bottom:8px">${a.parts.length
+      ? "This record is a set of the albums ticked below — it has no release of its own on MusicBrainz, so it's identified by them."
+      : "Is this record several albums in one package (a 2-on-1, a double pack) that MusicBrainz has no release for? Tick the albums it contains."}</div>
+    <input type="text" data-role="parts-filter" placeholder="Filter ${esc(h.artist.name)}'s albums…" style="width:100%; margin-bottom:6px" />
+    <div class="parts-list">${data.albums.map((x) => `
+      <label class="parts-row" data-title="${esc(x.title.toLowerCase())}"><input type="checkbox" value="${x.albumId}" ${chosen.has(x.albumId) ? "checked" : ""} />
+        <b>${esc(x.title)}</b> <span class="meta">${x.year || "no year"} · ${plural(x.plays, "play")}${x.mbid ? "" : " · no MBID"}</span></label>`).join("")
+      || `<span class="meta">No other albums by this artist in your library.</span>`}</div>
+    <div class="inline-form" style="margin-top:8px"><button class="small primary" data-act="save-parts">Save: it's a set of the ticked albums</button>
+      ${a.parts.length ? `<button class="small" data-act="clear-parts">It's not a set</button>` : ""}<span class="meta" data-role="parts-count"></span></div>`;
+  const boxes = () => [...el.querySelectorAll(".parts-list input")];
+  const count = () => { const n = boxes().filter((b) => b.checked).length; el.querySelector("[data-role='parts-count']").textContent = `${n} ticked`; };
+  el.querySelector(".parts-list").addEventListener("change", count);
+  count();
+  el.querySelector("[data-role='parts-filter']").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    el.querySelectorAll(".parts-row").forEach((r) => { r.hidden = Boolean(q) && !r.dataset.title.includes(q); });
+  });
+  const save = async (partIds) => {
+    const { ok: ok2, data: d2 } = await api("/api/vinyl/set-parts", { vinylId: h.vinylId, partIds });
+    if (!ok2) { toast(esc(d2.message), { error: true }); return; }
+    const names = partIds.map((id) => data.albums.find((x) => x.albumId === id)?.title).filter(Boolean);
+    if (d2.editId) toast(partIds.length ? `<b>${esc(a.title)}</b> is a set of ${esc(names.join(" + "))}` : `<b>${esc(a.title)}</b> is no longer a set`,
+      { undo: { kind: "edit", id: d2.editId, onUndone: refresh } });
+    refresh();
+  };
+  el.querySelector("[data-act='save-parts']").addEventListener("click", () => save(boxes().filter((b) => b.checked).map((b) => +b.value)));
+  el.querySelector("[data-act='clear-parts']")?.addEventListener("click", () => save([]));
 }
 
 // -- This copy on the site ---------------------------------------------------------------------

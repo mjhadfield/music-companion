@@ -417,6 +417,22 @@ def _m010_copy_look(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE vinyl_holdings ADD COLUMN {col} {typ}")
 
 
+def _m011_album_parts(conn: sqlite3.Connection) -> None:
+    """A record that's a SET of albums -- a 2-on-1 / double pack like 1976's "Rainbow Rising /
+    Ritchie Blackmore's Rainbow" gatefold -- has no release group of its own on MusicBrainz. Its
+    album row lists the albums it contains here, so it counts as identified (by its parts), and
+    the site shows their plays / songs on the record and the record on their pages. Public."""
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS album_parts (
+            album_id        INTEGER NOT NULL REFERENCES albums(id),  -- the set
+            part_album_id   INTEGER NOT NULL REFERENCES albums(id),  -- an album it contains
+            position        INTEGER NOT NULL,
+            PRIMARY KEY (album_id, part_album_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_album_parts_part ON album_parts(part_album_id)
+    """)
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -428,6 +444,7 @@ MIGRATIONS = [
     ("008_pressing_year_and_disc_colour", _m008_pressing_year_and_disc_colour),
     ("009_album_tracklists", _m009_album_tracklists),
     ("010_copy_look", _m010_copy_look),
+    ("011_album_parts", _m011_album_parts),
 ]
 
 

@@ -1187,7 +1187,10 @@ function renderAlbum(id) {
   `, [id])[0];
   if (!album) return renderNotFound("Album");
 
-  const holdings = query(`SELECT * FROM vinyl_holdings WHERE album_id = ? ORDER BY date_added`, [id]);
+  // your copies: this album's own, plus any set it's part of (a 2-on-1 that contains it)
+  const sets = albumSetsContaining(id);
+  const copies = loadCollection().filter((r) => r.album_id === id || sets.includes(r.album_id));
+  const parts = albumScope(id).slice(1).map((pid) => query("SELECT id, title, year FROM albums WHERE id = ?", [pid])[0]).filter(Boolean);
 
   const tracks = albumSongGroups(id); // the same per-track counts as the collection's record drawer
 
@@ -1198,14 +1201,16 @@ function renderAlbum(id) {
       <div>
         <h1>${esc(album.title)}</h1>
         <div class="subtle"><span class="link-text" onclick="location.hash='#/artist/${album.artist_id}'">${esc(album.artist_name)}</span>${album.year ? ` · ${album.year}` : ""}</div>
-        ${genreTagsHtml(albumGenreNames(id))}
+        ${parts.length ? `<div class="subtle album-set">A set of ${parts.map((p) => `<span class="link-text" onclick="location.hash='#/album/${p.id}'">${esc(p.title)}</span>${p.year ? ` (${p.year})` : ""}`).join(" + ")}</div>` : ""}
+        ${genreTagsHtml(parts.length && !albumGenreNames(id).length ? [...new Set(parts.flatMap((p) => albumGenreNames(p.id)))] : albumGenreNames(id))}
       </div>
     </div>
 
-    ${holdings.length ? `<div class="section">
-      <h2>${holdings.length > 1 ? "Your copies" : "Your copy"}</h2>
-      ${loadCollection().filter((r) => r.album_id === id).map((r) => `
+    ${copies.length ? `<div class="section">
+      <h2>${copies.length > 1 ? "Your copies" : "Your copy"}</h2>
+      ${copies.map((r) => `
         <button class="pressing-card${r.ownLook ? " own-look" : ""}" data-holding="${r.id}">
+          ${r.album_id !== id ? `<div class="pc-set">Part of the set <b>${esc(r.title)}</b>${r.year ? ` <span class="subtle">· ${r.year}</span>` : ""}</div>` : ""}
           ${r.ownLook ? `<div class="pc-own">${coverImg(r, "pc-own-art")}<div><b>${esc(r.title)}</b>${r.year ? ` <span class="subtle">· ${r.year}</span>` : ""}</div></div>` : ""}
           <div class="rd-line"><b>${esc(r.label || "Unknown label")}</b>${r.catalog_number ? ` · <span class="mono">${esc(r.catalog_number)}</span>` : ""}${r.country ? ` · ${esc(r.country)}` : ""}${r.pressing_year ? ` · ${r.pressing_year}` : ""} ${starsHtml(r.rating)}</div>
           <div class="pbadges">${pressingBadges(r)}</div>

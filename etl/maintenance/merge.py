@@ -94,6 +94,58 @@ def _move_album_genres(conn, journal: dict, rows_moved: dict, absorbed_id: int, 
         rows_moved[table] = len(moved)
 
 
+def _move_album_parts(conn, journal: dict, absorbed_id: int, canonical_id: int) -> None:
+    """Set links follow the album on either side (the set, or a part of one). Journaled: the
+    original rows and the ones written in their place, for undo."""
+    orig = [list(r) for r in conn.execute("SELECT album_id, part_album_id, position FROM album_parts WHERE album_id = ? OR part_album_id = ?",
+                                          (absorbed_id, absorbed_id))]
+    if not orig:
+        return
+    conn.execute("DELETE FROM album_parts WHERE album_id = ? OR part_album_id = ?", (absorbed_id, absorbed_id))
+    inserted = []
+    for a, p, pos in orig:
+        a2, p2 = (canonical_id if a == absorbed_id else a), (canonical_id if p == absorbed_id else p)
+        if a2 != p2 and conn.execute("INSERT OR IGNORE INTO album_parts (album_id, part_album_id, position) VALUES (?, ?, ?)", (a2, p2, pos)).rowcount:
+            inserted.append([a2, p2])
+    journal["album_parts"] = {"orig": orig, "inserted": inserted}
+
+
+def set_album_parts(conn, album_id: int, part_ids: list[int], reason: str = "set of albums") -> dict:
+    """The albums a set contains (see migration 011), replacing any before. [] = not a set.
+    Journaled in edit_log as {"_parts": {"before", "after"}}; undo_edit puts "before" back."""
+    part_ids = list(dict.fromkeys(int(p) for p in part_ids))
+    album = _row_dict(conn, "albums", album_id)
+    if not album:
+        raise MergeError("album not found", "not_found")
+    if album_id in part_ids:
+        raise MergeError("A set can't contain itself.")
+    for pid in part_ids:
+        if not _row_dict(conn, "albums", pid):
+            raise MergeError(f"album #{pid} not found", "not_found")
+        if conn.execute("SELECT 1 FROM album_parts WHERE album_id = ?", (pid,)).fetchone():
+            raise MergeError("That album is itself a set -- sets can't be nested.")
+    if part_ids and conn.execute("SELECT 1 FROM album_parts WHERE part_album_id = ?", (album_id,)).fetchone():
+        raise MergeError("This album is part of a set itself -- it can't be a set too.")
+    before = [r[0] for r in conn.execute("SELECT part_album_id FROM album_parts WHERE album_id = ? ORDER BY position", (album_id,))]
+    if before == part_ids:
+        return {"editId": None, "parts": part_ids}
+    conn.execute("DELETE FROM album_parts WHERE album_id = ?", (album_id,))
+    conn.executemany("INSERT INTO album_parts (album_id, part_album_id, position) VALUES (?, ?, ?)",
+                     [(album_id, pid, i) for i, pid in enumerate(part_ids)])
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('album', ?, ?, ?, ?)",
+                           (album_id, album["title"], json.dumps({"_parts": {"before": before, "after": part_ids}}), reason)).lastrowid
+    return {"editId": edit_id, "parts": part_ids}
+
+
+def _undo_parts(conn, album_id: int, d: dict) -> None:
+    now = [r[0] for r in conn.execute("SELECT part_album_id FROM album_parts WHERE album_id = ? ORDER BY position", (album_id,))]
+    if now != d["after"]:
+        raise MergeError("The set's albums have changed again since -- undo the later change first.", "diverged")
+    conn.execute("DELETE FROM album_parts WHERE album_id = ?", (album_id,))
+    conn.executemany("INSERT INTO album_parts (album_id, part_album_id, position) VALUES (?, ?, ?)",
+                     [(album_id, pid, i) for i, pid in enumerate(d["before"])])
+
+
 _TRACKLIST_COLS = "position, number, disc, title, recording_mbid, length_ms"
 _TL_SOURCE_COLS = "source, release_mbid, release_title, release_date, country, format, fetched_at"
 
@@ -335,6 +387,7 @@ def merge_albums(conn, absorbed_id: int, canonical_id: int, identity: dict | Non
         _move(conn, journal, rows_moved, table, "album_id", absorbed_id, canonical_id)
     _move_album_genres(conn, journal, rows_moved, absorbed_id, canonical_id)
     _move_album_tracklist(conn, journal, absorbed_id, canonical_id)
+    _move_album_parts(conn, journal, absorbed_id, canonical_id)
     _note_rows(conn, journal, rows_moved, "album", absorbed_id, canonical_id)
     _repoint_aliases(conn, journal, rows_moved, "album", absorbed_id, canonical_id)
 
@@ -504,6 +557,11 @@ def undo_merge(conn, log_id: int) -> dict:
                          [(absorbed_id, *t) for t in d["tracks"]])
         conn.execute(f"INSERT OR IGNORE INTO album_tracklist_sources (album_id, {_TL_SOURCE_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                      (absorbed_id, *d["source"]))
+    if entity_type == "album" and j.get("album_parts"):  # set links went with the album
+        for a, p in j["album_parts"]["inserted"]:
+            conn.execute("DELETE FROM album_parts WHERE album_id = ? AND part_album_id = ?", (a, p))
+        conn.executemany("INSERT OR IGNORE INTO album_parts (album_id, part_album_id, position) VALUES (?, ?, ?)",
+                         [tuple(r) for r in j["album_parts"]["orig"]])
     if entity_type == "album":  # genres went with the album (merges from before genres have no entries)
         for table, cols in (("album_genres", "genre_id, source, votes, created_at"), ("genre_hidden", "genre_id, created_at")):
             moved = j.get(f"{table}_moved") or []
@@ -660,6 +718,7 @@ def _undo_created(conn, album_id: int) -> None:
     conn.execute("DELETE FROM review_marks WHERE entity_type = 'album' AND entity_id = ?", (album_id,))
     conn.execute("DELETE FROM notes WHERE entity_type = 'album' AND entity_id = ?", (album_id,))
     conn.execute("DELETE FROM album_genres WHERE album_id = ?", (album_id,))  # derived since -- goes with it
+    conn.execute("DELETE FROM album_parts WHERE album_id = ? OR part_album_id = ?", (album_id, album_id))
     conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM album_tracklist_sources WHERE album_id = ?", (album_id,))
     conn.execute("DELETE FROM genre_hidden WHERE album_id = ?", (album_id,))
@@ -731,6 +790,7 @@ def _undo_split(conn, d: dict) -> None:
     conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE canonical_type = 'album' AND canonical_id = ?", (back, new))
     conn.execute("DELETE FROM review_marks WHERE entity_type = 'album' AND entity_id = ?", (new,))
     conn.execute("DELETE FROM album_genres WHERE album_id = ?", (new,))
+    conn.execute("DELETE FROM album_parts WHERE album_id = ? OR part_album_id = ?", (new, new))
     conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (new,))
     conn.execute("DELETE FROM album_tracklist_sources WHERE album_id = ?", (new,))
     conn.execute("DELETE FROM genre_hidden WHERE album_id = ?", (new,))
@@ -822,6 +882,10 @@ def undo_edit(conn, edit_id: int) -> dict:
     if not current:
         raise MergeError(f'"{name}" has been merged away since -- undo that merge first.', "gone")
     changes = json.loads(changes_json)
+    if "_parts" in changes:
+        _undo_parts(conn, entity_id, changes["_parts"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_movePlays" in changes:
         _undo_move_plays(conn, changes["_movePlays"])
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))

@@ -160,6 +160,16 @@ function hasTable(name) {
 }
 
 let _collection = null; // built once per loaded database
+// A record that's a set of albums (a 2-on-1 with no release of its own on MusicBrainz) lists the
+// albums it contains in album_parts: its plays, songs and genres are theirs. -> [set, ...parts].
+function albumScope(albumId) {
+  if (!hasTable("album_parts")) return [albumId];
+  return [albumId, ...query("SELECT part_album_id FROM album_parts WHERE album_id = ? ORDER BY position", [albumId]).map((x) => x.part_album_id)];
+}
+function albumSetsContaining(albumId) {
+  return hasTable("album_parts") ? query("SELECT album_id FROM album_parts WHERE part_album_id = ?", [albumId]).map((x) => x.album_id) : [];
+}
+
 function loadCollection() {
   if (_collection && _collection.db === db) return _collection.records;
   const details = hasTable("vinyl_details");
@@ -168,17 +178,24 @@ function loadCollection() {
            v.date_added, v.discogs_release_id, v.mb_release_id${hasColumn("vinyl_holdings", "pressing_year") ? ", v.pressing_year AS csv_pressing_year, v.disc_colour" : ""}
            ${hasColumn("vinyl_holdings", "cover_file") ? ", v.cover_file, v.display_title, v.release_year" : ""},
            al.title, al.year, al.cover_status, al.cover_updated_at, al.mbid AS album_mbid, ar.id AS artist_id, ar.name AS artist_name, ar.sort_name,
-           (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays
+           (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id
+              ${hasTable("album_parts") ? "OR s.album_id IN (SELECT part_album_id FROM album_parts WHERE album_id = al.id)" : ""}) AS plays
            ${details ? ", d.country, d.released, d.year AS discogs_year, d.format_descriptions, d.format_text, d.identifiers, d.companies, d.tracklist, d.discogs_notes, d.styles" : ""}
     FROM vinyl_holdings v
     JOIN albums al ON al.id = v.album_id
     JOIN artists ar ON ar.id = al.artist_id
     ${details ? "LEFT JOIN vinyl_details d ON d.holding_id = v.id" : ""}
   `);
+  const partsOf = {};
+  if (hasTable("album_parts")) {
+    for (const x of query(`SELECT ap.album_id, al.id, al.title, al.year FROM album_parts ap JOIN albums al ON al.id = ap.part_album_id ORDER BY ap.position`)) {
+      (partsOf[x.album_id] ||= []).push({ album_id: x.id, title: x.title, year: x.year });
+    }
+  }
   const genresByAlbum = {};
   if (hasTable("album_genres")) {
     for (const g of query(`SELECT ag.album_id, ge.name FROM album_genres ag JOIN genres ge ON ge.id = ag.genre_id
-                           WHERE ag.album_id IN (SELECT album_id FROM vinyl_holdings)
+                           WHERE ag.album_id IN (SELECT album_id FROM vinyl_holdings${hasTable("album_parts") ? " UNION SELECT part_album_id FROM album_parts" : ""})
                            ORDER BY ag.source = 'manual' DESC, coalesce(ag.votes, 0) DESC, ge.name`)) {
       (genresByAlbum[g.album_id] ||= []).push(g.name);
     }
@@ -201,7 +218,9 @@ function loadCollection() {
       year: originalYear, yearUnconfirmed: originalYear == null && Boolean(albumYear),
       reissue: markedReissue || Boolean(pressingYear && originalYear && pressingYear >= originalYear + 2),
       tagCodes: new Set(f.tags.map((t) => t.code)), descText: `${desc.join(" ")} ${r.format_text || ""}`,
-      genres: genresByAlbum[r.album_id] || [], decade: originalYear ? `${Math.floor(originalYear / 10) * 10}s` : null,
+      parts: partsOf[r.album_id] || [],
+      // a set's genres are its albums' when it has none of its own
+      genres: genresByAlbum[r.album_id] || [...new Set((partsOf[r.album_id] || []).flatMap((p) => genresByAlbum[p.album_id] || []))], decade: originalYear ? `${Math.floor(originalYear / 10) * 10}s` : null,
       pressDecade: pressingYear ? `${Math.floor(pressingYear / 10) * 10}s` : null,
       addedYear: (r.date_added || "").slice(0, 4) || null, grade: gradeOf(r.media_condition), sleeveGrade: gradeOf(r.sleeve_condition),
       sortArtist: String(r.sort_name || r.artist_name || "").replace(/^the\s+/i, ""),
@@ -754,7 +773,8 @@ function pressingBadges(r) {
 
 function recordDetailHtml(r, all) {
   const others = all.filter((x) => x.album_id === r.album_id && x.id !== r.id);
-  const hist = query(`SELECT count(*) AS n, min(played_at) AS first, max(played_at) AS last FROM scrobbles WHERE album_id = ?`, [r.album_id])[0];
+  const scope = albumScope(r.album_id);
+  const hist = query(`SELECT count(*) AS n, min(played_at) AS first, max(played_at) AS last FROM scrobbles WHERE album_id IN (${scope.map(() => "?").join(",")})`, scope)[0];
   const songs = albumSongGroups(r.album_id);
   const live = songs.filter((x) => x.shows > 0);
   const liveShows = new Set(live.flatMap((x) => [...x.setlists])).size;
@@ -835,10 +855,11 @@ function recordDetailHtml(r, all) {
 // not merged yet ("War Pigs - 2009 Remaster" + the setlist's "War Pigs") count together; links go
 // to the plain-titled row. -> [{id, title, plays, shows, setlists}] most played first.
 function albumSongGroups(albumId) {
+  const ids = albumScope(albumId), marks = ids.map(() => "?").join(",");
   const rows = query(`
     SELECT so.id, so.title, so.mbid, (SELECT count(*) FROM scrobbles s WHERE s.song_id = so.id) AS plays
-    FROM songs so WHERE so.album_id = ? OR so.id IN (SELECT DISTINCT song_id FROM scrobbles WHERE album_id = ? AND song_id IS NOT NULL)
-    ORDER BY plays DESC`, [albumId, albumId]);
+    FROM songs so WHERE so.album_id IN (${marks}) OR so.id IN (SELECT DISTINCT song_id FROM scrobbles WHERE album_id IN (${marks}) AND song_id IS NOT NULL)
+    ORDER BY plays DESC`, [...ids, ...ids]);
   const setlistsOf = {};
   if (rows.length) {
     for (const x of query(`SELECT song_id, setlist_id FROM setlist_songs WHERE song_id IN (${rows.map(() => "?").join(",")})`, rows.map((x) => x.id))) {

@@ -39,11 +39,12 @@ def missing_mbid(req):
                        (SELECT count(*) FROM scrobbles sc WHERE sc.album_id = al.id) AS scrobble_count,
                        (SELECT count(*) FROM vinyl_holdings vh WHERE vh.album_id = al.id) AS vinyl_count
                 FROM albums al JOIN artists ar ON ar.id = al.artist_id WHERE al.mbid IS NULL
+                  AND NOT EXISTS (SELECT 1 FROM album_parts ap WHERE ap.album_id = al.id)  -- a set of albums has no release group to find
             )
             SELECT album_id, title, artist_id, artist_name, artist_mbid, scrobble_count, vinyl_count FROM album_stats
             WHERE (scrobble_count + vinyl_count) >= ? ORDER BY (scrobble_count + vinyl_count) DESC LIMIT 500
             """, (min_count,)).fetchall()
-        total_missing = c.execute("SELECT count(*) FROM albums WHERE mbid IS NULL").fetchone()[0]
+        total_missing = c.execute("SELECT count(*) FROM albums al WHERE al.mbid IS NULL AND NOT EXISTS (SELECT 1 FROM album_parts ap WHERE ap.album_id = al.id)").fetchone()[0]
     return {"minCount": min_count, "totalMissing": total_missing, "queueCount": len(rows), "rows": [{
         "albumId": r[0], "title": r[1], "artistId": r[2], "artistName": r[3], "artistMbid": r[4],
         "scrobbleCount": r[5], "vinylCount": r[6]} for r in rows]}

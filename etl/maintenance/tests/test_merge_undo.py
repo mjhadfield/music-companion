@@ -19,7 +19,7 @@ from common import DB_PATH, artist_mbid_sets, connect, get_or_create_album, get_
 from migrations import migrate  # noqa: E402
 
 DATA_TABLES = ["artists", "albums", "album_artists", "songs", "vinyl_holdings", "scrobbles",
-               "setlists", "setlist_songs", "notes", "alias_overrides", "artist_mb_aliases"]
+               "setlists", "setlist_songs", "notes", "alias_overrides", "artist_mb_aliases", "album_parts"]
 
 
 def checksum(conn) -> dict:
@@ -85,6 +85,36 @@ class MergeUndoTests(unittest.TestCase):
         self.assertEqual(checksum(self.conn), before)
         self.assertEqual(self.conn.execute("PRAGMA foreign_key_check").fetchall(), [])
         return result
+
+    def test_set_parts_edit_and_undo(self):
+        # album 13 is a 2-on-1 of 10 + 12; undo puts it back to not-a-set
+        before = checksum(self.conn)
+        r = merge.set_album_parts(self.conn, 13, [10, 12])
+        self.conn.commit()
+        self.assertEqual(self.conn.execute("SELECT part_album_id FROM album_parts WHERE album_id = 13 ORDER BY position").fetchall(), [(10,), (12,)])
+        merge.undo_edit(self.conn, r["editId"])
+        self.conn.commit()
+        self.assertEqual(checksum(self.conn), before)
+
+    def test_set_parts_rules(self):
+        with self.assertRaises(merge.MergeError):
+            merge.set_album_parts(self.conn, 13, [13, 10])  # contains itself
+        merge.set_album_parts(self.conn, 13, [10, 12])
+        with self.assertRaises(merge.MergeError):
+            merge.set_album_parts(self.conn, 11, [13, 10])  # a set inside a set
+        with self.assertRaises(merge.MergeError):
+            merge.set_album_parts(self.conn, 10, [11, 12])  # a part can't become a set
+
+    def test_album_merge_carries_set_parts(self):
+        # merging a part away points the set at the survivor; undo restores the original part
+        merge.set_album_parts(self.conn, 13, [11, 12])
+        self.conn.commit()
+        self._roundtrip(lambda: merge.merge_albums(self.conn, 11, 10))
+        r = merge.merge_albums(self.conn, 11, 10)
+        self.assertEqual(self.conn.execute("SELECT part_album_id FROM album_parts WHERE album_id = 13 ORDER BY position").fetchall(), [(10,), (12,)])
+        merge.undo_merge(self.conn, r["logId"])
+        # and merging the set itself away moves its parts to the survivor
+        self._roundtrip(lambda: merge.merge_albums(self.conn, 13, 10))
 
     def test_artist_merge_undo(self):
         r = self._roundtrip(lambda: merge.merge_artists(self.conn, 2, 1))
