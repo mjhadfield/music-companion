@@ -32,6 +32,41 @@ def _valid_mbid(mbid: str) -> bool:
     return bool(re.match(MBID_RE_PATTERN, mbid or "", re.IGNORECASE))
 
 
+def _artist_rows(c) -> list[dict]:
+    """Every artist with its activity (outer joins: vinyl-only / live-only artists included),
+    open suggestions, "not on MusicBrainz" and "MBID verified" marks, and "also releases as" count."""
+    rows = c.execute(
+        """
+        SELECT ar.id, ar.name, ar.mbid, coalesce(sc.n, 0), coalesce(v.n, 0), coalesce(st.n, 0),
+               (SELECT count(*) FROM suggestions s WHERE s.entity_type = 'artist' AND s.entity_id = ar.id AND s.status = 'pending'),
+               EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'artist' AND m.entity_id = ar.id AND m.mark = 'no-mbid'),
+               EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'artist' AND m.entity_id = ar.id AND m.mark = 'verified:artist-mbid'),
+               (SELECT count(*) FROM artist_mb_aliases x WHERE x.artist_id = ar.id)
+        FROM artists ar
+        LEFT JOIN (SELECT artist_id, count(*) n FROM scrobbles GROUP BY artist_id) sc ON sc.artist_id = ar.id
+        LEFT JOIN (SELECT aa.artist_id, count(*) n FROM vinyl_holdings vh JOIN album_artists aa ON aa.album_id = vh.album_id
+                   GROUP BY aa.artist_id) v ON v.artist_id = ar.id
+        LEFT JOIN (SELECT artist_id, count(*) n FROM setlists GROUP BY artist_id) st ON st.artist_id = ar.id
+        """
+    ).fetchall()
+    return [{"artistId": r[0], "name": r[1], "mbid": r[2], "scrobbleCount": r[3], "vinylCount": r[4], "setlistCount": r[5],
+             "pendingSuggestions": r[6], "markedNoMbid": bool(r[7]), "verified": bool(r[8]), "aliasCount": r[9]} for r in rows]
+
+
+def _weight(x: dict) -> int:
+    """Queue order: an artist on the shelf matters whatever the play count says, then seen live."""
+    return x["vinylCount"] * 50 + x["setlistCount"] * 5 + x["scrobbleCount"]
+
+
+def _name_search(q: str, pool: list[dict]) -> list[dict]:
+    by_id = {x["artistId"]: x for x in pool}
+    hits = process.extract(q, {x["artistId"]: x["name"] for x in pool}, scorer=fuzz.WRatio, limit=60, score_cutoff=60,
+                           processor=default_process)
+    items = [{**by_id[aid], "score": round(score, 1)} for _name, score, aid in hits]
+    items.sort(key=lambda x: (-round(x["score"] / 5), -_weight(x)))  # near-equal matches: most-owned/played first
+    return items
+
+
 @route("GET", "/api/artists/missing-mbid")
 def missing_mbid(req):
     """The artist queue. Activity counts come from outer joins, so an artist with no scrobbles
@@ -50,22 +85,8 @@ def missing_mbid(req):
     only_id = req.int("id")
     min_count = req.int("minCount", 2)
     with read_conn() as c:
-        rows = c.execute(
-            """
-            SELECT ar.id, ar.name, ar.mbid, coalesce(sc.n, 0), coalesce(v.n, 0), coalesce(st.n, 0),
-                   (SELECT count(*) FROM suggestions s WHERE s.entity_type = 'artist' AND s.entity_id = ar.id AND s.status = 'pending'),
-                   EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'artist' AND m.entity_id = ar.id AND m.mark = 'no-mbid')
-            FROM artists ar
-            LEFT JOIN (SELECT artist_id, count(*) n FROM scrobbles GROUP BY artist_id) sc ON sc.artist_id = ar.id
-            LEFT JOIN (SELECT aa.artist_id, count(*) n FROM vinyl_holdings vh JOIN album_artists aa ON aa.album_id = vh.album_id
-                       GROUP BY aa.artist_id) v ON v.artist_id = ar.id
-            LEFT JOIN (SELECT artist_id, count(*) n FROM setlists GROUP BY artist_id) st ON st.artist_id = ar.id
-            """
-        ).fetchall()
+        items = _artist_rows(c)
         total_missing = c.execute("SELECT count(*) FROM artists WHERE mbid IS NULL").fetchone()[0]
-    items = [{"artistId": r[0], "name": r[1], "mbid": r[2], "scrobbleCount": r[3], "vinylCount": r[4], "setlistCount": r[5],
-              "pendingSuggestions": r[6], "markedNoMbid": bool(r[7])} for r in rows]
-    weight = lambda x: x["vinylCount"] * 50 + x["setlistCount"] * 5 + x["scrobbleCount"]  # noqa: E731
 
     if only_id:
         items = [x for x in items if x["artistId"] == only_id]
@@ -73,16 +94,73 @@ def missing_mbid(req):
         pool = [x for x in items if not only_missing or not x["mbid"]]
         if with_vinyl:
             pool = [x for x in pool if x["vinylCount"]]
-        by_id = {x["artistId"]: x for x in pool}
-        hits = process.extract(q, {x["artistId"]: x["name"] for x in pool}, scorer=fuzz.WRatio, limit=60, score_cutoff=60,
-                               processor=default_process)
-        items = [{**by_id[aid], "score": round(score, 1)} for _name, score, aid in hits]
-        items.sort(key=lambda x: (-round(x["score"] / 5), -weight(x)))  # near-equal matches: most-owned/played first
+        items = _name_search(q, pool)
     else:
         items = [x for x in items if not x["mbid"] and x["scrobbleCount"] >= min_count
                  and (show_marked or not x["markedNoMbid"]) and (not with_vinyl or x["vinylCount"])]
-        items.sort(key=lambda x: -weight(x))
+        items.sort(key=lambda x: -_weight(x))
     return {"minCount": min_count, "totalMissing": total_missing, "queueCount": len(items), "rows": items[:500]}
+
+
+@route("GET", "/api/artists/mapped")
+def mapped(req):
+    """Artists that already have an MBID -- to review and correct existing mappings. What
+    MusicBrainz calls each one is shown when it's cached (a lookup, the verify sweep); opening
+    one fetches it (/api/artists/mb-info).
+      q=<text>  fuzzy name search      id=<artistId>  just that one (deep links)
+      withVinyl=1  only artists on vinyl      unverified=1  hide ones marked "looks right"
+    """
+    q, only_id = req.str("q"), req.int("id")
+    with read_conn() as c:
+        items = [x for x in _artist_rows(c) if x["mbid"]]
+        info = {k[len("lookup:artist:"):]: json.loads(v) for k, v in c.execute(
+            "SELECT key, payload_json FROM mb_cache WHERE key LIKE 'lookup:artist:%'")}
+    total = len(items)
+    if only_id:
+        items = [x for x in items if x["artistId"] == only_id]
+    else:
+        if req.str("withVinyl") == "1":
+            items = [x for x in items if x["vinylCount"]]
+        if req.str("unverified") == "1":
+            items = [x for x in items if not x["verified"]]
+        items = _name_search(q, items) if q else sorted(items, key=lambda x: -_weight(x))
+    count = len(items)
+    items = items[:300]
+    for x in items:
+        if x["mbid"] in info:
+            mb = info[x["mbid"]]
+            x["mb"] = mb or {"missing": True}  # cached None: no such artist on MusicBrainz (any more)
+            if mb:
+                x["nameDiffers"] = max(name_similarity(x["name"], mb["name"] or ""), name_similarity(x["name"], mb.get("sortName") or "")) < 80
+    return {"total": total, "count": count, "rows": items}
+
+
+@route("GET", "/api/artists/mb-info")
+def mb_info(req):
+    """What an MBID is on MusicBrainz (cached lookup) -- null when there's no such artist."""
+    mbid = req.str("mbid").lower()
+    if not _valid_mbid(mbid):
+        raise ApiError("mbid doesn't look like a MusicBrainz id")
+    try:
+        return {"mbid": mbid, "mb": mbcache.artist(mbid)}
+    except requests.RequestException as exc:
+        raise ApiError(f"MusicBrainz request failed: {exc}", 502)
+
+
+@route("POST", "/api/artists/clear-mbid", mutating=True)
+def clear_mbid(req):
+    """Take a wrong MBID off an artist (it goes back to the Missing MBID queue). Undoable."""
+    artist_id = req.int("artistId", required=True)
+    with write_tx() as c:
+        edit = merge.edit_entity(c, "artist", artist_id, {"mbid": None}, req.str("reason") or "cleared")
+        _drop_verified(c, artist_id)
+        name = c.execute("SELECT name FROM artists WHERE id = ?", (artist_id,)).fetchone()[0]
+    return {"artistId": artist_id, "name": name, "editId": edit["editId"]}
+
+
+def _drop_verified(c, artist_id: int) -> None:
+    """A "looks right" was about the old MBID -- the new one hasn't been looked at."""
+    c.execute("DELETE FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark = 'verified:artist-mbid'", (artist_id,))
 
 
 @route("GET", "/api/artists/mb-search")
@@ -317,6 +395,8 @@ def assign_mbid(req):
             raise
         c.execute("UPDATE suggestions SET status = CASE WHEN mbid = ? THEN 'accepted' ELSE 'rejected' END, decided_at = datetime('now') "
                   "WHERE entity_type = 'artist' AND entity_id = ? AND status = 'pending'", (mbid, artist_id))
+        if edit["editId"]:
+            _drop_verified(c, artist_id)
         name = c.execute("SELECT name FROM artists WHERE id = ?", (artist_id,)).fetchone()[0]
     return {"artistId": artist_id, "name": name, "mbid": mbid, "editId": edit["editId"]}
 

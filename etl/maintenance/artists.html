@@ -24,6 +24,7 @@
   <div class="tabs" id="tabs">
     <button data-tab="suggestions">Suggestions</button>
     <button data-tab="missing">Missing MBID</button>
+    <button data-tab="mapped">Mapped</button>
     <button data-tab="duplicates">Duplicates</button>
     <button data-tab="verify">Verify</button>
     <button data-tab="activity">Activity</button>
@@ -73,6 +74,27 @@
         <tbody id="miss-tbody"></tbody>
       </table>
       <div class="empty" id="miss-empty" hidden>Nothing here — try a lower threshold, or search by name above.</div>
+    </div>
+  </section>
+
+  <!-- Mapped: artists that already have an MBID ------------------------------------------ -->
+  <section data-panel="mapped" hidden>
+    <div class="card">
+      <div class="toolbar">
+        <input type="search" id="map-q" placeholder="Find an artist that has an MBID…" style="flex:1; min-width:280px" />
+        <label><input type="checkbox" id="map-vinyl" /> Only artists on vinyl</label>
+        <label><input type="checkbox" id="map-unverified" /> Hide ones marked “looks right”</label>
+        <span class="spacer"></span>
+        <span class="meta" id="map-progress"></span>
+      </div>
+      <p class="meta" style="margin:8px 0 0">Every artist already linked to MusicBrainz — owned on vinyl first, then seen live, then most played. Review one to see what its MBID really points at (and whether your albums are in that discography), then keep it, change it, or clear it.</p>
+    </div>
+    <div class="card">
+      <table class="data">
+        <thead><tr><th>Artist</th><th>MusicBrainz</th><th class="num">Scrobbles</th><th class="num">Vinyl</th><th class="num">Shows</th><th></th></tr></thead>
+        <tbody id="map-tbody"></tbody>
+      </table>
+      <div class="empty" id="map-empty" hidden>No artists with an MBID match.</div>
     </div>
   </section>
 
@@ -317,6 +339,97 @@ document.getElementById("miss-min").addEventListener("keydown", (e) => { if (e.k
 for (const id of ["miss-marked", "miss-vinyl", "miss-only"]) document.getElementById(id).addEventListener("change", () => loadMissing());
 
 // ---------------------------------------------------------------------------------------------
+// Mapped tab -- review / change / clear an existing MBID
+// ---------------------------------------------------------------------------------------------
+
+const mapTbody = document.getElementById("map-tbody");
+let mapSeq = 0;
+const mbSummary = (mb) => mb.missing ? `<span class="badge bad">not on MusicBrainz any more</span>`
+  : `<b>${esc(mb.name)}</b>${mb.disambiguation ? ` <span class="meta">(${esc(mb.disambiguation)})</span>` : ""} <span class="meta">${esc([mb.type, mb.country, mb.beginDate && `${mb.beginDate}–${mb.endDate || ""}`].filter(Boolean).join(" · "))}</span>`;
+
+async function loadMapped(openId) {
+  const q = document.getElementById("map-q").value.trim();
+  const params = new URLSearchParams({
+    withVinyl: document.getElementById("map-vinyl").checked ? "1" : "0",
+    unverified: document.getElementById("map-unverified").checked ? "1" : "0",
+  });
+  if (typeof openId === "number") params.set("id", openId);
+  else if (q) params.set("q", q);
+  const mine = ++mapSeq;
+  document.getElementById("map-progress").textContent = "Loading…";
+  const { ok, data } = await api(`/api/artists/mapped?${params}`);
+  if (mine !== mapSeq) return;
+  if (!ok) { document.getElementById("map-progress").textContent = data.message; return; }
+  document.getElementById("map-progress").textContent = typeof openId === "number" ? "Showing one artist — search to see the rest"
+    : q ? `${plural(data.count, "match", "matches")} for “${q}”` : `${fmtNum(data.rows.length)} shown of ${fmtNum(data.count)}${data.count < data.total ? ` (${fmtNum(data.total)} with an MBID)` : ""} — search to find any other`;
+  document.getElementById("map-empty").hidden = data.rows.length > 0;
+  mapTbody.innerHTML = "";
+  for (const row of data.rows) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${esc(row.name)} ${row.verified ? `<span class="badge ok" title="Marked “looks right”">verified</span>` : ""}${row.aliasCount ? ` <span class="badge" title="Other MusicBrainz artists that count as this one">+${row.aliasCount} also as</span>` : ""}</td>
+      <td>${mbLink("artist", row.mbid)} ${row.mb ? mbSummary(row.mb) : `<span class="muted">not looked up yet</span>`}${row.nameDiffers ? ` <span class="badge warn">different name</span>` : ""}</td>
+      <td class="num">${row.scrobbleCount ? fmtNum(row.scrobbleCount) : `<span class="muted">0</span>`}</td>
+      <td class="num">${row.vinylCount ? `<span class="badge vinyl">${row.vinylCount}</span>` : `<span class="muted">—</span>`}</td>
+      <td class="num">${row.setlistCount || `<span class="muted">—</span>`}</td>
+      <td class="actions"><button class="small">Review</button></td>`;
+    tr.querySelector("button").addEventListener("click", () => toggleMappedPanel(tr, row));
+    mapTbody.appendChild(tr);
+    if (row.artistId === openId) toggleMappedPanel(tr, row);
+  }
+}
+
+function toggleMappedPanel(tr, row) {
+  const existing = tr.nextElementSibling?.classList.contains("panel-row") ? tr.nextElementSibling : null;
+  mapTbody.querySelectorAll("tr.panel-row").forEach((p) => p.remove());
+  mapTbody.querySelectorAll("tr.open").forEach((p) => p.classList.remove("open"));
+  if (existing) return;
+  tr.classList.add("open");
+  const panel = document.createElement("tr");
+  panel.className = "panel-row";
+  panel.innerHTML = `<td colspan="6">
+    <div class="notice" data-role="current">
+      <div class="headline">Currently linked to ${mbLink("artist", row.mbid, row.mbid)}</div>
+      <div data-role="mb" class="meta">Looking it up on MusicBrainz…</div>
+      <div data-role="albums" class="meta"></div>
+      <div class="compare-actions">
+        <button class="small good" data-role="ok">Looks right</button>
+        <button class="small danger" data-role="clear" title="Back to the Missing MBID queue — undoable">Clear MBID</button>
+        <span class="meta">Or pick the right one below — search, paste an id, or merge into an artist you already have.</span>
+      </div>
+    </div>
+    <div data-role="resolve"></div></td>`;
+  tr.after(panel);
+  const $ = (r) => panel.querySelector(`[data-role='${r}']`);
+  const done = () => { panel.remove(); tr.classList.remove("open"); loadMapped(); };
+  api(`/api/artists/mb-info?mbid=${encodeURIComponent(row.mbid)}`).then(({ ok, data }) => {
+    $("mb").innerHTML = !ok ? `<span class="error">${esc(data.message)}</span>` : data.mb ? `MusicBrainz: ${mbSummary(data.mb)}` : mbSummary({ missing: true });
+  });
+  $("albums").innerHTML = `<span class="muted">checking your albums against its discography…</span>`;
+  api(`/api/artists/album-match?artistId=${row.artistId}&mbid=${encodeURIComponent(row.mbid)}`).then(({ ok, data }) => {
+    $("albums").innerHTML = ok ? albumMatchHtml(data) : `<span class="error">${esc(data.message)}</span>`;
+  });
+  $("ok").addEventListener("click", async () => {
+    const res = await api("/api/review/mark", { entityType: "artist", entityId: row.artistId, mark: "verified:artist-mbid" });
+    if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+    toast(`<b>${esc(row.name)}</b>'s MBID marked as correct`);
+    done();
+  });
+  $("clear").addEventListener("click", async () => {
+    const res = await api("/api/artists/clear-mbid", { artistId: row.artistId });
+    if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+    toast(`Cleared <b>${esc(row.name)}</b>'s MBID — it's back in Missing MBID`, { undo: res.data.editId ? { kind: "edit", id: res.data.editId } : undefined });
+    notifyChanged();
+    done();
+  });
+  renderArtistResolve($("resolve"), row, { reason: "corrected", allowNoMbid: false, onDone: done });
+}
+
+let mapTimer = null;
+document.getElementById("map-q").addEventListener("input", () => { clearTimeout(mapTimer); mapTimer = setTimeout(loadMapped, 250); });
+for (const id of ["map-vinyl", "map-unverified"]) document.getElementById(id).addEventListener("change", () => loadMapped());
+
+// ---------------------------------------------------------------------------------------------
 // Duplicates tab
 // ---------------------------------------------------------------------------------------------
 
@@ -466,17 +579,22 @@ document.addEventListener("mc:undone", () => {
   const t = tabs.current();
   if (t === "suggestions") loadSuggestions();
   else if (t === "missing") loadMissing();
+  else if (t === "mapped") loadMapped();
   else if (t === "verify") loadVerify();
 });
 const tabs = mountTabs(document.getElementById("tabs"), {
   suggestions: loadSuggestions,
   missing: () => loadMissing(),
+  mapped: () => loadMapped(),
   duplicates: runDupScan,
   verify: loadVerify,
   activity: () => mountActivity(document.getElementById("activity"), { entityType: "artist", limit: 60 }),
 }, {
   // #missing/<artistId> (e.g. from the Vinyl page): just that artist, resolve panel open
-  onSubpath: (tab, sub) => { if (tab === "missing" && /^\d+$/.test(sub)) loadMissing(parseInt(sub, 10)); },
+  onSubpath: (tab, sub) => {
+    if (tab === "missing" && /^\d+$/.test(sub)) loadMissing(parseInt(sub, 10));
+    if (tab === "mapped" && /^\d+$/.test(sub)) loadMapped(parseInt(sub, 10));
+  },
 });
 api("/api/overview").then(({ ok, data }) => {
   if (!ok) return;

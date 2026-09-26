@@ -905,6 +905,7 @@ function matchTracklist(pressingTracks, songs, albumId) {
     }
   }
   const used = new Set([...linked.values()].map((x) => x.id));
+  const plainOnIt = new Set(pressingTracks.filter((t) => !variantOf(t.title)).map((t) => normTitle(t.title)));
   const matchTrack = (title, recording) => {
     const mine = linked.get(title.trim().toLowerCase());
     if (mine) { linked.delete(title.trim().toLowerCase()); return { song: mine, again: false }; }
@@ -923,6 +924,11 @@ function matchTracklist(pressingTracks, songs, albumId) {
     // the track -- but only when the album has no studio version of it (then the live one's a bonus)
     if (!song && !v && !songs.some((x) => !x.variant && normTitle(x.title) === k)) {
       song = only(songs.filter((x) => !used.has(x.id) && x.variant && normTitle(x.title) === k));
+    }
+    // a pressing calling the track itself an instrumental ("Orion (Instrumental)") means the plain
+    // song -- unless the album has an instrumental version of it, or the pressing lists the plain one too
+    if (!song && v === "instrumental" && !plainOnIt.has(k)) {
+      song = only(songs.filter((x) => !used.has(x.id) && !x.variant && normTitle(x.title) === k));
     }
     const again = Boolean(song && used.has(song.id));
     if (song) used.add(song.id);

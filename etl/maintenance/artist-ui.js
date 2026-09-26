@@ -197,6 +197,7 @@ function renderArtistResolve(slot, artist, { onDone, allowNoMbid = true, reason 
     if (!data.candidates.length) { el.innerHTML = `<div class="status-line">No matches.</div>`; return; }
     el.innerHTML = "";
     for (const c of data.candidates) {
+      const current = c.alreadyLinkedTo?.artistId === artist.artistId; // this artist's own MBID right now
       const div = document.createElement("div");
       div.className = "candidate";
       const years = c.beginDate ? ` · ${esc(c.beginDate)}–${c.ended ? esc(c.endDate || "") : ""}` : "";
@@ -205,9 +206,9 @@ function renderArtistResolve(slot, artist, { onDone, allowNoMbid = true, reason 
           <strong>${esc(c.name)}</strong>${c.disambiguation ? ` <span class="meta">(${esc(c.disambiguation)})</span>` : ""} ${mbLink("artist", c.mbid)}
           <div class="meta">${esc(c.type || "")}${c.country ? ` · ${esc(c.country)}` : ""}${years} · MB score ${c.score}</div>
           <div class="meta" data-role="albums-ev"></div>
-          ${c.alreadyLinkedTo ? `<div class="meta warn-text">Already linked to your artist “${esc(c.alreadyLinkedTo.name)}”</div>` : ""}
+          ${current ? `<div class="meta">${esc(artist.name)}'s MBID now</div>` : c.alreadyLinkedTo ? `<div class="meta warn-text">Already linked to your artist “${esc(c.alreadyLinkedTo.name)}”</div>` : ""}
         </div>
-        <div class="actions"><button class="small ${c.alreadyLinkedTo ? "" : "good"}">${c.alreadyLinkedTo ? "Compare & merge" : "Assign"}</button>
+        <div class="actions">${current ? `<span class="badge ok">current</span>` : `<button class="small ${c.alreadyLinkedTo ? "" : "good"}">${c.alreadyLinkedTo ? "Compare & merge" : "Assign"}</button>`}
           ${c.alreadyLinkedTo ? "" : `<button class="small" data-role="as-alias" title="Keep ${esc(artist.name)}'s own MBID, and also count this MusicBrainz artist as ${esc(artist.name)}">Also releases as</button>`}</div>`;
       div.querySelector("[data-role='as-alias']")?.addEventListener("click", async () => {
         if (await addMbAlias(artist.artistId, c.mbid, c.name)) {
@@ -215,7 +216,7 @@ function renderArtistResolve(slot, artist, { onDone, allowNoMbid = true, reason 
           if (r.ok) paintAliases(r.data.aliases);
         }
       });
-      div.querySelector("button").addEventListener("click", () => {
+      div.querySelector("button:not([data-role])")?.addEventListener("click", () => {
         if (c.alreadyLinkedTo) {
           renderArtistCompare(conflictSlot, artist.artistId, c.alreadyLinkedTo.artistId, { defaultKeep: "b", keys: false, onMerged: onDone });
         } else {
