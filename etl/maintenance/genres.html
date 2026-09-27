@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music Companion — Genres</title>
 <link rel="stylesheet" href="shared.css" />
+<script>try { if (localStorage.getItem("theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
 <style>
   main.wide { max-width: 1400px; }
   .cov { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; padding: 0; }
@@ -19,7 +20,7 @@
   .g-row:hover { background: var(--accent-wash); }
   .g-row.current { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
   .g-row .mix { display: flex; height: 3px; grid-column: 1 / -1; border-radius: 2px; overflow: hidden; background: var(--surface-3); }
-  .g-row .mix i.musicbrainz { background: #c4b5fd; } .g-row .mix i.discogs { background: var(--accent-vinyl, #d9a441); } .g-row .mix i.manual { background: var(--ok); }
+  .g-row .mix i.musicbrainz { background: var(--accent-soft); } .g-row .mix i.discogs { background: var(--accent-vinyl, #d9a441); } .g-row .mix i.manual { background: var(--ok); }
   .g-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--edge); background: var(--bg-2); }
   .g-head h2 { margin: 0; }
   .alb { display: grid; grid-template-columns: 22px 44px minmax(0, 1fr); gap: 10px; align-items: center; padding: 8px 18px; border-bottom: 1px solid var(--edge); }

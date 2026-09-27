@@ -1,8 +1,9 @@
 /*
  * Tokens harmonised with Citadel (the LAN dashboard this tool is linked from) and with this
  * project's own site/css/style.css -- same values, ported verbatim rather than approximated.
- * Dark only, deliberately: this tool is only ever used by one person locally, so unlike site/
- * there's no toggle and no light block.
+ * Light and dark, like site/: the same Citadel palette pair, toggled from the nav (sun/moon)
+ * and remembered in localStorage["theme"]. Every colour below comes from these tokens (tints via
+ * color-mix of a token), so nothing needs a second, hand-picked light value.
  *
  * Every page's shared components live here (nav, tabs, tables, review lists, comparison grid,
  * typeahead, toasts, job log) -- page <style> blocks should only ever hold layout.
@@ -35,6 +36,32 @@
   --bg-elevated: var(--surface-2); --border: var(--edge); --text: var(--silver-hi);
   --text-dim: var(--silver-mute); --text-muted: var(--silver-dim); --danger: var(--bad);
   --font-body: var(--font-display);
+
+  /* theme-dependent extras */
+  --bad-soft: var(--bad-soft);            /* readable red text on dark */
+  --reissue: #93c5fd;             /* the "reissue" badge's blue */
+  --log-bg: #0a0810;              /* job log / output boxes */
+  --nav-bg: rgba(11, 9, 16, 0.92);
+  --shadow-pop: var(--shadow-pop);
+  color-scheme: dark;
+}
+
+/* Light: the Citadel / site/ parchment-and-rust palette, verbatim from site/css/style.css. */
+:root[data-theme="light"] {
+  --bg: #f2e8d5; --bg-2: #f5ecdd; --surface: #f8f0e2; --surface-2: #faf4e6; --surface-3: #fdf9f0;
+  --accent: #b5541f; --accent-hi: #d9691f; --accent-soft: #82401b; --accent-deep: #6e2a12; --accent-wash: rgba(181, 84, 31, 0.10);
+  --silver-hi: #2a2015; --silver: #4a3c2a; --silver-mute: #6b5c44; --silver-dim: #93876c;
+  --edge: #ddcda8; --edge-strong: rgba(217, 105, 31, 0.45);
+  --ok: #0d8a6a; --warn: #b8791f; --bad: #8a2e2e;
+  --well: rgba(42, 32, 21, 0.07);
+  --accent-vinyl: #460c80; --accent-scrobble: #b5541f; --accent-live: #227f38;
+
+  --bad-soft: #8a2e2e;
+  --reissue: #2c5ea8;
+  --log-bg: #efe4cf;
+  --nav-bg: rgba(245, 236, 221, 0.92);
+  --shadow-pop: rgba(60, 40, 10, 0.18);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -66,7 +93,7 @@ h3 { font-family: var(--font-display); text-transform: uppercase; letter-spacing
 /* -- Top nav --------------------------------------------------------------------------- */
 .topnav {
   position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 22px;
-  padding: 10px 24px; background: rgba(11, 9, 16, 0.92); backdrop-filter: blur(6px);
+  padding: 10px 24px; background: var(--nav-bg); backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--edge);
 }
 .topnav .brand { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85rem; color: var(--silver); text-decoration: none; }
@@ -81,6 +108,9 @@ h3 { font-family: var(--font-display); text-transform: uppercase; letter-spacing
 .topnav nav a.soon { opacity: 0.45; pointer-events: none; }
 .topnav .spacer { flex: 1; }
 .topnav .companion { font-size: 0.8rem; text-decoration: none; color: var(--text-dim); }
+.theme-toggle { display: inline-grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--text-dim); }
+.theme-toggle:hover { color: var(--accent-hi); }
+.theme-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .publish-btn { display: inline-flex; align-items: center; gap: 8px; }
 .publish-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--silver-dim); }
 .publish-btn.dirty .dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
@@ -118,8 +148,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover:not(:disabled) { filter: brightness(1.12); }
 button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
-button.good { border-color: rgba(52, 211, 153, 0.5); color: var(--ok); }
-button.bad { border-color: rgba(244, 63, 94, 0.45); color: #ffb3c0; }
+button.good { border-color: color-mix(in srgb, var(--ok) 50%, transparent); color: var(--ok); }
+button.bad { border-color: color-mix(in srgb, var(--bad) 45%, transparent); color: var(--bad-soft); }
 button.small, .btn.small { padding: 4px 9px; font-size: 0.78rem; }
 button.link { border: none; background: none; padding: 0; color: var(--accent-soft); text-decoration: underline; }
 
@@ -155,11 +185,11 @@ kbd {
   display: inline-block; font-family: var(--font-mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em;
   padding: 1px 7px; border: 1px solid var(--edge); border-radius: var(--radius-sm); color: var(--text-dim); white-space: nowrap;
 }
-.badge.high, .badge.ok { color: var(--ok); border-color: rgba(52, 211, 153, 0.45); }
-.badge.medium, .badge.warn { color: var(--warn); border-color: rgba(245, 180, 84, 0.45); }
-.badge.low, .badge.bad { color: #ffb3c0; border-color: rgba(244, 63, 94, 0.45); }
+.badge.high, .badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.badge.medium, .badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.badge.low, .badge.bad { color: var(--bad-soft); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
 .badge.accent { color: var(--accent-soft); border-color: var(--edge-strong); }
-.badge.vinyl { color: var(--accent-vinyl); border-color: rgba(217, 164, 65, 0.45); }
+.badge.vinyl { color: var(--accent-vinyl); border-color: color-mix(in srgb, var(--accent-vinyl) 45%, transparent); }
 .chip {
   display: inline-flex; align-items: center; gap: 8px; background: var(--bg); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 5px 10px; font-size: 0.85rem;
@@ -208,9 +238,9 @@ section > .empty, [id$="-list"] > .empty { background: var(--surface-2); border:
   padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 8px;
   background: var(--bg-elevated); font-size: 0.85rem;
 }
-.notice.warn { border-color: rgba(245, 180, 84, 0.55); }
+.notice.warn { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .notice.warn .headline { color: var(--warn); }
-.notice.bad { border-color: rgba(244, 63, 94, 0.55); }
+.notice.bad { border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
 .status-line { font-size: 0.82rem; margin-top: 8px; color: var(--text-dim); }
 .status-line.error { color: var(--danger); }
 .status-line.ok { color: var(--ok); }
@@ -220,7 +250,7 @@ section > .empty, [id$="-list"] > .empty { background: var(--surface-2); border:
 .compare > div { padding: 7px 10px; border-bottom: 1px solid var(--border); font-size: 0.84rem; min-width: 0; overflow-wrap: anywhere; }
 .compare > .label { color: var(--text-dim); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
 .compare > .head { background: var(--surface); font-weight: 600; }
-.compare > .keep { background: rgba(52, 211, 153, 0.07); }
+.compare > .keep { background: color-mix(in srgb, var(--ok) 7%, transparent); }
 .compare > .same { color: var(--ok); }
 .compare > div:nth-last-child(-n+3) { border-bottom: none; }
 .compare ol, .compare ul { margin: 0; padding-left: 18px; }
@@ -232,7 +262,7 @@ section > .empty, [id$="-list"] > .empty { background: var(--surface-2); border:
 .ta-pop {
   position: fixed; inset: auto; margin: 0; padding: 0; border: 1px solid var(--edge-strong);
   background: var(--surface-2); color: var(--text); border-radius: var(--radius-sm);
-  max-height: 320px; overflow-y: auto; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  max-height: 320px; overflow-y: auto; box-shadow: 0 10px 30px var(--shadow-pop);
 }
 .ta-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 8px 12px; cursor: pointer; font-size: 0.85rem; }
 .ta-row:hover, .ta-row.hl { background: var(--accent-wash); }
@@ -243,7 +273,7 @@ section > .empty, [id$="-list"] > .empty { background: var(--surface-2); border:
 .toast {
   display: flex; align-items: center; gap: 12px; padding: 10px 14px; font-size: 0.85rem;
   background: var(--surface-3); border: 1px solid var(--edge-strong); border-radius: var(--radius-sm);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 24px var(--shadow-pop);
 }
 .toast.error { border-color: var(--bad); }
 .toast .msg { flex: 1; }
@@ -253,7 +283,7 @@ section > .empty, [id$="-list"] > .empty { background: var(--surface-2); border:
 .spinner { width: 13px; height: 13px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .log {
-  background: #0a0810; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px;
+  background: var(--log-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 16px;
   font-family: var(--font-mono); font-size: 0.78rem; white-space: pre-wrap; word-break: break-word; max-height: 50vh; overflow-y: auto;
 }
 .log-line { padding: 1px 0; }
@@ -263,7 +293,7 @@ section > .empty, [id$="-list"] > .empty { background: var(--surface-2); border:
 progress { accent-color: var(--accent); width: 180px; height: 8px; }
 #publish-drawer {
   position: fixed; right: 18px; top: 58px; width: min(640px, calc(100vw - 36px)); z-index: 40;
-  background: var(--surface-2); border: 1px solid var(--edge-strong); padding: 14px 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  background: var(--surface-2); border: 1px solid var(--edge-strong); padding: 14px 16px; box-shadow: 0 10px 30px var(--shadow-pop);
 }
 
 /* -- Activity feed --------------------------------------------------------------------- */
@@ -280,7 +310,7 @@ table.merge td, table.merge th { padding: 6px 8px; font-size: 0.84rem; vertical-
 .table-scroll { overflow-x: auto; }
 table.merge td:nth-child(4) { min-width: 200px; }
 table.merge .nowrap, table.merge td:nth-child(5), table.merge td:nth-child(6) { white-space: nowrap; }
-table.merge tr.primary td { background: rgba(52, 211, 153, 0.06); }
+table.merge tr.primary td { background: color-mix(in srgb, var(--ok) 6%, transparent); }
 table.merge tr.excluded td { opacity: 0.5; }
 table.merge tr.flash td { animation: flash 1.6s ease-out; }
 @keyframes flash { from { background: var(--accent-wash); } }
@@ -366,12 +396,12 @@ table.merge tr.flash td { animation: flash 1.6s ease-out; }
 .genre-chips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
 .gchip { display: inline-flex; align-items: center; gap: 2px; padding: 1px 2px 1px 8px; font-size: 0.78rem; border: 1px solid var(--edge);
   border-radius: 999px; background: var(--surface); color: var(--text); }
-.gchip.musicbrainz { border-color: rgba(196, 181, 253, 0.35); }
-.gchip.discogs { border-color: rgba(217, 164, 65, 0.45); }
-.gchip.manual { border-color: rgba(52, 211, 153, 0.45); }
+.gchip.musicbrainz { border-color: color-mix(in srgb, var(--accent-soft) 35%, transparent); }
+.gchip.discogs { border-color: color-mix(in srgb, var(--accent-vinyl) 45%, transparent); }
+.gchip.manual { border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .gchip button { border: none; background: none; color: var(--text-muted); padding: 0 5px; cursor: pointer; font-size: 0.9rem; line-height: 1; }
 .gchip button:hover { color: var(--danger); }
 .gadd input { width: 110px; padding: 2px 8px; font-size: 0.78rem; border-radius: 999px; }
 .gsrc { display: inline-flex; gap: 10px; font-size: 0.72rem; color: var(--text-muted); }
 .gsrc i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-.gsrc .musicbrainz { border: 1px solid rgba(196, 181, 253, 0.8); } .gsrc .discogs { border: 1px solid rgba(217, 164, 65, 0.9); } .gsrc .manual { border: 1px solid rgba(52, 211, 153, 0.9); }
+.gsrc .musicbrainz { border: 1px solid color-mix(in srgb, var(--accent-soft) 80%, transparent); } .gsrc .discogs { border: 1px solid color-mix(in srgb, var(--accent-vinyl) 90%, transparent); } .gsrc .manual { border: 1px solid color-mix(in srgb, var(--ok) 90%, transparent); }

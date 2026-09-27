@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music Companion — Songs</title>
 <link rel="stylesheet" href="shared.css" />
+<script>try { if (localStorage.getItem("theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
 <style>
   main.wide { max-width: 1340px; }
   .q-row .todo { font-family: var(--font-mono); font-size: 0.72rem; color: var(--warn); white-space: nowrap; }
@@ -53,7 +54,7 @@
   .dot.ok, .dot.marked { background: var(--ok); } .dot.match, .dot.nonsong, .dot.album, .dot.newalbum, .dot.lookedup { background: var(--warn); } .dot.unchecked { background: var(--silver-dim); }
 
   table.songs td, table.songs th { padding: 6px 8px; font-size: 0.84rem; vertical-align: middle; }
-  table.songs tr.primary td { background: rgba(52, 211, 153, 0.06); }
+  table.songs tr.primary td { background: color-mix(in srgb, var(--ok) 6%, transparent); }
   table.songs tr.excluded td { opacity: 0.5; }
   .album-block-head { display: flex; gap: 12px; align-items: center; padding: 10px 14px; background: var(--bg-2); border-bottom: 1px solid var(--edge); }
   .album-block-head .thumb { width: 44px; height: 44px; }
