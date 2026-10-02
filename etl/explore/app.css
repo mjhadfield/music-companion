@@ -30,6 +30,7 @@
   --ok:   #34d399;
   --warn: #f5b454;
   --bad:  #f43f5e;
+  --well: rgba(0, 0, 0, .38);
   --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
   --font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --chamfer: 12px;
@@ -38,20 +39,47 @@
 
 * { box-sizing: border-box; }
 * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+/* Light: only used inside Citadel, when its theme is Light (or a custom theme built on Light) -- Citadel's own light
+   palette, so the embedded page matches it. Standalone, this page is always dark. */
+:root[data-theme="light"] {
+  --bg:         #f2e8d5;
+  --surface:    #f8f0e2;
+  --surface-2:  #faf4e6;
+  --surface-3:  #fdf9f0;
+  --accent:      #b5541f;
+  --accent-hi:   #d9691f;
+  --accent-soft: #82401b;
+  --accent-deep: #6e2a12;
+  --accent-wash: rgba(181, 84, 31, 0.10);
+  --silver-hi:   #2a2015;
+  --silver:      #4a3c2a;
+  --silver-mute: #6b5c44;
+  --silver-dim:  #93876c;
+  --edge:        #ddcda8;
+  --edge-strong: rgba(217, 105, 31, 0.45);
+  --ok:   #0d8a6a;
+  --warn: #b8791f;
+  --bad:  #8a2e2e;
+  --well: rgba(42, 32, 21, 0.07);
+}
+
 html { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+/* Inside Citadel, when its custom theme has a background picture: see-through, so the picture shows behind the panels. */
+html.citadel-bg, html.citadel-bg body { background: transparent; }
 body {
   margin: 0; min-height: 100vh;
   font-family: var(--font-display); font-size: 14px; line-height: 1.45;
   color: var(--silver);
   background:
-    radial-gradient(1100px 600px at 12% -10%, rgba(139, 92, 246, 0.12), transparent 60%),
-    radial-gradient(900px 500px at 105% 105%, rgba(76, 29, 149, 0.18), transparent 60%),
+    radial-gradient(1100px 600px at 12% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+    radial-gradient(900px 500px at 105% 105%, color-mix(in srgb, var(--accent-deep) 18%, transparent), transparent 60%),
     var(--bg);
   background-attachment: fixed;
 }
 a { color: inherit; }
 ::selection { background: var(--accent-deep); color: var(--silver-hi); }
-:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; box-shadow: 0 0 0 4px rgba(168, 85, 247, .18); }
+:focus-visible { outline: 1px solid var(--accent-hi); outline-offset: 2px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-hi) 18%, transparent); }
 
 .mono { font-family: var(--font-mono); }
 .hud { font-family: var(--font-mono); font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--silver-mute); white-space: nowrap; }
@@ -61,15 +89,15 @@ a { color: inherit; }
 .top { display: flex; align-items: center; gap: 16px; padding: 16px 22px; border-bottom: 1px solid var(--edge); }
 .wordmark {
   font-family: var(--font-display); font-weight: 700; font-size: 19px; letter-spacing: .3em; text-transform: uppercase;
-  background: linear-gradient(180deg, #fff 0%, #c9ced6 45%, #7d8493 52%, #d6dae1 100%);
+  background: linear-gradient(180deg, var(--silver-hi) 0%, var(--silver) 45%, var(--silver-mute) 52%, var(--silver-hi) 100%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 0 10px rgba(139, 92, 246, .25));
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 25%, transparent));
 }
 .top .hud { margin-top: 2px; }
 .top__right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .chip { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
   padding: 3px 7px; color: var(--silver-mute); border: 1px solid var(--edge); border-radius: 2px; white-space: nowrap; }
-.chip--ro { color: var(--ok); border-color: rgba(52, 211, 153, .35); }
+.chip--ro { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
 
 .shell { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 18px; padding: 18px 22px 40px; align-items: start; min-height: calc(100vh - 60px); }
 @media (max-width: 900px) { .shell { grid-template-columns: 1fr; } }
@@ -119,7 +147,7 @@ a { color: inherit; }
    leaving the Tables sidebar untouched since it sits outside .workspace entirely -------------------------- */
 .workspace.has-max::before {
   content: ""; position: absolute; inset: 0; z-index: 15;
-  background: rgba(5, 4, 8, .78); backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter: blur(6px);
 }
 .card.is-max {
   grid-area: auto;   /* an absolutely positioned grid child keeps sizing itself against its *original* grid
@@ -142,7 +170,7 @@ a { color: inherit; }
 .card {
   --c: var(--chamfer);
   position: relative; padding: 1px;
-  background: linear-gradient(135deg, rgba(201, 206, 214, .28), rgba(139, 92, 246, .18) 45%, rgba(201, 206, 214, .08));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--silver) 28%, transparent), color-mix(in srgb, var(--accent) 18%, transparent) 45%, color-mix(in srgb, var(--silver) 8%, transparent));
   clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)));
 }
 .card__in {
@@ -158,19 +186,19 @@ a { color: inherit; }
 .schema { position: sticky; top: 18px; max-height: calc(100vh - 100px); display: flex; flex-direction: column; }
 .schema .card__body { overflow: auto; padding-top: 8px; }
 .schema__filter { width: 100%; padding: 7px 9px; margin-bottom: 8px; font: 12px/1.4 var(--font-mono); color: var(--silver-hi);
-  background: rgba(0, 0, 0, .38); border: 1px solid var(--edge); outline: none; }
-.schema__filter:focus { border-color: var(--edge-strong); box-shadow: 0 0 0 3px rgba(168, 85, 247, .16); }
+  background: var(--well); border: 1px solid var(--edge); outline: none; }
+.schema__filter:focus { border-color: var(--edge-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hi) 16%, transparent); }
 .table { border-top: 1px solid var(--edge); }
 .table:first-child { border-top: 0; }
 .table__head { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 4px; background: none; border: 0; color: var(--silver-hi);
   font-family: var(--font-mono); font-size: 12.5px; text-align: left; cursor: pointer; }
-.table__head:hover { color: #fff; }
+.table__head:hover { color: var(--silver-hi); }
 .table__head .i { width: 11px; height: 11px; color: var(--silver-dim); transition: transform .15s var(--ease); flex: none; }
 .table[open] > .table__head .i { transform: rotate(90deg); }
 .table__count { margin-left: auto; color: var(--silver-dim); font-size: 10.5px; }
 .cols { list-style: none; margin: 0 0 8px; padding: 0 0 0 19px; }
 .col { display: flex; align-items: baseline; gap: 6px; padding: 3px 4px; cursor: pointer; border-radius: 2px; font-size: 12px; }
-.col:hover { background: var(--accent-wash); color: #fff; }
+.col:hover { background: var(--accent-wash); color: var(--silver-hi); }
 .col__name { color: var(--silver); font-family: var(--font-mono); }
 .col__type { color: var(--silver-dim); font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
 .col__pk { color: var(--accent-soft); }
@@ -181,17 +209,17 @@ a { color: inherit; }
 #sql {
   width: 100%; min-height: 120px; padding: 12px 14px; resize: vertical;
   font: 13.5px/1.6 var(--font-mono); color: var(--silver-hi);
-  background: rgba(0, 0, 0, .4); border: 1px solid var(--edge); outline: none; white-space: pre; overflow-wrap: normal; overflow-x: auto;
+  background: var(--well); border: 1px solid var(--edge); outline: none; white-space: pre; overflow-wrap: normal; overflow-x: auto;
   transition: border-color .2s, box-shadow .2s;
 }
-#sql:focus { border-color: var(--edge-strong); box-shadow: 0 0 0 3px rgba(168, 85, 247, .14); }
+#sql:focus { border-color: var(--edge-strong); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hi) 14%, transparent); }
 #sql::placeholder { color: var(--silver-dim); }
 
 .ac { position: absolute; z-index: 20; min-width: 200px; max-width: 360px; max-height: 260px; overflow: auto;
   background: var(--surface-3); border: 1px solid var(--edge-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
 .ac__item { display: flex; align-items: baseline; gap: 8px; padding: 6px 10px; cursor: pointer; font-family: var(--font-mono); font-size: 12.5px; color: var(--silver); }
 .ac__item small { margin-left: auto; color: var(--silver-dim); font-size: 10px; text-transform: uppercase; }
-.ac__item.is-active, .ac__item:hover { background: var(--accent-wash); color: #fff; }
+.ac__item.is-active, .ac__item:hover { background: var(--accent-wash); color: var(--silver-hi); }
 .ac__kind { width: 14px; flex: none; text-align: center; color: var(--accent-soft); font-size: 10px; }
 
 /* ---- buttons / controls (used in .toolbar-row above, and elsewhere) --------------------------------------- */
@@ -203,10 +231,10 @@ a { color: inherit; }
 .btn:hover { color: var(--silver-hi); border-color: var(--edge-strong); background: var(--accent-wash); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 .btn--go { color: var(--accent-soft); border-color: var(--edge-strong); }
-.btn--go:hover { box-shadow: 0 0 16px rgba(139, 92, 246, .3); }
+.btn--go:hover { box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 30%, transparent); }
 .btn--danger { color: #ffb3c0; border-color: rgba(244, 63, 94, .45); }   /* same red as .error, below */
 .btn--danger:hover { color: #ffb3c0; border-color: rgba(244, 63, 94, .7); background: rgba(244, 63, 94, .1); box-shadow: 0 0 16px rgba(244, 63, 94, .25); }
-.select { padding: 7px 10px; font: 11px var(--font-mono); letter-spacing: .06em; color: var(--silver); background: rgba(0, 0, 0, .38); border: 1px solid var(--edge); }
+.select { padding: 7px 10px; font: 11px var(--font-mono); letter-spacing: .06em; color: var(--silver); background: var(--well); border: 1px solid var(--edge); }
 .status { font-family: var(--font-mono); font-size: 11.5px; color: var(--silver-mute); }
 .status b { color: var(--silver-hi); font-weight: 500; }
 
@@ -254,3 +282,6 @@ table.grid td.null { color: var(--silver-dim); font-style: italic; }
 .recent__head[aria-expanded="true"] .recent__chevron { transform: rotate(90deg); }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
+/* Light (inside Citadel): the pale pink error/danger text is made for dark panels -- use the light palette's red. */
+:root[data-theme="light"] .error, :root[data-theme="light"] .btn--danger, :root[data-theme="light"] .btn--danger:hover { color: var(--bad); }

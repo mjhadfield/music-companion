@@ -1566,18 +1566,41 @@ function isEmbedded() {
   return window.self !== window.top;
 }
 
-/** Embedded: theme is driven entirely by Citadel's own toggle (initial value via a
- * ?theme= query param, live changes via postMessage) -- the local toggle button is
+/** Embedded: theme is driven entirely by Citadel (initial value via a ?theme= query
+ * param, then postMessage on every load and change) -- the local toggle button is
  * removed outright so it can never be clicked and fight the parent. Standalone: the
- * existing self-contained initTheme() (localStorage + matchMedia fallback) is untouched. */
+ * existing self-contained initTheme() (localStorage + matchMedia fallback) is untouched.
+ *
+ * Citadel's custom themes (Settings -> Appearance) arrive as `vars`: the same CSS variable
+ * names this page already uses (the palettes were harmonised), so they're applied as-is.
+ * `bg` means Citadel draws a background picture behind this frame: the page's own backdrop
+ * goes see-through so it shows. color-scheme is pinned to the mode so the browser never
+ * paints an opaque backdrop under a transparent frame of a different scheme. */
+let citadelVars = [];
+function applyCitadelLook(msg) {
+  applyTheme(msg.theme);
+  const root = document.documentElement;
+  root.style.colorScheme = msg.theme;
+  citadelVars.forEach((name) => root.style.removeProperty(name));
+  citadelVars = [];
+  if (msg.vars && typeof msg.vars === "object") {
+    for (const [name, value] of Object.entries(msg.vars)) {
+      if (!/^--[a-z0-9-]+$/.test(name) || typeof value !== "string" || value.length > 200) continue;
+      root.style.setProperty(name, value);
+      citadelVars.push(name);
+    }
+  }
+  root.classList.toggle("citadel-bg", !!msg.bg);
+}
+
 function initEmbeddedTheme() {
   document.getElementById("theme-toggle")?.remove();
   const initial = new URLSearchParams(location.search).get("theme");
-  if (initial === "light" || initial === "dark") applyTheme(initial);
+  if (initial === "light" || initial === "dark") applyCitadelLook({ theme: initial });
   window.addEventListener("message", (event) => {
     if (event.origin !== CITADEL_ORIGIN) return;
     if (event.data?.type === "citadel-theme" && (event.data.theme === "light" || event.data.theme === "dark")) {
-      applyTheme(event.data.theme);
+      applyCitadelLook(event.data);
       if (db) render(); // db not loaded yet (e.g. message arrives mid-boot) -- nothing on screen to redraw
     }
   });

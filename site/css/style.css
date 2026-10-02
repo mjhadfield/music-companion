@@ -20,7 +20,7 @@
   --well: rgba(0, 0, 0, 0.38); --vignette: rgba(0, 0, 0, 0.45);
 
   --accent-vinyl: #d9a441;    /* new: warm brass/gold, distinct from violet+silver -- "physical/analog" */
-  --accent-scrobble: #8b5cf6; /* = --accent: scrobbles are the everyday/default category */
+  --accent-scrobble: var(--accent); /* = --accent: scrobbles are the everyday/default category (so a Citadel custom theme's accent recolours them too) */
   --accent-live: #f43f5e;     /* = --bad's rose-red, repurposed here as "hot/live" energy, not an error */
 
   --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
@@ -43,7 +43,7 @@
   --ok: #0d8a6a; --warn: #b8791f; --bad: #8a2e2e;
   --well: rgba(42, 32, 21, 0.07); --vignette: rgba(42, 32, 21, 0.10);
 
-  --accent-vinyl: #460c80; --accent-scrobble: #b5541f; --accent-live: #227f38;
+  --accent-vinyl: #460c80; --accent-scrobble: var(--accent); --accent-live: #227f38;
 
   --bg-elevated: var(--surface-2); --border: var(--edge); --text: var(--silver-hi);
   --text-dim: var(--silver-mute); --text-muted: var(--silver-dim); --gridline: var(--edge);
@@ -76,6 +76,10 @@ body {
 }
 
 a { color: inherit; text-decoration: none; }
+
+/* Inside Citadel, when its custom theme has a background picture (see applyCitadelLook in app.js): the page
+   backdrop goes see-through so Citadel's picture shows behind the panels, as it does on its own dashboard. */
+html.citadel-bg, html.citadel-bg body { background: transparent; }
 
 h1, h2 {
   font-family: var(--font-display);

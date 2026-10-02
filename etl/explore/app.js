@@ -10,6 +10,29 @@ const CHEVRON = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentC
 const sql = $('#sql'), ac = $('#ac'), runBtn = $('#run'), csvBtn = $('#csv'), limitSel = $('#limit');
 const status = $('#status'), errorEl = $('#error'), results = $('#results');
 
+// ---- inside Citadel (its SQL DB page): follow Citadel's theme -- dark/light and its custom themes (Settings ->
+// Appearance), sent by postMessage. The colour variables have the same names as Citadel's, so a custom theme's
+// colours apply as-is; `bg` means Citadel draws a background picture behind this frame, so ours goes see-through.
+// Only messages from Citadel itself are listened to.
+const CITADEL_ORIGIN = 'http://192.168.0.66:8080';
+let citadelVars = [];
+if (window.self !== window.top) {
+  window.addEventListener('message', event => {
+    const msg = event.data;
+    if (event.origin !== CITADEL_ORIGIN || msg?.type !== 'citadel-theme' || !['light', 'dark'].includes(msg.theme)) return;
+    const root = document.documentElement;
+    if (msg.theme === 'light') root.dataset.theme = 'light'; else delete root.dataset.theme;
+    citadelVars.forEach(name => root.style.removeProperty(name));
+    citadelVars = [];
+    for (const [name, value] of Object.entries(msg.vars && typeof msg.vars === 'object' ? msg.vars : {})) {
+      if (!/^--[a-z0-9-]+$/.test(name) || typeof value !== 'string' || value.length > 200) continue;
+      root.style.setProperty(name, value);
+      citadelVars.push(name);
+    }
+    root.classList.toggle('citadel-bg', !!msg.bg);
+  });
+}
+
 let schema = {};          // table name -> { columns, foreign_keys, row_count }
 let lastResult = null;    // the most recent successful query's {columns, rows, ...}, for CSV export
 

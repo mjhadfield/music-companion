@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music DB Explorer</title>
 <link rel="stylesheet" href="app.css" />
+<script>
+  // Inside Citadel: start in its mode straight away (no dark flash before a Light theme). The rest -- a custom
+  // theme's colours and background -- arrives by postMessage once app.js is running.
+  if (window.self !== window.top && new URLSearchParams(location.search).get('theme') === 'light') {
+    document.documentElement.dataset.theme = 'light';
+  }
+</script>
 </head>
 <body>
 <header class="top">
