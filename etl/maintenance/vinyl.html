@@ -197,7 +197,8 @@ function fmtTags(h) {
     `<span class="badge ${t.kind === "reissue" ? "reissue" : t.kind === "colour" ? "colour" : t.kind === "warn" ? "warn" : ""}" title="${esc(t.code)}">${esc(t.label)}</span>`).join("")}</span>`;
 }
 function pressingKind(h) {
-  if (h.formatInfo.reissue) return `<span class="badge reissue">Reissue${h.pressingYear ? ` ${h.pressingYear}` : ""}</span>`;
+  if (h.press?.kind === "original") return `<span class="badge high">Original pressing</span>`;
+  if (h.formatInfo.reissue) return `<span class="badge reissue">${h.press?.kind === "repress" ? "Repress" : "Reissue"}${h.pressingYear ? ` ${h.pressingYear}` : ""}</span>`;
   if (h.pressingYear && h.originalYear && h.pressingYear === h.originalYear) return `<span class="badge high">Original pressing</span>`;
   return h.pressingYear ? `<span class="badge">Pressed ${h.pressingYear}</span>` : "";
 }
@@ -396,6 +397,7 @@ function renderDrawer(h) {
   renderLinkSection($("link"), h);
   loadGenreChips($("genres"), a.albumId);
   renderColourEditor(dBody.querySelector("[data-role='colour']"), h);
+  renderPressEditor(dBody.querySelector("[data-role='press']"), h);
   renderTitleYear($("titleyear"), h);
   renderCover($("cover"), h);
   renderCopyLook($("look"), h);
@@ -448,6 +450,32 @@ function detectedColours(h) {
   const tags = (h.formatInfo?.tags || []).filter((t) => t.kind === "colour").map((t) => t.label);
   return [...tags, ...(h.formatText ? [h.formatText] : [])];
 }
+// What kind of pressing this copy is. Discogs' format tags (RE / RP) and dates decide by default;
+// a dateless repress has neither, so it would pass for an original -- this overrules them.
+const PRESS_TEXT = { original: "Original press", reissue: "Reissue", repress: "Repress" };
+function renderPressEditor(host, h) {
+  const p = h.press || { kind: null, year: null, detected: { reissue: h.formatInfo.reissue, year: h.pressingYear } };
+  const det = p.detected.reissue ? `Reissue${p.detected.year ? ` ${p.detected.year}` : ""}` : p.detected.year ? `Original press (${p.detected.year})` : "Original press — no reissue tag or year on Discogs";
+  host.innerHTML = `
+    <div class="inline-form" style="gap:6px; flex-wrap:wrap">
+      <select data-role="press-kind" aria-label="Pressing">
+        <option value="">From Discogs: ${esc(det)}</option>
+        ${Object.entries(PRESS_TEXT).map(([k, t]) => `<option value="${k}"${p.kind === k ? " selected" : ""}>${t}</option>`).join("")}
+      </select>
+      <input type="number" data-role="press-year" min="1900" max="2100" placeholder="${p.detected.year || "year"}" value="${p.year || ""}" style="width:90px" aria-label="Pressing year" title="This pressing's year, if you know it (blank = Discogs')" />
+      <button class="small" data-role="press-save">Save</button>
+      ${p.kind || p.year ? `<span class="badge accent" title="Set by hand">set by hand</span>` : ""}
+    </div>`;
+  host.querySelector("[data-role='press-save']").addEventListener("click", async () => {
+    const kind = host.querySelector("[data-role='press-kind']").value, year = host.querySelector("[data-role='press-year']").value;
+    const { ok, data } = await api("/api/vinyl/pressing", { vinylId: h.vinylId, kind, year });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    if (data.editId) toast(data.kind || data.year ? `This copy is now a <b>${esc(PRESS_TEXT[data.kind] || "pressing")}</b>${data.year ? ` from ${data.year}` : ""}` : "Back to what Discogs says",
+      { undo: { kind: "edit", id: data.editId, onUndone: () => openDrawer(h.vinylId, { scroll: false }) } });
+    refresh();
+  });
+}
+
 function renderColourEditor(host, h) {
   const cur = h.discColour;
   const detected = detectedColours(h);
@@ -518,6 +546,7 @@ function pressingHtml(h) {
   return `<dl class="kv">
     <dt>Format</dt><dd>${fmtTags(h)}</dd>
     <dt>Label</dt><dd>${esc(h.label || "—")}${h.catalogNumber ? ` · <span class="mono">${esc(h.catalogNumber)}</span>` : ""}</dd>
+    <dt>Pressing</dt><dd data-role="press"></dd>
     <dt>Released</dt><dd>${h.pressingYear || "—"}${h.discogs?.country ? ` · ${esc(h.discogs.country)}` : ""}${h.discogs?.masterId ? ` · <a class="mb" href="https://www.discogs.com/master/${h.discogs.masterId}" target="_blank" rel="noopener">Discogs master ↗</a>` : ""}</dd>
     <dt>Colour</dt><dd data-role="colour"></dd>
     <dt>Condition</dt><dd>${esc(h.mediaCondition || "—")} <span class="meta">(media)</span>${h.sleeveCondition ? ` · ${esc(h.sleeveCondition)} <span class="meta">(sleeve)</span>` : ""}</dd>

@@ -131,6 +131,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if content_type.split(";")[0] in ("text/html", "application/javascript", "text/javascript", "text/css"):
+            # the pages and scripts change with the tools: a browser must re-check them, never reuse a stale copy
+            self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 

@@ -179,7 +179,8 @@ function loadCollection() {
   const rows = query(`
     SELECT v.id, v.album_id, v.label, v.catalog_number, v.format, v.media_condition, v.sleeve_condition, v.rating, v.notes,
            v.date_added, v.discogs_release_id, v.mb_release_id${hasColumn("vinyl_holdings", "pressing_year") ? ", v.pressing_year AS csv_pressing_year, v.disc_colour" : ""}
-           ${hasColumn("vinyl_holdings", "cover_file") ? ", v.cover_file, v.display_title, v.release_year" : ""},
+           ${hasColumn("vinyl_holdings", "cover_file") ? ", v.cover_file, v.display_title, v.release_year" : ""}
+           ${hasColumn("vinyl_holdings", "press_kind") ? ", v.press_kind, v.press_year" : ""},
            al.title, al.year, al.cover_status, al.cover_updated_at, al.mbid AS album_mbid, ar.id AS artist_id, ar.name AS artist_name, ar.sort_name,
            (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id
               ${hasTable("album_parts") ? "OR s.album_id IN (SELECT part_album_id FROM album_parts WHERE album_id = al.id)" : ""}) AS plays
@@ -207,8 +208,9 @@ function loadCollection() {
     const f = parseFormat(r.format);
     const desc = jsonOr(r.format_descriptions, []);
     const labels = [...new Set(String(r.label || "").split(/\s*,\s*/).filter(Boolean))];
-    const pressingYear = r.discogs_year || r.csv_pressing_year || null;
-    const markedReissue = f.reissue || desc.some((d) => /reissue|repress|remaster/i.test(d));
+    // the pressing's kind and year can be set by hand in maintenance (a dateless repress): that wins
+    const pressingYear = r.press_year || r.discogs_year || r.csv_pressing_year || null;
+    const markedReissue = r.press_kind ? r.press_kind !== "original" : f.reissue || desc.some((d) => /reissue|repress|remaster/i.test(d));
     // A reissue whose album year isn't earlier than the pressing: that "album year" is really the
     // pressing's own (not corrected in maintenance yet) -- the original year is unknown, not that.
     // A copy that's its own release (Electric Ladyland Part 1, a picture disc) can carry its own
@@ -219,7 +221,8 @@ function loadCollection() {
       ...r, title: r.display_title || r.title, albumTitle: r.title, ownLook: Boolean(r.cover_file || r.display_title || r.release_year), label: labels.join(" / ") || null, labels, fmt: f, discs: f.discs, pressing_year: pressingYear,
       // a reissue: the format says so, or this pressing came out well after the album did
       year: originalYear, yearUnconfirmed: originalYear == null && Boolean(albumYear),
-      reissue: markedReissue || Boolean(pressingYear && originalYear && pressingYear >= originalYear + 2),
+      reissue: markedReissue || (!r.press_kind && Boolean(pressingYear && originalYear && pressingYear >= originalYear + 2)),
+      reissueWord: r.press_kind === "repress" ? "repress" : "reissue",
       tagCodes: new Set(f.tags.map((t) => t.code)), descText: `${desc.join(" ")} ${r.format_text || ""}`,
       parts: partsOf[r.album_id] || [],
       // a set's genres are its albums' when it has none of its own
@@ -480,7 +483,7 @@ const colourDot = (r) => (r.colours.length && FORMAT_FACETS.Coloured(r) ? `<i cl
 // the key facts: what kind of pressing, its notable features and colour, label, country, when bought.
 function recTileHtml(r, { details = false } = {}) {
   const press = r.reissue
-    ? `<span class="rec-press" title="${r.year ? `A ${r.pressing_year || ""} reissue of the ${r.year} album` : "A reissue — the album's original year isn't confirmed yet"}">${r.pressing_year ? `${r.pressing_year} ` : ""}reissue</span>`
+    ? `<span class="rec-press" title="${r.year ? `A ${r.pressing_year || ""} ${r.reissueWord} of the ${r.year} album` : `A ${r.reissueWord} — the album's original year isn't confirmed yet`}">${r.pressing_year ? `${r.pressing_year} ` : ""}${r.reissueWord}</span>`
     : details ? `<span class="rec-press og">original press</span>` : "";
   let extra = "";
   if (details) {
@@ -796,7 +799,7 @@ function recordDetailHtml(r, all) {
   const companies = jsonOr(r.companies, []);
   const pressedBy = companies.filter((c) => /pressed by|manufactured by|made by/i.test(c.role || "")).map((c) => `${c.role}: ${c.name}`);
   const pressingYear = r.pressing_year || (r.released || "").slice(0, 4);
-  const pressKind = r.reissue ? "reissue" : "original press";
+  const pressKind = r.reissue ? r.reissueWord : "original press";
   const fmtDate = (s) => (s ? new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "");
   const top = songs[0]?.plays ? songs[0] : null;
   return `
@@ -986,7 +989,7 @@ function albumReferenceTracklist(albumId) {
   if (!presses.length) return musicbrainzTracklist(albumId);
   presses.sort((a, b) => (a.r.reissue - b.r.reissue) || (a.tracks.length - b.tracks.length));
   const { r, tracks } = presses[0];
-  const what = [r.reissue ? `${r.pressing_year || ""} reissue` : "original press", r.country].filter(Boolean).join(", ").trim();
+  const what = [r.reissue ? `${r.pressing_year || ""} ${r.reissueWord}` : "original press", r.country].filter(Boolean).join(", ").trim();
   return { tracks, source: `your ${what} pressing`, holdingId: r.id, pressing: true };
 }
 

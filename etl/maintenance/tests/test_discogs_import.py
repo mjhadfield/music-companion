@@ -111,6 +111,18 @@ class DiscogsImportTests(unittest.TestCase):
         discogs_import.import_csv(self._csv("third", [STAR_WARS, DESTROYER]))
         self.assertEqual(self._open(), [])                                                       # back in the export: settled
 
+    def test_a_pressing_set_by_hand_is_journaled_and_undoes(self):
+        from api import vinyl
+        from api.general import undo
+        hid = self.conn.execute("SELECT id FROM vinyl_holdings WHERE discogs_release_id = 2000").fetchone()[0]
+        before = checksum(self.conn, ["vinyl_holdings"])
+        out = vinyl.set_pressing(Req({}, {"vinylId": hid, "kind": "repress", "year": ""}))
+        self.assertEqual(self.conn.execute("SELECT press_kind, press_year FROM vinyl_holdings WHERE id = ?", (hid,)).fetchone(), ("repress", None))
+        with self.assertRaises(Exception):
+            vinyl.set_pressing(Req({}, {"vinylId": hid, "kind": "bootleg"}))
+        undo(Req({}, {"kind": "edit", "id": out["editId"]}))
+        self.assertEqual(checksum(self.conn, ["vinyl_holdings"]), before)
+
 
 if __name__ == "__main__":
     unittest.main()
