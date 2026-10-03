@@ -390,6 +390,17 @@ def _variant_merges(c) -> list[dict]:
             continue
         j = json.loads(undo_json)
         own_album = (j.get("absorbed_row") or {}).get("album_id")
+        # where the merged-away plays and shows sit now, and the text they arrived under -- what a
+        # split (merge.split_song) needs when the journal can't be replayed any more
+        holders, raws = set(), set()
+        for table, col in (("scrobbles", "raw_track_text"), ("setlist_songs", "raw_song_text")):
+            ids = j["moved"].get(f"{table}.song_id") or []
+            for i in range(0, len(ids), 800):
+                chunk = ids[i:i + 800]
+                for holder, raw in c.execute(f"SELECT song_id, {col} FROM {table} WHERE id IN ({','.join('?' * len(chunk))})", chunk):
+                    holders.add(holder)
+                    if raw:
+                        raws.add(raw)
         album = c.execute("SELECT title FROM albums WHERE id = ?", (own_album,)).fetchone() if own_album else None
         out.append({
             "logId": log_id, "absorbed": absorbed, "canonicalId": canon_id, "canonical": canon_name,
@@ -397,6 +408,10 @@ def _variant_merges(c) -> list[dict]:
             "plays": len(j["moved"].get("scrobbles.song_id") or []), "shows": len(j["moved"].get("setlist_songs.song_id") or []),
             "album": album[0] if album else None, "canonicalAlbum": canon_album_title,
             "gone": canon_album is None,  # the studio song has since been merged away itself
+            # only spellings that carry the version's own tag -- a plain "Paranoid" among them would
+            # drag studio plays out with it
+            "holderId": next(iter(holders)) if len(holders) == 1 else None,
+            "rawTitles": sorted(r for r in raws if set(split_title(r)[1]) & tags),
         })
     return out
 

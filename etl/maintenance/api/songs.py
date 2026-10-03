@@ -35,7 +35,8 @@ import mbcache
 import merge
 from api.core import ApiError, read_conn, route, write_tx
 from common import artist_mbid_sets
-from titles import base_key, sequel_marker, split_title
+from singles import COMPILATION_RE as _COMPILATION_RE
+from titles import base_key, sequel_marker, split_title, track_key
 
 NONSONG_RULES = [  # checked in order; the first hit names the kind
     ("medley", re.compile(r"\bmedley\b|\s/\s", re.I)),
@@ -128,9 +129,16 @@ def _find_match(s: dict, cands: list[dict]) -> tuple[dict, bool, float] | None:
     return None
 
 
+def _compact(title: str) -> str:
+    """track_key blind to spacing and punctuation: MusicBrainz's "2,000 Man" is your "2000 Man"."""
+    return re.sub(r"[\W_]+", "", track_key(title or ""))
+
+
 def live_statuses(c, pairs: list[tuple[int, dict]], names: dict[int, str] | None = None) -> dict[tuple[int, int], dict]:
     """Status for each (performer id, song profile). Returns {(performer, songId): info}."""
-    artist_ids = sorted({s["artistId"] for _p, s in pairs} | {p for p, _s in pairs})
+    performers = {p for p, _s in pairs}
+    linked = {p: merge.linked_artists(c, p) for p in performers}   # a solo act's band (Ace Frehley -> Kiss), etc.
+    artist_ids = sorted({s["artistId"] for _p, s in pairs} | performers | {a for v in linked.values() for a in v})
     cands_by_artist = defaultdict(list)
     if artist_ids:
         cand_ids = [r[0] for r in c.execute(f"SELECT id FROM songs WHERE album_id IS NOT NULL AND artist_id IN ({_in(artist_ids)})", artist_ids)]
@@ -142,7 +150,7 @@ def live_statuses(c, pairs: list[tuple[int, dict]], names: dict[int, str] | None
     # Cached MusicBrainz lookups: the band's own recording (covers), and the song artist's.
     keys = set()
     for perf, s in pairs:
-        for m in mbid_sets.get(perf, set()) | mbid_sets.get(s["artistId"], set()):
+        for m in mbid_sets.get(perf, set()) | mbid_sets.get(s["artistId"], set()) | {m for la in linked[perf] for m in mbid_sets.get(la, set())}:
             keys.add(mbcache.recording_release_groups_key(s["title"], m))
     cache = {}
     klist = list(keys)
@@ -175,6 +183,25 @@ def live_statuses(c, pairs: list[tuple[int, dict]], names: dict[int, str] | None
                 f"SELECT al.id, al.title, al.year, al.mbid, aa.artist_id FROM albums al JOIN album_artists aa ON aa.album_id = al.id "
                 f"WHERE aa.artist_id IN ({_in(artist_ids)})", artist_ids):
             local_titles[(credited, base_key(title))].add((aid, title, year, mbid))
+
+    # the albums each involved artist is credited on, by the titles on their tracklists (MusicBrainz's
+    # original release, or your pressing) -- "2000 Man" is a track on Kiss's Dynasty even before you've
+    # played it. Studio albums first: a live album or a compilation only when nothing else lists it.
+    on_tracklist = defaultdict(dict)   # artist -> track key -> (album id, title, year)
+    if artist_ids:
+        rows = c.execute(f"""
+            SELECT aa.artist_id, al.id, al.title, al.year, t.title FROM album_tracklists t JOIN albums al ON al.id = t.album_id
+              JOIN album_artists aa ON aa.album_id = al.id WHERE aa.artist_id IN ({_in(artist_ids)})
+            UNION SELECT aa.artist_id, al.id, al.title, al.year, json_extract(j.value, '$.title') FROM vinyl_holdings v
+              JOIN vinyl_details d ON d.holding_id = v.id, json_each(d.tracklist) j JOIN albums al ON al.id = v.album_id
+              JOIN album_artists aa ON aa.album_id = al.id WHERE aa.artist_id IN ({_in(artist_ids)})""", artist_ids + artist_ids).fetchall()
+        rank = lambda t, y: (bool(split_title(t)[1] & {"live"}) or bool(_COMPILATION_RE.search(t or "")), y or 9999)
+        for artist, aid, atitle, year, ttitle in sorted(rows, key=lambda r: (rank(r[2], r[3]), r[1])):
+            on_tracklist[artist].setdefault(_compact(ttitle), (aid, atitle, year))
+
+    def tracklist_album(title, artist):
+        hit = on_tracklist.get(artist, {}).get(_compact(title))
+        return {"albumId": hit[0], "title": hit[1], "year": hit[2], "byTracklist": True} if hit else None
 
     def candidate(g, owner):
         credit = rg_credit.get(g["mbid"])
@@ -225,13 +252,25 @@ def live_statuses(c, pairs: list[tuple[int, dict]], names: dict[int, str] | None
         out[(perf, s["songId"])] = info
         cover = s["artistId"] != perf
         own_ok = cover and f"cover-original:{perf}" not in s["marks"]
-        # 1. the band's own studio recording (covers only), 2. the song artist's
-        own = _find_match(s, cands_by_artist[perf]) if own_ok else None
+        # an artist linked to the performer (Kiss for Ace Frehley) -- never the song's own artist: Ozzy
+        # playing Black Sabbath's "Paranoid" already sits on Sabbath's recording
+        links = [a for a in linked[perf] if a != s["artistId"]] if (own_ok or not s["albumId"]) else []
+        # 1. the band's own studio recording (covers only), 2. a linked artist's, 3. the song artist's
+        own, via = (_find_match(s, cands_by_artist[perf]) if own_ok else None), perf
+        if not own and (own_ok or not s["albumId"]):
+            for la in links:
+                own = _find_match(s, cands_by_artist[la])
+                if own:
+                    via = la
+                    break
         orig = None if s["albumId"] else _find_match(s, cands_by_artist[s["artistId"]])
+        if own and via != perf and orig and not cover:
+            own = None                                   # the performer's own song with an album wins over a linked one
         if own:
             t, exact, score = own
             info["status"] = "match"
-            info["target"] = {**_brief(t), "exact": exact, "score": score, "relink": True, "performerName": names.get(perf)}
+            info["target"] = {**_brief(t), "exact": exact, "score": score, "relink": True, "performerName": names.get(via),
+                              "linked": via != perf}
             if s["albumId"]:
                 info["alt"] = {**_brief(s), "keep": True}  # it's already on the original's album -- keeping that is the alternative
             elif orig:
@@ -248,27 +287,56 @@ def live_statuses(c, pairs: list[tuple[int, dict]], names: dict[int, str] | None
             info["status"] = "match"
             info["target"] = {**_brief(t), "exact": exact, "score": score, "relink": False}
             continue
+        # on a tracklist in your library: the band's own album (covers), else a linked artist's
+        tl_hits = ([(perf, tracklist_album(s["title"], perf))] if own_ok else []) + [(la, tracklist_album(s["title"], la)) for la in links]
+        if not cover and not s["albumId"]:
+            tl_hits.insert(0, (perf, tracklist_album(s["title"], perf)))
+        tl_owner, tl_album = next(((o, a) for o, a in tl_hits if a), (None, None))
+        if tl_album:
+            relink_new = tl_owner != s["artistId"]
+            info["status"], info["mbAlbum"] = "album", {**tl_album, "relinkNew": relink_new, "performerName": names.get(tl_owner),
+                                                        "linked": tl_owner != perf}
+            continue
         kind = nonsong_kind(s["title"])
         if kind:
             info["status"], info["kind"] = "nonsong", kind
             continue
         own_album, own_looked, own_first, own_new = mb_album(s["title"], perf, s["marks"]) if own_ok else (None, False, None, [])
         orig_album, orig_looked, orig_first, orig_new = mb_album(s["title"], s["artistId"], s["marks"])
+        # linked artists' recordings: after the band's own, before the original artist's
+        link_album = link_owner = None
+        link_looked, link_first, link_new, link_pending = False, None, [], False
+        if not own_album:
+            for la in links:
+                a, looked, first, new = mb_album(s["title"], la, s["marks"])
+                link_looked = link_looked or looked
+                # pending while any of its MusicBrainz ids hasn't been asked yet (an "also releases as" added later)
+                link_pending = link_pending or any(mbcache.recording_release_groups_key(s["title"], m) not in cache for m in mbid_sets.get(la, ()))
+                link_first = link_first or first
+                link_new += new
+                if a and not link_album:
+                    link_album, link_owner = a, la
         if own_album:
             info["status"], info["mbAlbum"] = "album", {**own_album, "relinkNew": True, "performerName": names.get(perf)}
-        elif orig_album:
+        elif link_album and not (orig_album and not cover):
+            info["status"], info["mbAlbum"] = "album", {**link_album, "relinkNew": True, "performerName": names.get(link_owner), "linked": True}
+        elif orig_album and not (cover and link_pending):
             info["status"], info["mbAlbum"] = "album", {**orig_album, "relinkNew": False}
-        elif own_new or orig_new:
-            # the band's own recording first (covers), then the song artist's
-            info["status"], info["mbCandidates"] = "newalbum", (own_new + orig_new)[:MAX_CANDIDATES]
+        elif link_pending:
+            # a linked artist's recording would beat the original's -- ask MusicBrainz about it first
+            info["status"], info["lookable"] = "unchecked", True
+        elif own_new or link_new or orig_new:
+            # the band's own recording first (covers), then a linked artist's, then the song artist's
+            info["status"], info["mbCandidates"] = "newalbum", (own_new + link_new + orig_new)[:MAX_CANDIDATES]
             info["needsDetail"] = info["mbCandidates"][0]["creditOk"] is None
-        elif own_looked or orig_looked:
+        elif (own_looked or link_looked or orig_looked) and not link_pending:
             info["status"] = "lookedup"
-            first = own_first or orig_first
+            first = own_first or link_first or orig_first
             info["mbFound"] = {"rgTitle": first["title"], "rgMbid": first["mbid"], "type": first["primaryType"], "firstDate": first["firstDate"]} if first else None
         else:
             info["status"] = "unchecked"
-            info["lookable"] = bool(mbid_sets.get(perf) if cover else False) or bool(mbid_sets.get(s["artistId"]))
+            info["lookable"] = bool(mbid_sets.get(perf) if cover else False) or bool(mbid_sets.get(s["artistId"])) \
+                or any(mbid_sets.get(la) for la in links)
     return out
 
 
@@ -340,8 +408,11 @@ def live(req):
         sh["done"], sh["todo"], sh["total"] = sum(x in DONE for x in st), sum(x in TODO for x in st), len(st)
     order = {"match": 0, "album": 1, "newalbum": 2, "lookedup": 3, "nonsong": 4, "unchecked": 5, "marked": 6, "ok": 7}
     songs.sort(key=lambda s: (order[s["status"]], -len(s["playedAt"]), s["title"].lower()))
+    with read_conn() as c:
+        links = merge.linked_artists(c, performer)
+        names = dict(c.execute(f"SELECT id, name FROM artists WHERE id IN ({_in(links)})", links).fetchall()) if links else {}
     return {"artist": {"artistId": artist[0], "name": artist[1], "mbid": artist[2]}, "songs": songs,
-            "shows": list(shows.values()), "kinds": NO_ALBUM_KINDS}
+            "shows": list(shows.values()), "kinds": NO_ALBUM_KINDS, "linked": [{"artistId": a, "name": names.get(a)} for a in links]}
 
 
 @route("GET", "/api/songs/search")
@@ -380,10 +451,11 @@ def _apply_item(c, it: dict) -> dict | None:
     if t == "relinkNew":  # the band's own recording isn't in the library yet: create it on their album, then re-link
         performer, album_id = int(it["performerId"]), int(it["albumId"])
         credited = {r[0] for r in c.execute("SELECT artist_id FROM album_artists WHERE album_id = ?", (album_id,))}
-        if performer not in credited:
-            raise ApiError("That album isn't credited to this band.", 409)
+        owner = performer if performer in credited else next((a for a in merge.linked_artists(c, performer) if a in credited), None)
+        if owner is None:
+            raise ApiError("That album isn't credited to this band or an artist linked to it.", 409)
         title = it["title"].strip()
-        new_id = c.execute("INSERT INTO songs (artist_id, album_id, title) VALUES (?, ?, ?)", (performer, album_id, title)).lastrowid
+        new_id = c.execute("INSERT INTO songs (artist_id, album_id, title) VALUES (?, ?, ?)", (owner, album_id, title)).lastrowid
         return {"kind": "edit", "id": merge.relink_live(c, int(it["songId"]), new_id, performer, "live re-link (new song)", created_song=True)}
     if t == "albumNew":
         return _album_new(c, it)

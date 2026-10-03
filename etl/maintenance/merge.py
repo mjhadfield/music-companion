@@ -65,6 +65,24 @@ def ensure_snapshot() -> str | None:
         return str(dest_path)
 
 
+def labelled_snapshot(label: str) -> str:
+    """An extra, named full copy -- e.g. before a big reviewed batch. Named "batch-*" so the
+    auto-* pruning never touches it; the newest SNAPSHOT_KEEP batch-* copies are kept."""
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in label)[:40]
+    dest_path = SNAPSHOT_DIR / f"batch-{datetime.now():%Y%m%d-%H%M%S}-{safe}.sqlite"
+    src = sqlite3.connect(DB_PATH, timeout=15)
+    dest = sqlite3.connect(dest_path)
+    try:
+        src.backup(dest)
+    finally:
+        dest.close()
+        src.close()
+    for old in sorted(SNAPSHOT_DIR.glob("batch-*.sqlite"))[:-SNAPSHOT_KEEP]:
+        old.unlink()
+    return str(dest_path)
+
+
 # -- Helpers ---------------------------------------------------------------------------------
 
 def _row_dict(conn, table: str, row_id: int) -> dict | None:
@@ -361,8 +379,9 @@ def merge_artists(conn, absorbed_id: int, canonical_id: int) -> dict:
     rows_moved["album_artists_collisions_dropped"] = len(dropped)
     rows_moved["album_artists_reassigned"] = len(moved_aa)
 
-    for table in ("albums", "songs", "scrobbles", "setlists", "artist_mb_aliases"):
+    for table in ("albums", "songs", "scrobbles", "setlists", "artist_mb_aliases", "artist_links"):
         _move(conn, journal, rows_moved, table, "artist_id", absorbed_id, canonical_id)
+    _move(conn, journal, rows_moved, "artist_links", "linked_artist_id", absorbed_id, canonical_id)
     _note_rows(conn, journal, rows_moved, "artist", absorbed_id, canonical_id)
     _repoint_aliases(conn, journal, rows_moved, "artist", absorbed_id, canonical_id)
 
@@ -841,6 +860,86 @@ def _undo_split(conn, d: dict) -> None:
         conn.execute("UPDATE merge_log SET undone_at = NULL WHERE id = ?", (d["mergeLogId"],))
 
 
+def split_song(conn, song_id: int, raw_titles: list[str], title: str, merge_log_id: int | None = None) -> dict:
+    """Takes a song back out of `song_id` by the text it arrived under -- the song-level twin of
+    split_album, for a merge whose journal can no longer be replayed (a later change depends on
+    it) or a version that was never its own row. Every play (raw_track_text) and live sighting
+    (raw_song_text) whose source text is one of `raw_titles` moves to a new song called `title`,
+    with the import aliases for those spellings, so future imports keep landing on it.
+    Journaled in edit_log as {"_splitSong": ...}; undo_edit puts it all back."""
+    src = _row_dict(conn, "songs", song_id)
+    if not src:
+        raise MergeError("song not found", "not_found")
+    title = (title or "").strip()
+    if not title:
+        raise MergeError("the split-out song needs a title")
+    # importers find a song by (artist, exact title) -- two rows with one title would make that a coin toss
+    clash = conn.execute("SELECT id FROM songs WHERE artist_id = ? AND lower(title) = lower(?)", (src["artist_id"], title)).fetchone()
+    if clash:
+        raise MergeError(f'This artist already has a song called "{title}" -- pick a different title (e.g. "{title} - Live").', "title_conflict")
+    lowered = sorted({t.strip().lower() for t in raw_titles if t and t.strip()})
+    if not lowered:
+        raise MergeError("pick at least one spelling to split out")
+    marks = ",".join("?" * len(lowered))
+    scrobbles = [r[0] for r in conn.execute(
+        f"SELECT id FROM scrobbles WHERE song_id = ? AND lower(raw_track_text) IN ({marks})", (song_id, *lowered))]
+    shows = [r[0] for r in conn.execute(
+        f"SELECT id FROM setlist_songs WHERE song_id = ? AND lower(raw_song_text) IN ({marks})", (song_id, *lowered))]
+    if not scrobbles and not shows:
+        raise MergeError("Nothing on this song arrived under that spelling.")
+    total_plays = conn.execute("SELECT count(*) FROM scrobbles WHERE song_id = ?", (song_id,)).fetchone()[0]
+    total_shows = conn.execute("SELECT count(*) FROM setlist_songs WHERE song_id = ?", (song_id,)).fetchone()[0]
+    if len(scrobbles) == total_plays and len(shows) == total_shows:
+        raise MergeError("That's every play and show this song has -- rename it instead of splitting.")
+    # the split-out song's album: where most of its plays came from, else the original's
+    album = conn.execute(f"SELECT album_id FROM scrobbles WHERE id IN (SELECT value FROM json_each(?)) AND album_id IS NOT NULL "
+                         f"GROUP BY album_id ORDER BY count(*) DESC LIMIT 1", (json.dumps(scrobbles),)).fetchone()
+    new_id = conn.execute("INSERT INTO songs (artist_id, album_id, title) VALUES (?, ?, ?)",
+                          (src["artist_id"], album[0] if album else src["album_id"], title)).lastrowid
+    conn.execute("UPDATE scrobbles SET song_id = ? WHERE id IN (SELECT value FROM json_each(?))", (new_id, json.dumps(scrobbles)))
+    conn.execute("UPDATE setlist_songs SET song_id = ? WHERE id IN (SELECT value FROM json_each(?))", (new_id, json.dumps(shows)))
+    aliases = [r[0] for r in conn.execute(
+        f"SELECT id FROM alias_overrides WHERE canonical_type = 'song' AND canonical_id = ? "
+        f"AND substr(source_key, instr(source_key, ':') + 1) IN ({marks})", (song_id, *lowered))]
+    conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE id IN (SELECT value FROM json_each(?))", (new_id, json.dumps(aliases)))
+    if merge_log_id:
+        conn.execute("UPDATE merge_log SET undone_at = datetime('now') WHERE id = ? AND entity_type = 'song' AND undone_at IS NULL", (merge_log_id,))
+    detail = {"from": song_id, "fromTitle": src["title"], "to": new_id, "rawTitles": lowered, "scrobbleIds": scrobbles,
+              "setlistSongIds": shows, "aliasIds": aliases, "mergeLogId": merge_log_id}
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('song', ?, ?, ?, ?)",
+                           (new_id, title, json.dumps({"_splitSong": detail}),
+                            f"split out of song #{song_id}" + (f" (reverses merge #{merge_log_id})" if merge_log_id else ""))).lastrowid
+    return {"editId": edit_id, "songId": new_id, "scrobbles": len(scrobbles), "shows": len(shows), "aliases": len(aliases)}
+
+
+def _undo_split_song(conn, d: dict) -> None:
+    back, new = d["from"], d["to"]
+    if not _row_dict(conn, "songs", back):
+        raise MergeError("The song it was split from has been merged away since -- undo that first.", "gone")
+    if not _row_dict(conn, "songs", new):
+        raise MergeError("The split-out song has been merged away since -- undo that merge first.", "gone")
+    for table, key in (("scrobbles", "scrobbleIds"), ("setlist_songs", "setlistSongIds")):
+        ids = json.dumps(d[key])
+        moved_again = conn.execute(f"SELECT count(*) FROM {table} WHERE id IN (SELECT value FROM json_each(?)) AND song_id != ?",
+                                   (ids, new)).fetchone()[0]
+        if moved_again:
+            raise MergeError(f"Some of those {table.replace('_', ' ')} have moved again since -- undo the later change first.", "diverged")
+    others = sum(conn.execute(q, (new, *x)).fetchone()[0] for q, x in (
+        ("SELECT count(*) FROM scrobbles WHERE song_id = ? AND id NOT IN (SELECT value FROM json_each(?))", (json.dumps(d["scrobbleIds"]),)),
+        ("SELECT count(*) FROM setlist_songs WHERE song_id = ? AND id NOT IN (SELECT value FROM json_each(?))", (json.dumps(d["setlistSongIds"]),)),
+        ("SELECT count(*) FROM track_links WHERE song_id = ?", ()), ("SELECT count(*) FROM song_tracks WHERE song_id = ?", ()),
+        ("SELECT count(*) FROM notes WHERE entity_type = 'song' AND entity_id = ?", ())))
+    if others:
+        raise MergeError("The split-out song has gathered other plays, links or notes since -- undo or move those first.", "diverged")
+    conn.execute("UPDATE scrobbles SET song_id = ? WHERE id IN (SELECT value FROM json_each(?))", (back, json.dumps(d["scrobbleIds"])))
+    conn.execute("UPDATE setlist_songs SET song_id = ? WHERE id IN (SELECT value FROM json_each(?))", (back, json.dumps(d["setlistSongIds"])))
+    conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE id IN (SELECT value FROM json_each(?))", (back, json.dumps(d["aliasIds"])))
+    conn.execute("DELETE FROM review_marks WHERE entity_type = 'song' AND entity_id = ?", (new,))
+    conn.execute("DELETE FROM songs WHERE id = ?", (new,))
+    if d.get("mergeLogId"):
+        conn.execute("UPDATE merge_log SET undone_at = NULL WHERE id = ?", (d["mergeLogId"],))
+
+
 def move_album_plays(conn, from_album: int, to_album: int, raw_titles: list[str], reason: str) -> dict:
     """Moves what arrived under a given album name from one album to ANOTHER EXISTING album -- for
     scrobbles filed under the wrong album (e.g. an old merge put "Led Zeppelin (Remaster)" into
@@ -900,6 +999,139 @@ def _undo_move_plays(conn, d: dict) -> None:
     conn.execute("UPDATE alias_overrides SET canonical_id = ? WHERE id IN (SELECT value FROM json_each(?))", (back, json.dumps(d["aliasIds"])))
 
 
+def create_artist(conn, name: str, mbid: str | None, reason: str) -> tuple[int, int]:
+    """A new artist a human asked for -- e.g. a same-named band that an old merge had folded into
+    another artist. Journaled in edit_log as {"_createdArtist": ...}; undo_edit removes it again
+    (only while nothing points at it). -> (artist id, edit id)"""
+    name = (name or "").strip()
+    if not name:
+        raise MergeError("the new artist needs a name")
+    if mbid:
+        clash = conn.execute("SELECT name FROM artists WHERE mbid = ?", (mbid,)).fetchone()
+        if clash:
+            raise MergeError(f'That MusicBrainz id is already the artist "{clash[0]}" in your library -- move it there instead.', "mbid_conflict")
+    artist_id = conn.execute("INSERT INTO artists (name, mbid) VALUES (?, ?)", (name, mbid)).lastrowid
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('artist', ?, ?, ?, ?)",
+                           (artist_id, name, json.dumps({"_createdArtist": {"mbid": mbid}}), reason)).lastrowid
+    return artist_id, edit_id
+
+
+def _undo_created_artist(conn, artist_id: int) -> None:
+    for table in ("albums", "songs", "scrobbles", "setlists", "album_artists", "artist_links"):
+        if conn.execute(f"SELECT 1 FROM {table} WHERE artist_id = ? LIMIT 1", (artist_id,)).fetchone():
+            raise MergeError("That artist has albums, songs, plays or links now -- undo those first.", "diverged")
+    if conn.execute("SELECT 1 FROM artist_links WHERE linked_artist_id = ? LIMIT 1", (artist_id,)).fetchone():
+        raise MergeError("Another artist is linked to that one now -- unlink it first.", "diverged")
+    for table, col in (("review_marks", "entity_id"), ("notes", "entity_id")):
+        conn.execute(f"DELETE FROM {table} WHERE entity_type = 'artist' AND {col} = ?", (artist_id,))
+    conn.execute("DELETE FROM artists WHERE id = ?", (artist_id,))
+
+
+def move_album_to_artist(conn, album_id: int, to_artist: int, reason: str, keep_credit: bool = False) -> dict:
+    """Gives a whole album -- with its songs and their plays -- to another artist: for an album an
+    old artist merge folded into the wrong artist (a same-named band). Only when it's self-contained:
+    its songs are played from nowhere else, no live shows, no aliases point at them (those would keep
+    routing imports to the old artist), and nothing else is filed on it. Journaled in edit_log as
+    {"_moveArtist": ...}; undo_edit puts it all back. keep_credit: the old artist stays credited
+    second (a member's solo album filed under the band: Kiss's 1978 solo LPs)."""
+    album = _row_dict(conn, "albums", album_id)
+    dest = _row_dict(conn, "artists", to_artist)
+    if not album or not dest:
+        raise MergeError("album and artist must both exist", "not_found")
+    src = album["artist_id"]
+    if src == to_artist:
+        raise MergeError("That album is already that artist's.")
+    songs = [r[0] for r in conn.execute("SELECT id FROM songs WHERE album_id = ?", (album_id,))]
+    marks = ",".join("?" * len(songs)) or "NULL"
+    if conn.execute(f"SELECT 1 FROM songs WHERE id IN ({marks}) AND artist_id != ?", (*songs, src)).fetchone():
+        raise MergeError("Some songs on that album belong to a third artist -- sort those out first.")
+    if conn.execute(f"SELECT 1 FROM scrobbles WHERE song_id IN ({marks}) AND (album_id IS NULL OR album_id != ?)", (*songs, album_id)).fetchone():
+        raise MergeError("Some of its songs have been played from other albums too -- move those plays first.")
+    if conn.execute(f"SELECT 1 FROM scrobbles WHERE album_id = ? AND song_id NOT IN ({marks})", (album_id, *songs)).fetchone():
+        raise MergeError("Plays of songs filed elsewhere are on that album -- move those first.")
+    if conn.execute(f"SELECT 1 FROM setlist_songs WHERE song_id IN ({marks})", songs).fetchone():
+        raise MergeError("Some of its songs were seen live under the old artist -- relink those first.")
+    if conn.execute(f"SELECT 1 FROM alias_overrides WHERE (canonical_type = 'song' AND canonical_id IN ({marks})) OR (canonical_type = 'album' AND canonical_id = ?)",
+                    (*songs, album_id)).fetchone():
+        raise MergeError("Import aliases point at that album or its songs -- they'd keep routing to the old artist.")
+    credits = [list(r) for r in conn.execute("SELECT artist_id, position FROM album_artists WHERE album_id = ? ORDER BY position", (album_id,))]
+    scrobbles = [r[0] for r in conn.execute(f"SELECT id FROM scrobbles WHERE song_id IN ({marks})", songs)]
+    conn.execute("UPDATE albums SET artist_id = ? WHERE id = ?", (to_artist, album_id))
+    conn.execute("DELETE FROM album_artists WHERE album_id = ?", (album_id,))
+    new_credits = [to_artist] + ([src] if keep_credit else []) + [a for a, _ in credits if a not in (src, to_artist)]
+    for pos, aid in enumerate(new_credits):
+        conn.execute("INSERT INTO album_artists (album_id, artist_id, position) VALUES (?, ?, ?)", (album_id, aid, pos))
+    conn.execute(f"UPDATE songs SET artist_id = ? WHERE id IN ({marks})", (to_artist, *songs))
+    conn.execute("UPDATE scrobbles SET artist_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_artist, json.dumps(scrobbles)))
+    detail = {"album": album_id, "from": src, "to": to_artist, "toName": dest["name"], "credits": credits, "songIds": songs, "scrobbleIds": scrobbles}
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('album', ?, ?, ?, ?)",
+                           (album_id, album["title"], json.dumps({"_moveArtist": detail}), reason)).lastrowid
+    return {"editId": edit_id, "songs": len(songs), "scrobbles": len(scrobbles)}
+
+
+def _undo_move_artist(conn, d: dict) -> None:
+    album = _row_dict(conn, "albums", d["album"])
+    if not album or album["artist_id"] != d["to"]:
+        raise MergeError("That album has changed hands again since -- undo the later change first.", "diverged")
+    songs = json.dumps(d["songIds"])
+    if conn.execute("SELECT count(*) FROM songs WHERE id IN (SELECT value FROM json_each(?)) AND artist_id = ?", (songs, d["to"])).fetchone()[0] != len(d["songIds"]):
+        raise MergeError("Some of those songs have moved or merged since -- undo the later change first.", "diverged")
+    conn.execute("UPDATE albums SET artist_id = ? WHERE id = ?", (d["from"], d["album"]))
+    conn.execute("DELETE FROM album_artists WHERE album_id = ?", (d["album"],))
+    for aid, pos in d["credits"]:
+        conn.execute("INSERT INTO album_artists (album_id, artist_id, position) VALUES (?, ?, ?)", (d["album"], aid, pos))
+    conn.execute("UPDATE songs SET artist_id = ? WHERE id IN (SELECT value FROM json_each(?))", (d["from"], songs))
+    conn.execute("UPDATE scrobbles SET artist_id = ? WHERE id IN (SELECT value FROM json_each(?))", (d["from"], json.dumps(d["scrobbleIds"])))
+
+
+def linked_artists(conn, artist_id: int) -> list[int]:
+    """The artists linked to this one (either way round), oldest link first."""
+    return [r[0] for r in conn.execute(
+        """SELECT CASE WHEN artist_id = ? THEN linked_artist_id ELSE artist_id END AS other FROM artist_links
+           WHERE (artist_id = ? OR linked_artist_id = ?) AND artist_id != linked_artist_id GROUP BY other ORDER BY min(id)""",
+        (artist_id, artist_id, artist_id))]
+
+
+def link_artists(conn, a: int, b: int, reason: str = "linked artists") -> dict:
+    """Link two artists (a solo act and the band: Ace Frehley / Kiss). Journaled in edit_log as
+    {"_artistLink": ...}; undo_edit removes the link again."""
+    if a == b:
+        raise MergeError("An artist can't be linked to itself.")
+    names = dict(conn.execute("SELECT id, name FROM artists WHERE id IN (?, ?)", (a, b)).fetchall())
+    if len(names) != 2:
+        raise MergeError("both artists must exist", "not_found")
+    if b in linked_artists(conn, a):
+        raise MergeError(f'{names[a]} and {names[b]} are already linked.', "already")
+    lo, hi = sorted((a, b))
+    link_id = conn.execute("INSERT INTO artist_links (artist_id, linked_artist_id) VALUES (?, ?)", (lo, hi)).lastrowid
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('artist', ?, ?, ?, ?)",
+                           (a, names[a], json.dumps({"_artistLink": {"added": [link_id, lo, hi], "names": [names[a], names[b]]}}), reason)).lastrowid
+    return {"editId": edit_id, "linkId": link_id}
+
+
+def unlink_artists(conn, a: int, b: int, reason: str = "unlinked artists") -> dict:
+    rows = [list(r) for r in conn.execute(
+        "SELECT id, artist_id, linked_artist_id, created_at FROM artist_links WHERE (artist_id = ? AND linked_artist_id = ?) OR (artist_id = ? AND linked_artist_id = ?)",
+        (a, b, b, a))]
+    if not rows:
+        raise MergeError("Those artists aren't linked.", "not_found")
+    conn.execute(f"DELETE FROM artist_links WHERE id IN ({','.join('?' * len(rows))})", [r[0] for r in rows])
+    name = (conn.execute("SELECT name FROM artists WHERE id = ?", (a,)).fetchone() or [""])[0]
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('artist', ?, ?, ?, ?)",
+                           (a, name, json.dumps({"_artistLink": {"removed": rows}}), reason)).lastrowid
+    return {"editId": edit_id}
+
+
+def _undo_artist_link(conn, d: dict) -> None:
+    if d.get("added"):
+        link_id = d["added"][0]
+        if not conn.execute("SELECT 1 FROM artist_links WHERE id = ?", (link_id,)).fetchone():
+            raise MergeError("That link was removed since -- nothing to undo.", "diverged")
+        conn.execute("DELETE FROM artist_links WHERE id = ?", (link_id,))
+    for row in d.get("removed") or []:
+        conn.execute("INSERT INTO artist_links (id, artist_id, linked_artist_id, created_at) VALUES (?, ?, ?, ?)", row)
+
+
 def undo_edit(conn, edit_id: int) -> dict:
     row = conn.execute("SELECT entity_type, entity_id, entity_name, changes_json, undone_at FROM edit_log WHERE id = ?", (edit_id,)).fetchone()
     if not row:
@@ -935,12 +1167,28 @@ def undo_edit(conn, edit_id: int) -> dict:
         _undo_move_plays(conn, changes["_movePlays"])
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
+    if "_artistLink" in changes:
+        _undo_artist_link(conn, changes["_artistLink"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
+    if "_createdArtist" in changes:
+        _undo_created_artist(conn, entity_id)
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
+    if "_moveArtist" in changes:
+        _undo_move_artist(conn, changes["_moveArtist"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_created" in changes:
         _undo_created(conn, entity_id)
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_split" in changes:
         _undo_split(conn, changes["_split"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
+    if "_splitSong" in changes:
+        _undo_split_song(conn, changes["_splitSong"])
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_relink" in changes:

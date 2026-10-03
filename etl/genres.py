@@ -187,6 +187,55 @@ def edit_album(conn: sqlite3.Connection, album_id: int, add: list[str] = (), rem
                         (album_id, title[0], json.dumps({"_genres": j}), reason)).lastrowid
 
 
+REVIEWED_MARK = "genres-reviewed"   # review_marks: looked at in Maintenance > Genres (leaves the By album queue)
+
+
+def set_album(conn: sqlite3.Connection, album_id: int, keep: list[dict], drop: list[int] = (), reject: list[str] = (),
+              reason: str = "genres reviewed") -> int | None:
+    """One album's reviewed genres, saved together (Maintenance > Genres, By album / By artist):
+      keep    [{name, mbid?, source: musicbrainz|discogs|manual, votes?}] -- the ticked suggestions and
+              anything added by hand; an existing genre is upgraded to a higher-priority source only
+      drop    genre ids already on the album that were removed
+      reject  names of suggestions left unticked -- remembered as removed (genre_hidden), so they're
+              never suggested or applied again
+    Journaled exactly like edit_album ({"_genres": ...}), so merge.undo_edit undoes it. -> edit id or None."""
+    title = conn.execute("SELECT title FROM albums WHERE id = ?", (album_id,)).fetchone()
+    if not title:
+        raise ValueError("album not found")
+    j = {"albumId": album_id, "inserted": [], "updated": [], "deleted": [], "hiddenAdded": [], "hiddenRemoved": []}
+    for k in keep:
+        source = k.get("source") if k.get("source") in PRIORITY else "manual"
+        gid = genre_id(conn, k.get("name") or "", k.get("mbid"))
+        if gid is None:
+            continue
+        if conn.execute("DELETE FROM genre_hidden WHERE album_id = ? AND genre_id = ?", (album_id, gid)).rowcount:
+            j["hiddenRemoved"].append(gid)
+        row = conn.execute("SELECT source, votes FROM album_genres WHERE album_id = ? AND genre_id = ?", (album_id, gid)).fetchone()
+        votes = int(k["votes"]) if k.get("votes") else None
+        if row is None:
+            conn.execute("INSERT INTO album_genres (album_id, genre_id, source, votes) VALUES (?, ?, ?, ?)", (album_id, gid, source, votes))
+            j["inserted"].append(gid)
+        elif PRIORITY[source] > PRIORITY[row[0]]:
+            conn.execute("UPDATE album_genres SET source = ?, votes = ? WHERE album_id = ? AND genre_id = ?", (source, votes, album_id, gid))
+            j["updated"].append([gid, row[0], row[1]])
+    for gid in drop:
+        row = conn.execute("SELECT source, votes FROM album_genres WHERE album_id = ? AND genre_id = ?", (album_id, gid)).fetchone()
+        if row:
+            conn.execute("DELETE FROM album_genres WHERE album_id = ? AND genre_id = ?", (album_id, gid))
+            j["deleted"].append([gid, row[0], row[1]])
+        if conn.execute("INSERT OR IGNORE INTO genre_hidden (album_id, genre_id) VALUES (?, ?)", (album_id, gid)).rowcount:
+            j["hiddenAdded"].append(gid)
+    for name in reject:
+        gid = genre_id(conn, name, create=False)
+        if gid is not None and not conn.execute("SELECT 1 FROM album_genres WHERE album_id = ? AND genre_id = ?", (album_id, gid)).fetchone():
+            if conn.execute("INSERT OR IGNORE INTO genre_hidden (album_id, genre_id) VALUES (?, ?)", (album_id, gid)).rowcount:
+                j["hiddenAdded"].append(gid)
+    if not any(j[k] for k in ("inserted", "updated", "deleted", "hiddenAdded", "hiddenRemoved")):
+        return None
+    return conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('album', ?, ?, ?, ?)",
+                        (album_id, title[0], json.dumps({"_genres": j}), reason)).lastrowid
+
+
 def undo_genre_edit(conn: sqlite3.Connection, j: dict) -> None:
     aid = j["albumId"]
     for gid in j["inserted"]:

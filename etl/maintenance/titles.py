@@ -39,6 +39,11 @@ _VARIANT_PATTERNS = {
 _EDITION_RE = re.compile("|".join(_EDITION_PATTERNS), re.IGNORECASE)
 _VARIANT_RES = {tag: re.compile(p, re.IGNORECASE) for tag, p in _VARIANT_PATTERNS.items()}
 _BRACKET_TAIL = re.compile(r"\s*[\(\[]([^()\[\]]*)[\)\]]\s*$")
+# "Mono Mix" / "Original Mix" / "Album Mix" name an issue of the same recording, not a remix --
+# unless the suffix also says remix ("Original Mix (Hot Chip Remix)"). A dated or named mix
+# ("2015 Mix", "Steven Wilson Mix") is a genuinely new mix and stays a remix.
+_EDITION_MIX_RE = re.compile(r"\b(mono|stereo|single|album|lp|original|us|uk)\s+mix\b", re.IGNORECASE)
+_REAL_REMIX_RE = re.compile(r"\bre-?mix(ed)?\b|\brmx\b|\bdub\b|\bvip\b", re.IGNORECASE)
 
 ROMAN = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10}
 
@@ -61,9 +66,21 @@ def normalize_artist_name(name: str) -> str:
     return folded
 
 
+# A language version is its own recording ("Carolus Rex - English Version" next to the Swedish
+# "Carolus Rex"): tagged per language, so two languages never look like one another's version.
+LANGUAGES = ("english", "swedish", "german", "french", "spanish", "italian", "portuguese", "japanese", "finnish",
+             "norwegian", "danish", "dutch", "polish", "russian", "hungarian", "czech", "latin", "korean", "chinese")
+_LANGUAGE_RE = re.compile(r"^\s*(" + "|".join(LANGUAGES) + r")(\s+(version|language|lyrics?|vocals?|edition))?\s*$", re.IGNORECASE)
+
+
 def _classify(suffix: str) -> set[str] | None:
-    """Tags for one peeled suffix: {"edition"} / {"live", ...} / None if unrecognised."""
+    """Tags for one peeled suffix: {"edition"} / {"live", ...} / {"lang-english"} / None if unrecognised."""
+    lang = _LANGUAGE_RE.match(suffix)
+    if lang:
+        return {f"lang-{lang.group(1).lower()}"}
     tags = {tag for tag, rx in _VARIANT_RES.items() if rx.search(suffix)}
+    if _EDITION_MIX_RE.search(suffix) and not _REAL_REMIX_RE.search(suffix):
+        tags.discard("remix")
     # "Single Version"/"Album Version" is an edition, not the generic "version" variant.
     if _EDITION_RE.search(suffix):
         tags.discard("version")

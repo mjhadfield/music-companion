@@ -97,6 +97,15 @@ site/                    -- static frontend: plain HTML/CSS/JS, no build step
       Archive, keyed off whichever MBID an album has). Fetched lazily
       client-side per page view, cached in localStorage 30 days — no
       backend, no bulk pre-fetching against either API
+- [x] Home page redesign (`site/js/home.js`, `site/css/home.css`): "Total
+      songs played" over four tiles (Vinyl records, Live shows, Unique
+      artists, Unique tracks), each with its headline figures and a mini
+      chart; listening activity (totals, chart, by hour, by weekday) and
+      most played (Artists / Albums / Songs, top 10 with covers) under one
+      Day/Week/Month/Year/All switch; latest record buys. On a phone it's
+      four screen-sized pages that snap one to the next, and a tile drops
+      detail (container queries) rather than shrink its text on a short
+      screen; a chart bar opens Scrobbles filtered to that bucket in local time
 - [ ] Notes/journal writing UI
 - [ ] GitHub Actions cron refresh
 - [ ] Spotify integration
@@ -144,6 +153,52 @@ Read the report. If it looks right:
 ```bash
 python3 etl/build_public_db.py   # refresh site/public/music.sqlite
 git add -A && git commit ...      # your call, whenever you're ready
+```
+
+### Cleaning up: the maintenance server
+
+`etl/maintenance/server.py` (port 8643, run by Citadel) is where matching and
+merging happens. Nothing in it changes data without a click:
+
+- **Workbench** (`/artist.html`) — everything outstanding for one artist on one
+  page: album versions to merge, albums with no MusicBrainz id (with the
+  album-id sweep's suggestions), MusicBrainz flags, song duplicates, songs filed
+  under the wrong album. A queue of artists, most played first; "Mark reviewed"
+  takes an artist off it until something new turns up.
+- **Songs › Duplicates › Whole library** — every duplicate group across the
+  library, one kind at a time: *same recording* (remaster / mono / feat. tags —
+  pre-ticked only when on the same album), *possible* (near-identical titles:
+  spacing, "the", a year suffix, a near spelling — never pre-ticked) and
+  *different versions* (live / remix / demo — kept separate unless you merge one
+  on purpose; Songs › Splits can take a merged version back out).
+- **Albums › Singles** (also in the Workbench) — lead singles that became their own
+  "album" (Spotify / Last.fm treat a single as a release): an album named after one of its
+  tracks whose every track is also on a bigger album of the same artist
+  (`etl/maintenance/singles.py`, plain SQL over your data). Folding one merges any copy of a
+  song it has into the album's, moves its plays, and aliases its title and editions to the
+  album so future plays land there. New ones are flagged in the Inbox.
+- **Albums › Suggestions** — the `album-suggest` sweep matches albums with no id
+  against the artist's MusicBrainz discography and the songs you've played from
+  them. Only *high* (same title, no live/studio or remix mix-up, at least half
+  your played songs on the tracklist) arrives selected.
+
+Every change goes into a **basket**. *Review & apply* runs the exact changes as a
+dry run (rolled back) and shows what each would move or why it would be refused;
+*Apply* commits them as **one batch** — all or nothing, refused if any hard
+integrity count (`etl/maintenance/integrity.py`) would go up, and a snapshot is
+taken first for anything over 25 changes. A batch undoes as a whole from its
+toast, the workbench or Activity (items inside it can also be undone one by one).
+The Overview shows the integrity checks and a housekeeping list of the safety
+copies in `data/.snapshots`, `.merge_backups` and `.refresh_backups` (deleted
+only when ticked; the newest are always kept).
+
+Try changes on a scratch copy first — a test instance never touches the real
+database or the published site:
+
+```bash
+MUSIC_DB_PATH=/tmp/scratch/music.sqlite MUSIC_COVERS_DIR=/tmp/scratch/covers \
+  MAINTENANCE_PORT=8653 python3 etl/maintenance/server.py
+python3 -m unittest discover -s etl/maintenance/tests   # throwaway databases only
 ```
 
 ### Running the frontend locally

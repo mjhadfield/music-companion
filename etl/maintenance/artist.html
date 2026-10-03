@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Music Companion — Workbench</title>
+<link rel="stylesheet" href="shared.css" />
+<script>try { if (localStorage.getItem("theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
+<style>
+  main.wide { max-width: 1340px; }
+  .q-counts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .q-counts .badge { white-space: nowrap; }
+  tr.wb-row { cursor: pointer; }
+  tr.wb-row:hover td { background: var(--accent-wash); }
+  .bench-head { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+  .bench-head h1 { margin: 0; }
+  .bench-head .spacer { flex: 1; }
+  .sec { margin: 26px 0 8px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .sec h2 { margin: 0; font-size: 1.15rem; }
+  .sub { margin: 18px 0 6px; font-size: 0.95rem; color: var(--text-dim); }
+  .sec-note { font-size: 0.8rem; color: var(--text-dim); margin: 0 0 8px; }
+  .done-note { margin: 10px 0; }
+  .batches li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--edge); font-size: 0.86rem; }
+  .batches li .spacer { flex: 1; }
+</style>
+</head>
+<body>
+<header id="topnav"></header>
+<main class="wide">
+
+<section id="queue" hidden>
+  <div class="page-head">
+    <h1>Workbench</h1>
+    <p class="subtitle">Everything outstanding for one artist on one page — albums to merge or identify, song duplicates, songs filed under the wrong album. Changes queue up in a basket, get a dry run, then apply as one undoable batch.</p>
+  </div>
+  <div class="toolbar">
+    <div class="chips" id="q-filters">
+      <button class="chip filter-chip" data-f="all" aria-pressed="true">Everything</button>
+      <button class="chip filter-chip" data-f="songs" aria-pressed="false">Song duplicates</button>
+      <button class="chip filter-chip" data-f="albums" aria-pressed="false">Albums to merge</button>
+      <button class="chip filter-chip" data-f="singles" aria-pressed="false">Singles filed as albums</button>
+      <button class="chip filter-chip" data-f="missing" aria-pressed="false">Albums without an id</button>
+      <button class="chip filter-chip" data-f="placement" aria-pressed="false">Wrong album</button>
+      <button class="chip filter-chip" data-f="flags" aria-pressed="false">MusicBrainz flags</button>
+    </div>
+    <input type="search" id="q-find" placeholder="Filter artists…" />
+  </div>
+  <div class="status-line" id="q-status">Loading…</div>
+  <div class="table-scroll"><table class="data"><thead><tr><th>Artist</th><th class="num">Plays</th><th>Outstanding</th></tr></thead><tbody id="wb-rows"></tbody></table></div>
+</section>
+
+<section id="bench" hidden>
+  <div class="bench-head">
+    <a class="back-link" href="/artist.html">← All artists</a>
+    <h1 id="b-name"></h1><span id="b-meta" class="meta"></span>
+    <span class="spacer"></span>
+    <button class="small" id="b-reviewed">Mark reviewed</button>
+    <button class="small" id="b-next">Next artist →</button>
+  </div>
+  <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> queue merge / fold / move</span><span><kbd>d</kbd> not the same / not a single / keep separate</span><span><kbd>a</kbd> queue selected id</span><span><kbd>r</kbd> none of these</span><span><kbd>f</kbd> find on MusicBrainz</span><span><kbd>x</kbd> not on MusicBrainz</span><span><kbd>o</kbd> fine as it is</span><span><kbd>s</kbd> skip</span></div>
+  <div class="artist-links" id="b-links"></div>
+  <div id="b-done" class="notice done-note" hidden></div>
+  <div id="b-body"></div>
+</section>
+
+</main>
+<script src="shared.js"></script>
+<script src="album-ui.js"></script>
+<script src="workbench-ui.js"></script>
+<script>
+mountNav("Workbench");
+const params = new URLSearchParams(location.search);
+const artistId = parseInt(params.get("id") || "", 10);
+const QUEUE_KEY = "workbench-queue";
+
+// ---- Queue -----------------------------------------------------------------------------------
+const COUNT_LABELS = { albumGroups: ["album group", "album groups", "warn"], singles: ["single filed as an album", "singles filed as albums", "warn"], missing: ["album without an id", "albums without an id", ""],
+  flags: ["MusicBrainz flag", "MusicBrainz flags", "bad"], songEdition: ["same-recording song group", "same-recording song groups", "ok"],
+  songVariant: ["version group", "version groups", ""], songPossible: ["possible duplicate", "possible duplicates", "accent"],
+  placement: ["song on the wrong album", "songs on the wrong album", "warn"] };
+const FILTERS = { all: null, songs: ["songEdition", "songVariant", "songPossible"], albums: ["albumGroups"], singles: ["singles"], missing: ["missing"], placement: ["placement"], flags: ["flags"] };
+
+function countBadges(counts) {
+  return Object.entries(COUNT_LABELS).filter(([k]) => counts[k]).map(([k, [one, many, cls]]) =>
+    `<span class="badge ${cls}">${plural(counts[k], one, many)}</span>`).join("");
+}
+
+async function loadQueue() {
+  document.getElementById("queue").hidden = false;
+  const { ok, data } = await api("/api/workbench/queue");
+  const status = document.getElementById("q-status");
+  if (!ok) { status.textContent = data.message; status.classList.add("error"); return; }
+  let filter = "all", find = "";
+  function paint() {
+    const keys = FILTERS[filter];
+    const rows = data.items.filter((r) => (!keys || keys.some((k) => r.counts[k])) && (!find || (r.name || "").toLowerCase().includes(find)));
+    try { sessionStorage.setItem(QUEUE_KEY, JSON.stringify(rows.map((r) => r.artistId))); } catch { /* fine */ }
+    status.textContent = `${plural(rows.length, "artist")} with something outstanding, most played first — ${Object.entries(data.totals).filter(([, v]) => v).map(([k, v]) => plural(v, COUNT_LABELS[k][0], COUNT_LABELS[k][1])).join(" · ")}`;
+    document.getElementById("wb-rows").innerHTML = rows.slice(0, 400).map((r) =>
+      `<tr class="wb-row" data-id="${r.artistId}"><td><a href="/artist.html?id=${r.artistId}">${esc(r.name)}</a></td><td class="num">${fmtNum(r.plays)}</td>
+        <td><div class="q-counts">${countBadges(r.counts)}</div></td></tr>`).join("");
+  }
+  document.getElementById("q-filters").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-f]");
+    if (!b) return;
+    filter = b.dataset.f;
+    document.querySelectorAll("#q-filters [data-f]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    paint();
+  });
+  document.getElementById("q-find").addEventListener("input", (e) => { find = e.target.value.trim().toLowerCase(); paint(); });
+  document.getElementById("wb-rows").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-id]");
+    if (tr && !e.target.closest("a")) location.href = `/artist.html?id=${tr.dataset.id}`;
+  });
+  paint();
+}
+
+// ---- One artist ------------------------------------------------------------------------------
+let wb = null, loading = 0;
+const keys = mountReviewKeys(document.getElementById("b-body"));   // only acts while the bench is showing
+const basket = createBasket({ artistId, label: "", onApplied: () => loadBench() });
+
+function nextArtist() {
+  let list = [];
+  try { list = JSON.parse(sessionStorage.getItem(QUEUE_KEY) || "[]"); } catch { /* fine */ }
+  const i = list.indexOf(artistId);
+  return i >= 0 && i + 1 < list.length ? list[i + 1] : null;
+}
+
+const albumRow = (a, extra = "") => `${esc(a.title)} ${tagBadges(a)} ${a.year ? `<span class="meta">${a.year}</span>` : ""} ${a.mbid ? mbLink("album", a.mbid) : `<span class="badge">no id</span>`} ${vinylBadges(a)} ${extra}`;
+
+function albumGroupItem(g) {
+  const albums = g.albumIds.map((id) => wb.albums[id]).filter(Boolean);
+  const mbids = new Set(albums.map((a) => a.mbid).filter(Boolean));
+  const safe = mbids.size <= 1;   // pre-ticked only when they can't be two different MusicBrainz records
+  const el = document.createElement("div");
+  el.className = "review-item wb-item";
+  el.innerHTML = `<div class="row"><div><div class="title">${albums.length} versions of “${esc(albums[0].baseTitle)}”</div>
+      <div class="meta">${safe ? "Same title once edition words are set aside — pick the one to keep." : "<span class='warn-text'>They have different MusicBrainz ids — check these really are one record.</span>"}</div></div>
+      <div class="actions">${keyBtn("m", "Queue merge", "good")}${keyBtn("d", "Not the same")}${keyBtn("s", "Skip")}</div></div>
+    <div class="table-scroll"><table class="data"><thead><tr><th>Keep</th><th>Merge</th><th>Album</th><th class="num">Plays</th><th class="num">Songs</th><th>Played</th></tr></thead><tbody>
+    ${albums.map((a) => `<tr data-id="${a.albumId}" class="${a.albumId === g.primary ? "primary" : ""}"><td><input type="radio" name="p-${esc(g.key)}" value="${a.albumId}" ${a.albumId === g.primary ? "checked" : ""}></td>
+      <td><input type="checkbox" value="${a.albumId}" ${safe && a.albumId !== g.primary ? "checked" : ""}></td><td>${albumRow(a)}</td>
+      <td class="num">${fmtNum(a.scrobbleCount)}</td><td class="num">${fmtNum(a.songCount)}</td><td>${playedRange(a)}</td></tr>`).join("")}</tbody></table></div>`;
+  wireKeep(el);
+  el.querySelector("[data-key='m']").addEventListener("click", () => {
+    const keep = parseInt(el.querySelector("input[type=radio]:checked").value, 10);
+    const absorbed = [...el.querySelectorAll("input[type=checkbox]:checked")].map((c) => parseInt(c.value, 10)).filter((i) => i !== keep);
+    if (!absorbed.length) { toast("Tick at least one album to merge into the one you keep.", { error: true }); return; }
+    basket.add(g.key, { type: "mergeAlbums", canonicalId: keep, absorbedIds: absorbed },
+      `Merge ${absorbed.map((i) => `“${esc(wb.albums[i].title)}”`).join(", ")} into “<b>${esc(wb.albums[keep].title)}</b>”`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='d']").addEventListener("click", () => {
+    basket.add(g.key, { type: "dismiss", entityType: "album", ids: g.albumIds }, `Not the same: ${albums.map((a) => `“${esc(a.title)}”`).join(" / ")}`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='s']").addEventListener("click", () => keys.skip(el));
+  return el;
+}
+
+
+function flagItem(f) {
+  const album = wb.albums[f.albumId];
+  const el = document.createElement("div");
+  el.className = "review-item wb-item";
+  el.innerHTML = `<div class="row"><div><div class="title">${esc(f.title)} ${mbLink("album", f.mbid)}</div>
+      ${f.flags.map((x) => `<div class="meta"><span class="badge ${x.severity === "high" ? "bad" : x.severity === "medium" ? "warn" : ""}">${esc(x.severity)}</span> ${esc(x.text)}</div>`).join("")}</div>
+      <div class="actions">${keyBtn("o", "Looks right")}${keyBtn("f", "Fix…")}${keyBtn("s", "Skip")}</div></div><div class="slot"></div>`;
+  el.querySelector("[data-key='o']").addEventListener("click", () => {
+    basket.add(`fl:${f.albumId}`, { type: "mark", entityType: "album", entityId: f.albumId, mark: "verified:album-mbid" }, `“${esc(f.title)}”'s MusicBrainz id is right`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='f']").addEventListener("click", () => {
+    renderAlbumResolve(el.querySelector(".slot"), album, { reason: "workbench fix", onDone: () => { el.classList.add("done"); keys.advance(el); } });
+  });
+  el.querySelector("[data-key='s']").addEventListener("click", () => keys.skip(el));
+  return el;
+}
+
+
+function placementItem(p) {
+  const el = document.createElement("div");
+  el.className = "review-item wb-item";
+  const why = p.reason === "uncredited" ? `filed under “${esc(p.current.title)}”, which doesn't credit this artist`
+    : `filed under the compilation “${esc(p.current.title)}”`;
+  el.innerHTML = `<div class="row"><div><div class="title">${esc(p.title)}</div><div class="meta">${why}${p.suggested ? ` — you've played it ${plural(p.suggested.plays, "time")} from “${esc(p.suggested.title)}”` : ""}</div></div>
+    <div class="actions">${p.suggested ? keyBtn("m", `Move to “${esc(p.suggested.title)}”`, "good") : ""}${keyBtn("o", "Fine as it is")}${keyBtn("s", "Skip")}</div></div>`;
+  el.querySelector("[data-key='m']")?.addEventListener("click", () => {
+    basket.add(p.key, { type: "setSongAlbum", songId: p.songId, albumId: p.suggested.albumId }, `File “${esc(p.title)}” under “<b>${esc(p.suggested.title)}</b>”`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='o']").addEventListener("click", () => {
+    basket.add(p.key, { type: "mark", entityType: "song", entityId: p.songId, mark: "placement-ok" }, `“${esc(p.title)}” is fine on “${esc(p.current.title)}”`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='s']").addEventListener("click", () => keys.skip(el));
+  return el;
+}
+
+function section(body, title, note, items, render, extra = "") {
+  const head = document.createElement("div");
+  head.innerHTML = `<div class="sub">${title} <span class="meta">${items.length}</span> ${extra}</div>${note ? `<p class="sec-note">${note}</p>` : ""}`;
+  body.appendChild(head);
+  const list = document.createElement("div");
+  items.forEach((it) => list.appendChild(render(it)));
+  body.appendChild(list);
+  return list;
+}
+
+async function loadBench() {
+  document.getElementById("bench").hidden = false;
+  const mine = ++loading;   // an undo toast and the mc:undone event can both ask -- only the latest paints
+  const { ok, data } = await api(`/api/workbench?artistId=${artistId}`);
+  if (mine !== loading) return;
+  const body = document.getElementById("b-body");
+  if (!ok) { body.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  wb = data;
+  api(`/api/artists/links?artistId=${artistId}`).then(({ ok, data: l }) => {
+    if (ok) mountArtistLinks(document.getElementById("b-links"), artistId, l.links, () => loadBench());
+  });
+  document.title = `Workbench — ${data.artist.name}`;
+  basket.label = data.artist.name;
+  document.getElementById("b-name").innerHTML = `${esc(data.artist.name)} ${data.artist.mbid ? mbLink("artist", data.artist.mbid) : ""}`;
+  const c = data.counts, total = Object.values(c).reduce((a, b) => a + b, 0);
+  document.getElementById("b-meta").textContent = `${fmtNum(data.artist.plays)} plays · ${plural(total, "thing")} outstanding`;
+  const doneEl = document.getElementById("b-done");
+  doneEl.hidden = !data.done && total;
+  doneEl.innerHTML = !total ? "Nothing outstanding for this artist." : data.done ? "Marked reviewed — what's left here is what you chose to leave. It comes back to the queue if anything new turns up." : "";
+  body.innerHTML = "";
+  const items = data.items;
+  const KIND_ORDER = { edition: 0, possible: 1, variant: 2 };
+  items.songGroups.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.plays - a.plays);
+
+  const albums = document.createElement("div");
+  albums.innerHTML = `<div class="sec"><h2>Albums</h2></div>`;
+  body.appendChild(albums);
+  if (items.singles.length) section(albums, "Singles filed as albums", "A lead single that became its own “album”. Folding one moves its plays to the album (its own copies of songs merge into the album's), and future plays of the single land there too.", items.singles, (x) => singleItem(x, { basket, keys }));
+  if (items.albumGroups.length) section(albums, "Versions of the same record", "", items.albumGroups, albumGroupItem);
+  if (items.missing.length) section(albums, "No MusicBrainz id", "Owned and most played first. Suggestions come from the album-id sweep (Albums › Suggestions) — only a strong one arrives selected; Find… searches MusicBrainz now.", items.missing, (m) => albumSuggestItem(m, { basket, keys, profile: wb.albums[m.albumId] }));
+  if (items.flags.length) section(albums, "MusicBrainz says something's off", "", items.flags, flagItem);
+  if (!items.singles.length && !items.albumGroups.length && !items.missing.length && !items.flags.length) albums.insertAdjacentHTML("beforeend", `<p class="sec-note">Nothing outstanding.</p>`);
+
+  const songs = document.createElement("div");
+  songs.innerHTML = `<div class="sec"><h2>Songs</h2><div class="chips" data-role="kinds">
+      ${["all", "edition", "variant", "possible"].map((k) => `<button class="chip filter-chip" data-k="${k}" aria-pressed="${k === "all"}">${k === "all" ? "All" : KIND_TEXT[k][0]} <span class="meta">${k === "all" ? items.songGroups.length : items.songGroups.filter((g) => g.kind === k).length}</span></button>`).join("")}</div></div>`;
+  body.appendChild(songs);
+  const groupList = items.songGroups.length ? section(songs, "Duplicates", "Ticked only where it's the same recording on the same album. Merging keeps every play, show and spelling; any merge can be undone.", items.songGroups, (g) => songGroupItem(g, { basket, keys })) : null;
+  songs.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
+    songs.querySelectorAll("[data-k]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    groupList?.querySelectorAll(".review-item").forEach((el) => { el.hidden = b.dataset.k !== "all" && el.dataset.kind !== b.dataset.k; });
+  }));
+  if (items.placement.length) section(songs, "Filed under the wrong album", "", items.placement, placementItem);
+  if (!items.songGroups.length && !items.placement.length) songs.insertAdjacentHTML("beforeend", `<p class="sec-note">Nothing outstanding.</p>`);
+
+  const live = document.createElement("div");
+  live.innerHTML = `<div class="sec"><h2>Live</h2></div><p class="sec-note">${data.live.songs ? `${plural(data.live.songs, "live song")}: ${data.live.done} settled, ${data.live.todo} with a suggestion waiting, ${data.live.unchecked} not looked up yet. <a href="/songs.html#live/${artistId}">Open in Live sets →</a>` : "No live shows recorded."}</p>`;
+  body.appendChild(live);
+
+  if (data.batches.length) {
+    const hist = document.createElement("div");
+    hist.innerHTML = `<div class="sec"><h2>Recent batches</h2></div><ul class="batches">${data.batches.map((b) =>
+      `<li><time>${esc(b.at.slice(5, 16))}</time><span>${plural(b.actions || 0, "change")}</span><span class="spacer"></span>${b.undoneAt ? '<span class="badge">undone</span>' : `<button class="small" data-batch="${b.batchId}">Undo</button>`}</li>`).join("")}</ul>`;
+    hist.querySelectorAll("[data-batch]").forEach((btn) => btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      if (!(await undoAction("batchv2", parseInt(btn.dataset.batch, 10)))) btn.disabled = false;   // success reloads via mc:undone
+    }));
+    body.appendChild(hist);
+  }
+  keys.reset();
+  keys.first();   // the first tile is live straight away -- shortcuts work without a click
+}
+
+document.getElementById("b-next").addEventListener("click", () => {
+  const n = nextArtist();
+  if (basket.size && !confirm(`You have ${plural(basket.size, "queued change")} that haven't been applied. Leave them?`)) return;
+  location.href = n ? `/artist.html?id=${n}` : "/artist.html";
+});
+document.getElementById("b-reviewed").addEventListener("click", async () => {
+  if (basket.size) { toast("Apply (or clear) your queued changes first.", { error: true }); return; }
+  const res = await api("/api/batch/apply", { actions: [{ type: "mark", entityType: "artist", entityId: artistId, mark: wb.doneMark }], label: wb.artist.name, artistId });
+  if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+  toast(`<b>${esc(wb.artist.name)}</b> marked reviewed`, { undo: { kind: "batchv2", id: res.data.batchId } });
+  loadBench();
+});
+document.addEventListener("mc:undone", () => { if (artistId) loadBench(); });
+window.addEventListener("beforeunload", (e) => { if (basket.size) { e.preventDefault(); e.returnValue = ""; } });
+
+if (artistId) loadBench(); else loadQueue();
+</script>
+</body>
+</html>

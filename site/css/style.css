@@ -234,82 +234,13 @@ main#app {
   padding: 20px;
 }
 
-/* --- Dashboard --- */
-.stat-groups { display: flex; flex-direction: column; gap: 28px; margin-bottom: 36px; }
-.stat-group h2.hud { margin-bottom: 10px; font-size: 12px; text-transform: uppercase; }
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 14px;
-}
-.stat-card {
-  --c: var(--chamfer);
-  position: relative;
-  display: block;
-  overflow: hidden;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  clip-path: polygon(0 0, calc(100% - var(--c)) 0, 100% var(--c), 100% 100%, var(--c) 100%, 0 calc(100% - var(--c)));
-  padding: 20px 18px 16px;
-  box-shadow: var(--shadow);
-  cursor: pointer;
-  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
-}
-/* A colored top tick rather than a left spine -- a left edge bar clips oddly against the
-   chamfered bottom-left corner, a top tick doesn't. */
-.stat-card::before {
-  content: "";
-  position: absolute;
-  left: 0; right: 0; top: 0;
-  height: 3px;
-  background: var(--border);
-}
-.stat-card.vinyl::before { background: var(--accent-vinyl); }
-.stat-card.scrobble::before { background: var(--accent-scrobble); }
-.stat-card.live::before { background: var(--accent-live); }
-.stat-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--accent);
-  box-shadow: var(--shadow), 0 0 0 1px var(--accent);
-}
-.stat-card .stat-value {
-  font-family: var(--font-display);
-  font-size: 2rem;
-  font-weight: 600;
-  line-height: 1.1;
-}
-.stat-card .stat-label {
-  color: var(--text-dim);
-  font-size: 0.78rem;
-  margin-top: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-.stat-card.vinyl .stat-value { color: var(--accent-vinyl); }
-.stat-card.scrobble .stat-value { color: var(--accent-scrobble); }
-.stat-card.live .stat-value { color: var(--accent-live); }
+/* --- Home: css/home.css --- */
 
 h1 { font-size: 1.7rem; margin: 0 0 4px; }
 h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 .section { margin-bottom: 34px; }
 .subtle { color: var(--text-dim); font-size: 0.85rem; }
 
-.pill-list { display: flex; flex-wrap: wrap; gap: 8px; }
-.pill {
-  display: block;
-  padding: 8px 12px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--edge);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-.pill:hover { border-color: var(--edge-strong); background: var(--accent-wash); }
-.pill .count { color: var(--text-dim); font-size: 0.75rem; }
 
 /* --- Artist page --- */
 .artist-header { margin-bottom: 6px; }
@@ -787,15 +718,6 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   .coll-btn, .seg button { padding: 7px 9px; }
   .dig-word { display: none; }
 
-  /* Each stat group becomes a horizontally-scrollable, snap-scrolling strip instead of the
-     desktop grid just wrapping to fewer columns -- a structurally different presentation for
-     the exact same markup renderHome() already produces, gated entirely by this media query. */
-  .stat-grid {
-    display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
-    gap: 10px; padding-bottom: 4px; -webkit-overflow-scrolling: touch;
-  }
-  .stat-grid .stat-card { flex: 0 0 62%; scroll-snap-align: start; }
-  .stat-group h2.hud { padding-left: 2px; }
 }
 
 /* =====================================================================

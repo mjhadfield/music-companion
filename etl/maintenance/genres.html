@@ -32,36 +32,82 @@
   .inherit { padding: 12px 18px; border-bottom: 1px solid var(--edge); background: var(--bg-2); }
   .search-wrap { padding: 14px 18px; border-bottom: 1px solid var(--edge); }
   .search-wrap input { width: 100%; max-width: 520px; }
+
+  /* review tiles (By album / By artist) */
+  .gtile { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; margin-bottom: 10px; }
+  .gtile img, .gtile .noart { width: 64px; height: 64px; object-fit: cover; background: var(--surface-3); display: block; }
+  .gtile .t { font-weight: 600; }
+  .gtile .t a { color: inherit; text-decoration: none; } .gtile .t a:hover { text-decoration: underline; }
+  .gtile .links { display: inline-flex; flex-wrap: wrap; gap: 10px; font-size: 0.76rem; margin-left: 8px; font-weight: 400; }
+  .gtile .links a { font-weight: 400; font-family: inherit; text-transform: none; letter-spacing: 0; }
+  .gtile .chips-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 8px; }
+  .gtile .chips-row .lbl { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-right: 2px; }
+  .gtile .notes { font-size: 0.74rem; color: var(--text-muted); margin-top: 6px; }
+  .gtile.saved { opacity: 0.55; }
+  .gchip.dropping { text-decoration: line-through; opacity: 0.55; }
+  .gsug { display: inline-flex; align-items: center; gap: 4px; padding: 1px 9px; font-size: 0.78rem; border-radius: 999px; cursor: pointer;
+          border: 1px dashed var(--edge-strong); background: none; color: var(--text-dim); }
+  .gsug .v { font-size: 0.68rem; color: var(--text-muted); }
+  .gsug.on { border-style: solid; color: var(--text); background: color-mix(in srgb, var(--ok) 14%, transparent); border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+  .gsug.on::before { content: "✓"; font-size: 0.72rem; color: var(--ok); }
+  .gsug.discogs.on { background: color-mix(in srgb, var(--accent-vinyl) 14%, transparent); border-color: color-mix(in srgb, var(--accent-vinyl) 60%, transparent); }
+  .review-bar { position: sticky; bottom: 0; display: flex; gap: 12px; align-items: center; padding: 10px 16px; margin-top: 10px;
+                background: var(--nav-bg); backdrop-filter: blur(6px); border: 1px solid var(--edge); z-index: 5; }
+  .review-bar .spacer { flex: 1; }
+  .artist-pick { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
+  .artist-pick aside { max-height: calc(100vh - 160px); overflow: auto; }
+  .a-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; cursor: pointer; font-size: 0.86rem; border-radius: var(--radius-sm); }
+  .a-row:hover, .a-row.current { background: var(--accent-wash); }
+  @media (max-width: 900px) { .artist-pick { grid-template-columns: 1fr; } .artist-pick aside { max-height: 260px; } }
 </style>
 </head>
 <body>
 <header id="topnav"></header>
 <main class="wide">
   <h1>Genres</h1>
-  <p class="subtitle">Genre tags on albums — from MusicBrainz (voted, applied automatically) and, for vinyl, Discogs styles. Artists inherit theirs from their albums. Remove a tag and it stays removed; hide or merge a genre and every future refresh follows. Everything here can be undone.</p>
+  <p class="subtitle">Genres live on albums; artists inherit theirs. Review suggestions album by album or artist by artist — tick what fits, add your own, then save. A genre you remove stays removed; hide or merge one in By genre and everything follows. All undoable.</p>
 
   <div class="card flush cov" id="coverage"></div>
-  <div class="card">
-    <div class="sweeps">
-      <label>Genres for the next <input type="number" id="g-limit" value="50" min="1" max="200" style="width:70px" /> artists</label>
-      <button class="primary" id="g-start">Fetch genres</button>
-      <span class="meta">MusicBrainz · one request per 100 albums · vinyl artists first</span>
-    </div>
-    <div class="sweeps" style="margin-top:10px">
-      <label>Pressing details for the next <input type="number" id="p-limit" value="222" min="1" max="300" style="width:70px" /> records</label>
-      <button id="p-start">Fetch from Discogs</button>
-      <span class="meta">country, date, matrix, pressing plant, tracklist, styles · ~2.6s each</span>
-    </div>
-    <div id="sweep"></div>
-  </div>
 
   <div class="tabs" id="tabs">
+    <button data-tab="album">By album</button>
+    <button data-tab="artist">By artist</button>
+    <button data-tab="vinyl">By vinyl</button>
     <button data-tab="genres">By genre</button>
-    <button data-tab="browse">Albums &amp; artists</button>
-    <button data-tab="untagged">Untagged</button>
-    <button data-tab="low">Low confidence</button>
     <button data-tab="activity">Activity</button>
   </div>
+
+  <section data-panel="album" hidden>
+    <div class="toolbar">
+      <div class="chips" id="q-mode">
+        <button class="chip filter-chip" data-mode="untagged" aria-pressed="true">No genre yet</button>
+        <button class="chip filter-chip" data-mode="single" aria-pressed="false">Single-vote MusicBrainz genre</button>
+      </div>
+      <span class="meta" id="q-status"></span>
+    </div>
+    <p class="meta" style="margin:0 0 10px">Most played first, 20 at a time. Suggestions fill in as they're looked up: <b>ticked</b> = the album's own MusicBrainz genres (or, when the album has none, its editions'), and Discogs styles for a record you own; <b>dashed</b> = a hint (the artist's genres, single votes) — click to tick. Untick anything wrong, ✕ a genre already there, type to add your own. <b>Save</b> keeps exactly what's ticked and moves on.</p>
+    <div id="q-list"></div>
+  </section>
+
+  <section data-panel="artist" hidden>
+    <div class="artist-pick">
+      <aside class="card flush">
+        <div style="padding:10px"><input type="search" id="a-q" placeholder="Find an artist…" style="width:100%" /></div>
+        <div class="side-head" style="padding:0 10px"><h3>Most played with albums to review</h3></div>
+        <div id="a-list"><div class="meta" style="padding:8px 10px">Loading…</div></div>
+      </aside>
+      <div id="a-view"><div class="empty">Pick an artist — every album of theirs, with the genres it has and suggestions for the rest.</div></div>
+    </div>
+  </section>
+
+  <section data-panel="vinyl" hidden>
+    <div class="toolbar">
+      <label class="meta"><input type="checkbox" id="v-all" /> Show reviewed too</label>
+      <span class="meta" id="v-status"></span>
+    </div>
+    <p class="meta" style="margin:0 0 10px">The records you own, by artist, 20 at a time — including ones that already have genres (most came from the pressing's Discogs styles). Check them against MusicBrainz, adjust, save; saved records leave the list.</p>
+    <div id="v-list"></div>
+  </section>
 
   <section data-panel="genres" hidden>
     <div class="card flush disco-shell">
@@ -76,35 +122,24 @@
     </div>
   </section>
 
-  <section data-panel="browse" hidden>
-    <div class="card flush">
-      <div class="search-wrap"><input type="text" id="b-q" placeholder="Search an artist or album…" /></div>
-      <div id="b-view"><div class="empty">Search for an artist to tag all their albums at once, or one album.</div></div>
-    </div>
-  </section>
-
-  <section data-panel="untagged" hidden>
-    <div class="card flush">
-      <div class="inbox-tools"><span class="meta" id="u-total"></span><span class="spacer"></span><label class="meta"><input type="checkbox" id="u-vinyl" /> vinyl only</label></div>
-      <div id="u-list"></div>
-    </div>
-  </section>
-
-  <section data-panel="low" hidden>
-    <div class="card flush">
-      <div class="inbox-tools"><span class="meta">MusicBrainz genres that came from a single vote — a glance, nothing waits on it.</span></div>
-      <div id="l-list"></div>
-    </div>
-  </section>
-
   <section data-panel="activity" hidden><div class="card"><div id="activity"></div></div></section>
+
+  <div class="card" style="margin-top:22px">
+    <div class="sweeps">
+      <label>Discogs pressing details for the next <input type="number" id="p-limit" value="222" min="1" max="300" style="width:70px" /> records</label>
+      <button id="p-start">Fetch from Discogs</button>
+      <span class="meta">styles (suggested as genres), country, date, matrix, tracklist · ~2.6s each</span>
+    </div>
+    <div id="sweep"></div>
+  </div>
 </main>
 
 <script src="shared.js"></script>
 <script>
 mountNav("Genres");
+const PAGE = 20;
 
-const cover = (a) => a.cover ? `<img src="/covers/${a.albumId}.jpg" alt="" loading="lazy" />` : `<div class="noart"></div>`;
+const cover = (a) => a.cover ? `<img src="/covers/${a.albumId}.jpg" alt="" loading="lazy" onerror="this.outerHTML='<div class=&quot;noart&quot;></div>'" />` : `<div class="noart"></div>`;
 const albumMeta = (a) => `<a href="/albums.html#discography/${a.artistId}">${esc(a.artistName)}</a>${a.year ? ` · ${a.year}` : ""} · ${plural(a.plays, "play")}${a.vinyl ? ` · <span class="badge vinyl">vinyl</span>` : ""}`;
 
 function albumRow(a, { tick = false, extra = "" } = {}) {
@@ -116,31 +151,192 @@ function albumRow(a, { tick = false, extra = "" } = {}) {
   return el;
 }
 
-// -- Coverage + sweeps ------------------------------------------------------------------------
+
+// -- Coverage -----------------------------------------------------------------------------------
 async function loadCoverage() {
   const { ok, data } = await api("/api/genres/summary");
   if (!ok) return;
   const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
   const box = (n, l, bar) => `<div><div class="n">${n}</div><div class="l">${l}</div>${bar != null ? `<div class="bar"><i style="width:${bar}%"></i></div>` : ""}</div>`;
   document.getElementById("coverage").innerHTML =
-    box(`${fmtNum(data.vinylTagged)}<span class="meta"> / ${fmtNum(data.vinylAlbums)}</span>`, "vinyl albums tagged", pct(data.vinylTagged, data.vinylAlbums))
-    + box(`${fmtNum(data.tagged)}<span class="meta"> / ${fmtNum(data.albums)}</span>`, "all albums tagged", pct(data.tagged, data.albums))
+    box(`${fmtNum(data.vinylTagged)}<span class="meta"> / ${fmtNum(data.vinylAlbums)}</span>`, "vinyl albums with genres", pct(data.vinylTagged, data.vinylAlbums))
+    + box(`${fmtNum(data.vinylReviewed)}<span class="meta"> / ${fmtNum(data.vinylAlbums)}</span>`, "records reviewed", pct(data.vinylReviewed, data.vinylAlbums))
+    + box(`${fmtNum(data.tagged)}<span class="meta"> / ${fmtNum(data.albums)}</span>`, "all albums with genres", pct(data.tagged, data.albums))
+    + box(fmtNum(data.toReview), "albums still to review")
     + box(fmtNum(data.genres), "genres in use")
-    + box(fmtNum(data.artistsToFetch), "artists not fetched yet")
     + box(fmtNum(data.pressingsToFetch), "records without pressing details")
     + box(fmtNum(data.rules), "hidden / merged genres");
-  document.getElementById("g-start").disabled = !data.artistsToFetch;
   document.getElementById("p-start").disabled = !data.pressingsToFetch;
 }
-async function sweep(kind, limit, btn) {
-  btn.disabled = true;
-  await runSweep(document.getElementById("sweep"), kind, limit);
-  btn.disabled = false;
+document.getElementById("p-start").addEventListener("click", async (e) => {
+  e.target.disabled = true;
+  await runSweep(document.getElementById("sweep"), "pressings", parseInt(document.getElementById("p-limit").value, 10) || 222);
+  e.target.disabled = false;
   loadCoverage();
-  reloadCurrent();
+});
+
+// -- A review tile: one album, its genres, suggestions to tick, a box to add ---------------------
+const FROM = { album: "on the album (MusicBrainz)", editions: "on its editions (MusicBrainz)", edition: "on its edition (MusicBrainz)",
+               discogs: "Discogs style of your pressing", artist: "the artist's genre (MusicBrainz) — a hint", mine: "added by you" };
+function albumLinks(a) {
+  const out = [];
+  if (a.mbid) out.push(mbLink("album", a.mbid, "MusicBrainz"));
+  (a.pressings || []).forEach((p, i) => {
+    if (p.discogsReleaseId) out.push(discogsLink(p.discogsReleaseId, a.pressings.length > 1 ? `Discogs ${i + 1}` : "Discogs"));
+    out.push(`<a href="${COMPANION_URL}#/vinyl/${p.holdingId}" target="_blank" rel="noopener">your record${a.pressings.length > 1 ? ` ${i + 1}` : ""} ↗</a>`);
+  });
+  out.push(`<a href="/artist.html?id=${a.artistId}">Workbench</a>`);
+  return out.join("");
 }
-document.getElementById("g-start").addEventListener("click", (e) => sweep("genres", parseInt(document.getElementById("g-limit").value, 10) || 50, e.target));
-document.getElementById("p-start").addEventListener("click", (e) => sweep("pressings", parseInt(document.getElementById("p-limit").value, 10) || 222, e.target));
+function genreTile(a) {
+  const el = document.createElement("div");
+  el.className = "review-item gtile";
+  const dropping = new Set(), sugg = new Map();   // name -> {...suggestion, on}
+  el.innerHTML = `${cover(a)}<div>
+      <div class="t"><a href="${COMPANION_URL}#/album/${a.albumId}" target="_blank" rel="noopener" title="Open in Music Companion">${esc(a.title)}</a><span class="links">${albumLinks(a)}</span></div>
+      <div class="meta">${albumMeta(a)}</div>
+      <div class="chips-row" data-role="have"></div>
+      <div class="chips-row" data-role="sugg"><span class="lbl">Suggested</span><span class="meta" data-role="loading">not looked up yet</span></div>
+      <div class="notes" data-role="notes"></div></div>`;
+  const have = el.querySelector("[data-role='have']"), sg = el.querySelector("[data-role='sugg']");
+  function paintHave() {
+    have.innerHTML = `<span class="lbl">Has</span>${(a.genres || []).map((g) => `<span class="gchip ${g.source}${dropping.has(g.genreId) ? " dropping" : ""}" title="${esc(GENRE_SOURCE[g.source] || g.source)}${g.votes ? ` · ${g.votes} vote${g.votes === 1 ? "" : "s"}` : ""}">${esc(g.name)}<button data-drop="${g.genreId}" title="${dropping.has(g.genreId) ? "Keep it" : "Remove it (stays removed)"}">${dropping.has(g.genreId) ? "↺" : "×"}</button></span>`).join("") || `<span class="meta">nothing yet</span>`}`;
+    have.querySelectorAll("[data-drop]").forEach((b) => b.addEventListener("click", () => {
+      const id = +b.dataset.drop; dropping.has(id) ? dropping.delete(id) : dropping.add(id); paintHave();
+    }));
+  }
+  function paintSugg() {
+    const loading = sg.querySelector("[data-role='loading']");
+    sg.innerHTML = `<span class="lbl">Suggested</span>${loading ? loading.outerHTML : ""}${[...sugg.values()].map((s) =>
+      `<button class="gsug ${s.source === "discogs" ? "discogs" : ""}${s.on ? " on" : ""}" data-name="${esc(s.name)}" title="${esc(FROM[s.from] || s.from)}${s.votes ? ` · ${s.votes} vote${s.votes === 1 ? "" : "s"}` : ""}">${esc(s.name)}${s.votes ? `<span class="v">${s.votes}</span>` : ""}</button>`).join("")}
+      <span class="gadd"><input type="text" placeholder="+ genre" aria-label="Add a genre" /></span>`;
+    sg.querySelectorAll(".gsug").forEach((b) => b.addEventListener("click", () => { const s = sugg.get(b.dataset.name); s.on = !s.on; paintSugg(); }));
+    mountTypeahead(sg.querySelector(".gadd input"), {
+      fetchItems: async (q) => {
+        const found = (await api(`/api/genres/search?q=${encodeURIComponent(q)}`)).data.genres || [];
+        const exact = found.some((g) => g.name === q.trim().toLowerCase());
+        return [...found, ...(exact || !q.trim() ? [] : [{ genreId: null, name: q.trim().toLowerCase(), albums: 0, isNew: true }])];
+      },
+      renderItem: (g) => `<span>${esc(g.name)}</span><span class="meta">${g.isNew ? "new genre" : plural(g.albums, "album")}</span>`,
+      onPick: (g) => {
+        const s = sugg.get(g.name);
+        if (s) s.on = true; else sugg.set(g.name, { name: g.name, from: "mine", source: "manual", on: true });
+        paintSugg(); sg.querySelector(".gadd input")?.focus();
+      },
+    });
+  }
+  paintHave(); paintSugg();
+  return {
+    el, albumId: a.albumId,
+    async load() {
+      sg.querySelector("[data-role='loading']").textContent = "looking up…";
+      const { ok, data } = await api(`/api/genres/suggest?albumId=${a.albumId}`);
+      sg.querySelector("[data-role='loading']")?.remove();
+      if (!ok) { el.querySelector("[data-role='notes']").innerHTML = `<span class="bad-text">${esc(data.message)}</span>`; paintSugg(); return; }
+      for (const s of data.suggestions) if (!sugg.has(s.name)) sugg.set(s.name, { ...s, on: s.tick });
+      el.querySelector("[data-role='notes']").textContent = data.notes.join(" · ") + (data.suggestions.length ? "" : " — add one by hand if you know it");
+      paintSugg();
+      this.loaded = true;
+    },
+    action() {
+      const list = [...sugg.values()];
+      return { type: "albumGenres", albumId: a.albumId,
+        keep: list.filter((s) => s.on).map((s) => ({ name: s.name, mbid: s.mbid || null, source: s.source, votes: s.votes || null })),
+        drop: [...dropping],
+        // unticked suggestions from the album itself (not hints): remembered as "not this album"
+        reject: list.filter((s) => !s.on && ["album", "editions", "edition", "discogs"].includes(s.from)).map((s) => s.name) };
+    },
+    summary() { const n = [...sugg.values()].filter((s) => s.on).length; return n + (a.genres || []).length - dropping.size; },
+  };
+}
+
+// Look the tiles up one after another (MusicBrainz is 1 request a second): the first fill in while later ones load.
+async function loadAll(tiles, isCurrent) {
+  for (const t of tiles) { if (!isCurrent()) return; if (!t.loaded) await t.load(); }
+}
+
+async function saveTiles(tiles, label, artistId) {
+  const actions = tiles.map((t) => t.action());
+  const res = await api("/api/batch/apply", { actions, label, artistId: artistId || null });
+  if (!res.ok) { toast(esc(res.data.message), { error: true, timeout: 9000 }); return false; }
+  toast(`Saved genres for ${plural(actions.length, "album")}`, { undo: { kind: "batchv2", id: res.data.batchId } });
+  notifyChanged(); loadCoverage();
+  return true;
+}
+
+// -- By album: the next 20 albums still to review -------------------------------------------------------
+let qMode = "untagged", qGen = 0;
+const loadQueue = () => loadTiles("q", qMode, "Genres — by album");
+const loadVinyl = () => loadTiles("v", document.getElementById("v-all").checked ? "vinyl-all" : "vinyl", "Genres — by vinyl");
+document.getElementById("v-all").addEventListener("change", loadVinyl);
+async function loadTiles(prefix, mode, label) {
+  const gen = ++qGen;
+  const host = document.getElementById(`${prefix}-list`);
+  host.innerHTML = `<div class="status-line">Loading…</div>`;
+  const { ok, data } = await api(`/api/genres/queue?mode=${mode}&limit=${PAGE}`);
+  if (!ok || gen !== qGen) return;
+  document.getElementById(`${prefix}-status`).textContent = mode === "vinyl-all" ? `${fmtNum(data.total)} records` : `${fmtNum(data.total)} ${prefix === "v" ? "record" : "album"}${data.total === 1 ? "" : "s"} to review`;
+  host.innerHTML = "";
+  if (!data.albums.length) { host.innerHTML = `<div class="empty">Nothing left here.</div>`; return; }
+  const tiles = data.albums.map((a) => genreTile(a));
+  tiles.forEach((t) => host.appendChild(t.el));
+  const bar = document.createElement("div");
+  bar.className = "review-bar";
+  bar.innerHTML = `<span class="meta">Saving keeps exactly what's ticked for these ${tiles.length} and marks them reviewed — they leave this list.</span><span class="spacer"></span>
+    <button class="good" data-role="save">Save these ${tiles.length} and load the next ${PAGE}</button>`;
+  host.appendChild(bar);
+  bar.querySelector("[data-role='save']").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    if (await saveTiles(tiles, label)) loadTiles(prefix, mode, label); else e.target.disabled = false;
+  });
+  loadAll(tiles, () => gen === qGen);
+}
+document.getElementById("q-mode").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-mode]"); if (!b) return;
+  qMode = b.dataset.mode;
+  document.querySelectorAll("#q-mode [data-mode]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  loadQueue();
+});
+
+// -- By artist: all of one artist's albums ----------------------------------------------------------
+let aCurrent = null, aGen = 0;
+async function loadArtistList(q = "") {
+  const { ok, data } = await api(`/api/genres/artists${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+  if (!ok) return;
+  document.getElementById("a-list").innerHTML = data.artists.map((a) => `<div class="a-row${a.artistId === aCurrent ? " current" : ""}" data-id="${a.artistId}">
+      <span>${esc(a.name)}</span><span class="meta">${a.untagged != null ? `${a.untagged} to review` : plural(a.plays, "play")}</span></div>`).join("") || `<div class="meta" style="padding:8px 10px">No match.</div>`;
+  document.querySelectorAll("#a-list .a-row").forEach((r) => r.addEventListener("click", () => openArtist(+r.dataset.id)));
+}
+let aTimer = null;
+document.getElementById("a-q").addEventListener("input", (e) => { clearTimeout(aTimer); aTimer = setTimeout(() => loadArtistList(e.target.value.trim()), 250); });
+async function openArtist(id) {
+  aCurrent = id; const gen = ++aGen;
+  document.querySelectorAll("#a-list .a-row").forEach((r) => r.classList.toggle("current", +r.dataset.id === id));
+  const view = document.getElementById("a-view");
+  view.innerHTML = `<div class="status-line">Loading…</div>`;
+  const { ok, data } = await api(`/api/genres/artist?artistId=${id}`);
+  if (!ok || gen !== aGen) return;
+  const todo = data.albums.filter((a) => !a.genres.length).length;
+  view.innerHTML = `<div class="g-head" style="margin-bottom:10px"><h2>${esc(data.name)}</h2><span class="meta">${plural(data.albums.length, "album")} · ${todo} without a genre</span>
+      <span class="spacer" style="flex:1"></span><a href="/artist.html?id=${id}">Workbench</a>
+      <button class="small" data-role="fetch">Suggest genres for all ${data.albums.length}</button></div>
+    <div class="inherit" style="margin-bottom:10px"><span class="meta">${esc(data.name)} inherits:</span> <span class="genre-chips" style="display:inline-flex">${data.inherited.map((g) => `<span class="gchip" style="padding-right:8px">${esc(g.name)} <span class="meta">&nbsp;${g.albums}</span></span>`).join("") || `<span class="meta">nothing yet</span>`}</span></div>
+    <div data-role="tiles"></div>`;
+  const host = view.querySelector("[data-role='tiles']");
+  const tiles = data.albums.map((a) => genreTile(a));
+  tiles.forEach((t) => host.appendChild(t.el));
+  const bar = document.createElement("div");
+  bar.className = "review-bar";
+  bar.innerHTML = `<span class="meta">Saves every album shown, exactly as ticked.</span><span class="spacer"></span><button class="good" data-role="save">Save ${esc(data.name)}'s genres</button>`;
+  host.appendChild(bar);
+  // the ones without a genre look themselves up straight away; the rest on "Suggest genres for all"
+  loadAll(tiles.filter((t, i) => !data.albums[i].genres.length), () => gen === aGen);
+  view.querySelector("[data-role='fetch']").addEventListener("click", (e) => { e.target.disabled = true; loadAll(tiles, () => gen === aGen); });
+  bar.querySelector("[data-role='save']").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    if (await saveTiles(tiles, `Genres — ${data.name}`, id)) { openArtist(id); loadArtistList(document.getElementById("a-q").value.trim()); } else e.target.disabled = false;
+  });
+}
 
 // -- By genre ---------------------------------------------------------------------------------
 let genreList = [], rules = [], currentGenre = null;
@@ -235,92 +431,24 @@ async function openGenre(gid) {
   sync();
 }
 
-// -- Albums & artists -------------------------------------------------------------------------
-let browsing = null; // {kind: "artist"|"album", id}
-mountTypeahead(document.getElementById("b-q"), {
-  fetchItems: async (q) => {
-    const d = (await api(`/api/albums/search?q=${encodeURIComponent(q)}`)).data;
-    return [...(d.artists || []).slice(0, 5).map((a) => ({ ...a, kind: "artist" })), ...(d.albums || []).slice(0, 10).map((a) => ({ ...a, kind: "album" }))];
-  },
-  renderItem: (x) => x.kind === "artist" ? `<span><b>${esc(x.name)}</b> <span class="meta">artist</span></span>`
-    : `<span>${esc(x.title)} <span class="meta">· ${esc(x.artistName)}${x.year ? ` · ${x.year}` : ""}</span></span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`,
-  onPick: (x) => { browsing = { kind: x.kind, id: x.kind === "artist" ? x.artistId : x.albumId }; loadBrowse(); },
-});
-async function loadBrowse() {
-  const view = document.getElementById("b-view");
-  if (!browsing) return;
-  if (browsing.kind === "album") {
-    const { ok, data } = await api(`/api/genres/album?albumId=${browsing.id}`);
-    if (!ok) return;
-    view.innerHTML = "";
-    view.appendChild(albumRow(data, { extra: data.hidden.length ? ` · <span class="muted">removed: ${data.hidden.map((h) => esc(h.name)).join(", ")}</span>` : "" }));
-    return;
-  }
-  const { ok, data } = await api(`/api/genres/artist?artistId=${browsing.id}`);
-  if (!ok) return;
-  view.innerHTML = `<div class="inherit"><div class="meta" style="margin-bottom:6px"><b>${esc(data.name)}</b> inherits these from their albums (vinyl weighs more):</div>
-      <div class="genre-chips">${data.inherited.map((g) => `<span class="gchip" style="padding-right:8px">${esc(g.name)} <span class="meta">&nbsp;${g.albums}${g.vinylAlbums ? `·${g.vinylAlbums}◉` : ""}</span></span>`).join("") || `<span class="meta">none yet</span>`}</div>
-      <div style="margin-top:10px; display:flex; gap:8px; align-items:center"><input type="text" data-role="all-add" placeholder="+ genre on all ${data.albums.length} albums" style="width:260px" /></div></div>
-    <div data-role="albums"></div>`;
-  const host = view.querySelector("[data-role='albums']");
-  data.albums.forEach((a) => host.appendChild(albumRow(a)));
-  mountTypeahead(view.querySelector("[data-role='all-add']"), {
-    fetchItems: async (q) => {
-      const found = (await api(`/api/genres/search?q=${encodeURIComponent(q)}`)).data.genres || [];
-      return found.some((g) => g.name === q.trim().toLowerCase()) || !q.trim() ? found : [...found, { name: q.trim().toLowerCase(), albums: 0, isNew: true }];
-    },
-    renderItem: (g) => `<span>${esc(g.name)}</span><span class="meta">${g.isNew ? "new genre" : plural(g.albums, "album")}</span>`,
-    onPick: async (g) => {
-      const { ok: ok2, data: d2 } = await api("/api/genres/edit", { albumIds: data.albums.map((a) => a.albumId), add: [g.name] });
-      if (!ok2) { toast(esc(d2.message), { error: true }); return; }
-      toast(`Added “${esc(g.name)}” to ${plural(d2.changed, "album")}`, d2.undo ? { undo: d2.undo } : {});
-      notifyChanged(); loadBrowse(); loadCoverage();
-    },
-  });
-}
-
-// -- Untagged / Low confidence ----------------------------------------------------------------
-const REASONS = {
-  "no MusicBrainz id": "no MusicBrainz id — resolve it in Albums",
-  "not fetched yet": "its artist hasn't been fetched yet",
-  "still on an edition id": "still identified by one edition — convert it in Albums › Editions",
-  "no genres on MusicBrainz": "MusicBrainz has no genres for it",
-};
-async function loadUntagged() {
-  const vinyl = document.getElementById("u-vinyl").checked;
-  const { ok, data } = await api(`/api/genres/untagged${vinyl ? "?vinyl=1" : ""}`);
-  if (!ok) return;
-  document.getElementById("u-total").textContent = `${fmtNum(data.total)} album${data.total === 1 ? "" : "s"} without a genre${data.total > data.albums.length ? ` · showing ${fmtNum(data.albums.length)}` : ""}`;
-  const host = document.getElementById("u-list");
-  host.innerHTML = "";
-  data.albums.forEach((a) => host.appendChild(albumRow(a, { extra: ` · <span class="why warn-text">${esc(REASONS[a.reason] || a.reason)}</span>` })));
-  if (!data.albums.length) host.innerHTML = `<div class="empty">Every album has a genre.</div>`;
-}
-document.getElementById("u-vinyl").addEventListener("change", loadUntagged);
-async function loadLow() {
-  const { ok, data } = await api("/api/genres/low");
-  if (!ok) return;
-  const host = document.getElementById("l-list");
-  host.innerHTML = "";
-  data.albums.forEach((a) => host.appendChild(albumRow(a)));
-  if (!data.albums.length) host.innerHTML = `<div class="empty">Nothing here — every MusicBrainz genre has at least two votes.</div>`;
-}
 
 function reloadCurrent() {
   const t = tabs.current();
   if (t === "genres") loadGenres();
-  if (t === "browse") loadBrowse();
-  if (t === "untagged") loadUntagged();
-  if (t === "low") loadLow();
+  if (t === "album") loadQueue();
+  if (t === "vinyl") loadVinyl();
+  if (t === "artist" && aCurrent) openArtist(aCurrent);
   loadCoverage();
 }
 
 const tabs = mountTabs(document.getElementById("tabs"), {
+  album: loadQueue,
+  artist: () => loadArtistList(),
+  vinyl: loadVinyl,
   genres: loadGenres,
-  browse: () => {},
-  untagged: loadUntagged,
-  low: loadLow,
   activity: () => mountActivity(document.getElementById("activity"), { entityType: "album", limit: 60 }),
+}, {
+  onSubpath: (tab, sub) => { if (tab === "artist" && /^\d+$/.test(sub)) { loadArtistList(); openArtist(+sub); } },
 });
 loadCoverage();
 document.addEventListener("mc:undone", reloadCurrent);

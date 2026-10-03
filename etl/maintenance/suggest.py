@@ -8,6 +8,7 @@ cancellable, and every request it makes goes through mbcache -> musicbrainz.py's
 throttle, so a sweep of N artists costs at most ~2-4 N seconds the first time and ~0 after.
 """
 import json
+import re
 import threading
 from collections import defaultdict
 
@@ -15,7 +16,7 @@ from rapidfuzz import fuzz
 
 import mbcache
 from common import artist_mbid_sets, connect as db_connect
-from titles import base_key, normalize_artist_name
+from titles import base_key, normalize_artist_name, split_title, track_key
 
 _active_lock = threading.Lock()
 _active_job: str | None = None
@@ -236,6 +237,170 @@ def _album_verify(limit: int, log, progress, cancelled) -> None:
     log(f"Done. MusicBrainz requests made: {mbcache.stats['misses']} (session total). Review flags in the Verify tab.")
 
 
+ALBUM_NO_MBID = "no-mbid"          # review mark: "MusicBrainz doesn't have this one" (bootleg, one-off)
+_COMPILATION_WORDS = re.compile(r"\b(greatest hits|best of|the very best|anthology|essential|definitive|collection|singles)\b", re.I)
+
+
+def _album_type_conflict(local_title: str, rg: dict) -> str | None:
+    """Why this release group's type can't be this album, or None. Only clear conflicts: a live
+    album vs a studio one (either way round), a compilation vs not."""
+    local_tags = split_title(local_title)[1]
+    local_live = "live" in local_tags
+    rg_types = set(rg.get("secondaryTypes") or [])
+    if "remix" in local_tags and rg.get("primaryType") == "Album" and "Remix" not in rg_types:
+        return "yours is a remix, this is the original album"
+    if "remix" not in local_tags and "Remix" in rg_types:
+        return "this is a remix release"
+    if local_live and "Live" not in rg_types:
+        return "yours is live, this isn't"
+    if not local_live and "Live" in rg_types:
+        return "this is a live album, yours isn't"
+    if bool(_COMPILATION_WORDS.search(local_title)) != ("Compilation" in rg_types) and "Compilation" in rg_types:
+        return "this is a compilation"
+    return None
+
+
+def _overlap(played: list[str], tracks: list[str]) -> tuple[int, int]:
+    """How many of the songs played from an album are on a tracklist (track_key, fuzzy >= 90)."""
+    keys = [track_key(t) for t in tracks if t]
+    hit = sum(1 for p in played if p and any(p == k or fuzz.ratio(p, k) >= 90 for k in keys))
+    return hit, len(played)
+
+
+def score_album_candidates(local_title: str, played: list[str], rgs: list[dict], tracklists: dict[str, list[str] | None]) -> list[dict]:
+    """Scores the title-matching release groups for one album. `tracklists` holds the fetched
+    tracklists (mbid -> titles, None = MusicBrainz had none). Returns [{rg, tier, confidence,
+    evidence}] best first. High only for an exact title with no type conflict and at least half the
+    played songs on its tracklist -- and only when exactly one candidate gets there."""
+    key = base_key(local_title)
+    out = []
+    for rg in rgs:
+        exact = base_key(rg.get("title") or "") == key
+        score = 100.0 if exact else round(fuzz.ratio(key, base_key(rg.get("title") or "")), 1)
+        conflict = _album_type_conflict(local_title, rg)
+        ev = {"titleMatch": "exact" if exact else "fuzzy", "titleScore": score,
+              "types": "/".join(t for t in [rg.get("primaryType"), *(rg.get("secondaryTypes") or [])] if t) or None,
+              "firstReleaseDate": rg.get("firstReleaseDate"), "disambiguation": rg.get("disambiguation"), "typeConflict": conflict}
+        tl = tracklists.get(rg["mbid"])
+        pct = None
+        if tl is not None and played:
+            hit, n = _overlap(played, tl)
+            pct = round(100 * hit / n)
+            ev.update({"trackOverlap": pct, "tracksMatched": hit, "tracksPlayed": n, "tracksOnRelease": len(tl)})
+        if not exact and pct is not None and pct < 20:
+            continue                                   # a near title AND none of your songs: noise
+        confidence = round(0.5 * score + 0.4 * (pct if pct is not None else 50) + (0 if conflict else 10), 1)
+        out.append({"rg": rg, "confidence": confidence, "evidence": ev, "pct": pct, "exact": exact, "conflict": conflict})
+    strong = [c for c in out if c["exact"] and not c["conflict"] and (c["pct"] or 0) >= 50]
+    for c in out:
+        if c in strong and len(strong) == 1:
+            c["tier"] = "high"
+        elif not c["conflict"] and ((c["exact"] and (c["pct"] is None or c["pct"] >= 20)) or (c["pct"] or 0) >= 50):
+            c["tier"] = "medium"
+        else:
+            c["tier"] = "low"
+    out.sort(key=lambda c: ({"high": 0, "medium": 1, "low": 2}[c["tier"]], -c["confidence"]))
+    return out
+
+
+def _album_suggest(limit: int, log, progress, cancelled) -> None:
+    """MusicBrainz ids for albums that have none, from their artist's discography (one browse per
+    artist, cached) -- title-matched, then checked against the songs you've played from the album
+    (one tracklist lookup per strong candidate, ~2 requests). Writes suggestions only; a human
+    accepts or rejects each one. Most-played and owned albums first."""
+    conn = db_connect()
+    try:
+        targets = conn.execute(f"""
+            SELECT al.id, al.title, al.artist_id, ar.name,
+                   (SELECT count(*) FROM scrobbles sc WHERE sc.album_id = al.id) AS plays,
+                   (SELECT count(*) FROM vinyl_holdings vh WHERE vh.album_id = al.id) AS vinyl
+            FROM albums al JOIN artists ar ON ar.id = al.artist_id
+            WHERE al.mbid IS NULL
+              AND NOT EXISTS (SELECT 1 FROM album_parts ap WHERE ap.album_id = al.id)
+              AND NOT EXISTS (SELECT 1 FROM suggestions s WHERE s.entity_type = 'album' AND s.entity_id = al.id AND s.status = 'pending')
+              AND NOT EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'album' AND m.entity_id = al.id AND m.mark = ?)
+            ORDER BY vinyl * 50 + plays DESC, al.id LIMIT ?""", (ALBUM_NO_MBID, limit * 3)).fetchall()
+        mbid_sets = artist_mbid_sets(conn)
+        targets = [t for t in targets if mbid_sets.get(t[2])][:limit]
+        linked = {m: (i, t) for i, t, m in conn.execute("SELECT id, title, mbid FROM albums WHERE mbid IS NOT NULL")}
+        rejected = {(r[0], r[1]) for r in conn.execute("SELECT entity_id, mbid FROM suggestions WHERE entity_type = 'album' AND status = 'rejected'")}
+        played = defaultdict(set)
+        ids = [t[0] for t in targets]
+        for i in range(0, len(ids), 800):
+            chunk = ids[i:i + 800]
+            marks = ",".join("?" * len(chunk))
+            for aid, title in conn.execute(f"""SELECT DISTINCT sc.album_id, s.title FROM scrobbles sc JOIN songs s ON s.id = sc.song_id WHERE sc.album_id IN ({marks})
+                                               UNION SELECT album_id, title FROM songs WHERE album_id IN ({marks})""", chunk + chunk):
+                played[aid].add(track_key(title))
+    finally:
+        conn.close()
+
+    log(f"Looking for MusicBrainz ids for {len(targets)} album(s) whose artist has one — owned and most played first.")
+    made = none = 0
+    for i, (aid, title, artist_id, artist, plays, vinyl) in enumerate(targets):
+        if cancelled():
+            log("Cancelled.")
+            break
+        progress(i, len(targets))
+        try:
+            rgs = []
+            for mbid in sorted(mbid_sets[artist_id]):
+                rgs += mbcache.artist_release_groups(mbid) or []
+        except Exception as exc:
+            log(f"  ! {artist}: discography lookup failed ({exc})")
+            continue
+        key = base_key(title)
+        seen, cands = set(), []
+        for rg in rgs:
+            if not rg.get("mbid") or rg["mbid"] in seen or (aid, rg["mbid"]) in rejected:
+                continue
+            seen.add(rg["mbid"])
+            k = base_key(rg.get("title") or "")
+            if k and (k == key or fuzz.ratio(k, key) >= 92):
+                cands.append(rg)
+        if not cands:
+            none += 1
+            log(f"  - {artist} — {title}: nothing with that title in their MusicBrainz discography")
+            continue
+        # tracklists for the two likeliest only (each ~2 requests): exact titles, no type conflict, albums before singles
+        cands.sort(key=lambda rg: (base_key(rg.get("title") or "") != key, _album_type_conflict(title, rg) is not None,
+                                   rg.get("primaryType") != "Album", rg.get("firstReleaseDate") or "9999"))
+        tracklists = {}
+        if played.get(aid):
+            for rg in cands[:2]:
+                try:
+                    tl = mbcache.release_group_tracklist(rg["mbid"])
+                    tracklists[rg["mbid"]] = [t["title"] for t in (tl or {}).get("tracks") or []] if tl else None
+                except Exception as exc:
+                    log(f"  ! {artist} — {title}: tracklist lookup failed ({exc})")
+        scored = score_album_candidates(title, sorted(played.get(aid, [])), cands[:5], tracklists)[:3]
+        if not scored:
+            none += 1
+            continue
+        conn = db_connect()
+        try:
+            for c in scored:
+                other = linked.get(c["rg"]["mbid"])
+                if other:
+                    c["evidence"]["alreadyLinkedTo"] = {"albumId": other[0], "title": other[1]}
+                conn.execute("""
+                    INSERT INTO suggestions (entity_type, entity_id, mbid, label, confidence, tier, source, evidence_json)
+                    VALUES ('album', ?, ?, ?, ?, ?, 'album-suggest', ?)
+                    ON CONFLICT (entity_type, entity_id, mbid) DO UPDATE SET
+                        confidence = excluded.confidence, tier = excluded.tier, evidence_json = excluded.evidence_json, label = excluded.label
+                    WHERE suggestions.status = 'pending'""",
+                    (aid, c["rg"]["mbid"], c["rg"].get("title"), c["confidence"], c["tier"], json.dumps(c["evidence"])))
+            conn.commit()
+        finally:
+            conn.close()
+        made += 1
+        best = scored[0]
+        ov = f", {best['pct']}% of played songs on it" if best["pct"] is not None else ""
+        log(f"  + {artist} — {title}: {best['rg'].get('title')} ({best['evidence']['types'] or '?'}) — {best['tier']}{ov}")
+    progress(len(targets), len(targets))
+    log(f"Done — suggestions for {made} album(s), {none} with no match. MusicBrainz requests made: {mbcache.stats['misses']} (session total).")
+
+
 def _write_vinyl_suggestion(vinyl_id: int, mbid: str, label: str, credited: bool, evidence: dict) -> None:
     conn = db_connect()
     try:
@@ -373,11 +538,13 @@ def _live_albums(limit: int, log, progress, cancelled, artist_id: int | None = N
     have a match. Results only ever become suggestions -- nothing is applied. Cached."""
     from api.core import read_conn
     from api.songs import live_pairs
+    from merge import linked_artists
 
     with read_conn() as c:
         rows, profiles, statuses = live_pairs(c, [artist_id] if artist_id else None)
         mbid_sets = artist_mbid_sets(c)  # own mbid + "also releases as" aliases
         names = dict(c.execute("SELECT id, name FROM artists").fetchall())
+        links = {p: linked_artists(c, p) for p in {r[0] for r in rows}}   # a solo act's band: Ace Frehley -> Kiss
     shows = defaultdict(set)
     for perf, setlist_id, _d, song_id, *_ in rows:
         shows[(perf, song_id)].add(setlist_id)
@@ -386,6 +553,14 @@ def _live_albums(limit: int, log, progress, cancelled, artist_id: int | None = N
     targets = sorted(((perf, profiles[sid], st) for (perf, sid), st in statuses.items()
                       if (st["status"] == "unchecked" and st.get("lookable")) or (st["status"] == "newalbum" and st.get("needsDetail"))),
                      key=lambda t: -len(shows[(t[0], t[1]["songId"])]))[:limit]
+    # the linked artists' album tracklists first: a match there (by title, in your own library) beats any search
+    linked_ids = sorted({la for perf in links for la in links[perf]})   # every performer in scope, not only ones with targets
+    if linked_ids and _linked_tracklists(linked_ids, 40, log, cancelled):
+        with read_conn() as c:
+            rows, profiles, statuses = live_pairs(c, [artist_id] if artist_id else None)
+        targets = sorted(((perf, profiles[sid], st) for (perf, sid), st in statuses.items()
+                          if (st["status"] == "unchecked" and st.get("lookable")) or (st["status"] == "newalbum" and st.get("needsDetail"))),
+                         key=lambda t: -len(shows[(t[0], t[1]["songId"])]))[:limit]
     log(f"Looking up {len(targets)} live song(s) on MusicBrainz (1 request/second, cached). Results are suggestions for you to review.")
     found = detailed = 0
     for i, (perf, s, st) in enumerate(targets):
@@ -404,6 +579,12 @@ def _live_albums(limit: int, log, progress, cancelled, artist_id: int | None = N
             if s["artistId"] != perf:  # a cover: the band's own recording first
                 for m in sorted(mbid_sets.get(perf, set())):
                     hits += [f"{names.get(perf)}'s: {g['title']}" for g in (mbcache.recording_release_groups(s["title"], m) or [])[:1]]
+            if s["artistId"] != perf or not s.get("albumId"):  # then an artist linked to the performer
+                for la in links.get(perf, []):
+                    if la == s["artistId"]:
+                        continue
+                    for m in sorted(mbid_sets.get(la, set())):
+                        hits += [f"{names.get(la)}'s: {g['title']}" for g in (mbcache.recording_release_groups(s["title"], m) or [])[:1]]
             firsts = []
             for m in sorted(mbid_sets.get(s["artistId"], set())):
                 gs = (mbcache.recording_release_groups(s["title"], m) or [])[:1]
@@ -585,6 +766,56 @@ def _pressings(limit: int, log, progress, cancelled) -> None:
         conn.close()
 
 
+def store_mb_tracklist(conn, aid: int, tl: dict) -> None:
+    """Keep MusicBrainz's original-release tracklist for an album (album_tracklists + its source row)."""
+    conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (aid,))
+    conn.executemany("INSERT INTO album_tracklists (album_id, position, number, disc, title, recording_mbid, length_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                     [(aid, t["position"], t.get("number"), t.get("disc"), t["title"], t.get("recordingMbid"), t.get("lengthMs"))
+                      for t in tl["tracks"] if t.get("title")])
+    conn.execute("""INSERT INTO album_tracklist_sources (album_id, source, release_mbid, release_title, release_date, country, format)
+                    VALUES (?, 'musicbrainz', ?, ?, ?, ?, ?) ON CONFLICT (album_id) DO UPDATE SET release_mbid = excluded.release_mbid,
+                    release_title = excluded.release_title, release_date = excluded.release_date, country = excluded.country,
+                    format = excluded.format, fetched_at = datetime('now')""",
+                 (aid, tl.get("releaseMbid"), tl.get("releaseTitle"), tl.get("date"), tl.get("country"), tl.get("format")))
+
+
+def _linked_tracklists(artist_ids: list[int], limit: int, log, cancelled) -> int:
+    """Fetches MusicBrainz tracklists for the albums of these (linked) artists that don't have one
+    yet, so Live sets can match a live song to the linked band's album by its tracklist ("2000 Man"
+    is on Kiss's Dynasty). Albums you own on vinyl use their pressing's tracklist and are skipped.
+    ~2 requests an album, once (cached); capped. -> albums fetched."""
+    if not artist_ids:
+        return 0
+    conn = db_connect()
+    try:
+        marks = ",".join("?" * len(artist_ids))
+        todo = conn.execute(f"""
+            SELECT al.id, al.title, al.mbid FROM albums al JOIN album_artists aa ON aa.album_id = al.id
+            WHERE aa.artist_id IN ({marks}) AND al.mbid IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = al.id)
+              AND NOT EXISTS (SELECT 1 FROM album_tracklist_sources t WHERE t.album_id = al.id)
+              AND NOT EXISTS (SELECT 1 FROM mb_cache m WHERE m.key = 'browse:tracklist:' || al.mbid AND m.payload_json = 'null')
+            GROUP BY al.id ORDER BY (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) DESC LIMIT ?""", (*artist_ids, limit)).fetchall()
+        done = 0
+        if todo:
+            log(f"Fetching tracklists for {len(todo)} album(s) of linked artists first (so their recordings can be matched by tracklist).")
+        for aid, title, mbid in todo:
+            if cancelled():
+                break
+            try:
+                tl = mbcache.release_group_tracklist(mbid)
+                if tl and tl.get("tracks"):
+                    store_mb_tracklist(conn, aid, tl)
+                    conn.commit()
+                    done += 1
+            except Exception as exc:
+                conn.rollback()
+                log(f"  ! {title}: {exc}")
+        return done
+    finally:
+        conn.close()
+
+
 def _album_tracklists(limit: int, log, progress, cancelled) -> None:
     """The album as first released (MusicBrainz's earliest official release of its release group)
     for albums NOT on vinyl -- vinyl albums use the pressing you own. Most played first; about 2
@@ -613,15 +844,7 @@ def _album_tracklists(limit: int, log, progress, cancelled) -> None:
                 if not tl or not tl.get("tracks"):
                     log(f"  · {artist} — {title}: no official release on MusicBrainz")
                     continue
-                conn.execute("DELETE FROM album_tracklists WHERE album_id = ?", (aid,))
-                conn.executemany("INSERT INTO album_tracklists (album_id, position, number, disc, title, recording_mbid, length_ms) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                                 [(aid, t["position"], t.get("number"), t.get("disc"), t["title"], t.get("recordingMbid"), t.get("lengthMs"))
-                                  for t in tl["tracks"] if t.get("title")])
-                conn.execute("""INSERT INTO album_tracklist_sources (album_id, source, release_mbid, release_title, release_date, country, format)
-                                VALUES (?, 'musicbrainz', ?, ?, ?, ?, ?) ON CONFLICT (album_id) DO UPDATE SET release_mbid = excluded.release_mbid,
-                                release_title = excluded.release_title, release_date = excluded.release_date, country = excluded.country,
-                                format = excluded.format, fetched_at = datetime('now')""",
-                             (aid, tl.get("releaseMbid"), tl.get("releaseTitle"), tl.get("date"), tl.get("country"), tl.get("format")))
+                store_mb_tracklist(conn, aid, tl)
                 conn.commit()
                 done += 1
                 log(f"  · {artist} — {title}: {len(tl['tracks'])} tracks ({tl.get('date') or '?'} {tl.get('country') or ''} {tl.get('format') or ''})")
@@ -642,6 +865,7 @@ SWEEPS = {
     "album-editions": _album_editions,
     "live-albums": _live_albums,
     "artist-suggest": _artist_suggest,
+    "album-suggest": _album_suggest,
     "artist-verify": _artist_verify,
     "album-verify": _album_verify,
     "vinyl-check": _vinyl_check,

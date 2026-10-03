@@ -128,6 +128,14 @@ function body(it) {
   return { title: esc(it.kind) };
 }
 
+// "Possibly the same as" for a new song can also be a near-match (dupes.near_titles), not just the same base title.
+const HINT_WHY = { spacing: "spaced differently", article: "differs only by “the” / “a”", suffix: "adds a number or year", spelling: "a near spelling" };
+// Everything else outstanding for that artist, on one page.
+function benchLink(it) {
+  const artistId = it.entityType === "artist" ? it.entityId : it.entity?.artistId;
+  return artistId ? ` · <a href="/artist.html?id=${artistId}" style="text-transform:none; letter-spacing:0">open the artist in the Workbench →</a>` : "";
+}
+
 function itemHtml(it, i) {
   const [label, cls] = KIND[it.kind] || [it.kind, ""];
   const b = body(it);
@@ -155,8 +163,8 @@ function itemHtml(it, i) {
           <span class="meta">${fmtDate(it.at)}</span>
         </div>
       </div>
-      ${hints.length ? `<div class="hints">${hintHead ? `<div class="h-head">${hintHead}</div>` : ""}
-        ${hints.map((h, n) => `<div class="candidate"><div>${hintLine(type, h)}</div>
+      ${hints.length ? `<div class="hints">${hintHead ? `<div class="h-head">${hintHead}${benchLink(it)}</div>` : ""}
+        ${hints.map((h, n) => `<div class="candidate"><div>${hintLine(type, h)}${h.why ? ` <span class="meta">— ${esc(HINT_WHY[h.why] || h.why)}</span>` : ""}</div>
           ${mergeable && !it.reviewedAt ? keyBtn(String(n + 1), "Merge into this", "", `data-role="merge" data-keep="${hintId(type, h)}"`) : ""}</div>`).join("")}</div>` : ""}
     </div>
   </div>`;

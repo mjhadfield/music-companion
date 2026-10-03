@@ -452,6 +452,48 @@ def _m012_track_links(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m013_batches(conn: sqlite3.Connection) -> None:
+    """Reviewed batches (maintenance > workbench / queues): one row per Apply -- the actions as
+    sent, the undo handles they produced, and when (if ever) the batch was undone as a whole.
+    merge_log / edit_log rows written by a batch carry its id, so the activity feed can group them."""
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS batches (
+            id            INTEGER PRIMARY KEY,
+            label         TEXT NOT NULL DEFAULT '',
+            actions_json  TEXT NOT NULL,
+            handles_json  TEXT NOT NULL DEFAULT '[]',
+            summary_json  TEXT NOT NULL DEFAULT '{}',
+            created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+            undone_at     TEXT
+        )
+    """)
+    for table in ("merge_log", "edit_log"):
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if "batch_id" not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN batch_id INTEGER")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_batch ON {table}(batch_id)")
+
+
+
+def _m014_artist_links(conn: sqlite3.Connection) -> None:
+    """Linked artists: a member's solo act and the band (Ace Frehley / Kiss), a band and its
+    offshoot (KK's Priest / Judas Priest), a singer and the band he fronts (Myles Kennedy / Slash).
+    Undirected: one row per pair (merge.link_artists won't add a pair twice, either way round);
+    read both ways. No CHECK/UNIQUE so an artist merge can re-point rows with the ordinary journaled
+    move (a pair that collapses onto one artist is simply ignored when read). Live sets lets a
+    performer's live plays use a linked artist's recording ("2000 Man" -> Kiss's Dynasty), not only
+    its own or the original's. Internal (maintenance only, not published)."""
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS artist_links (
+            id                INTEGER PRIMARY KEY,
+            artist_id         INTEGER NOT NULL REFERENCES artists(id),
+            linked_artist_id  INTEGER NOT NULL REFERENCES artists(id),
+            created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_artist_links_artist ON artist_links(artist_id);
+        CREATE INDEX IF NOT EXISTS idx_artist_links_linked ON artist_links(linked_artist_id);
+    """)
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -465,6 +507,8 @@ MIGRATIONS = [
     ("010_copy_look", _m010_copy_look),
     ("011_album_parts", _m011_album_parts),
     ("012_track_links", _m012_track_links),
+    ("013_batches", _m013_batches),
+    ("014_artist_links", _m014_artist_links),
 ]
 
 

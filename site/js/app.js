@@ -48,10 +48,6 @@ function query(sql, params = []) {
   return values.map((row) => Object.fromEntries(columns.map((c, i) => [c, row[i]])));
 }
 
-function statCard(kind, value, label, href) {
-  return `<a class="stat-card ${kind}" href="${href}"><div class="stat-value">${value}</div><div class="stat-label">${esc(label)}</div></a>`;
-}
-
 function renderNotFound(kind) {
   app.innerHTML = `<div class="error-box">${esc(kind)} not found. <a href="#/">Go home</a></div>`;
 }
@@ -225,132 +221,8 @@ function barRowsHtml(rows, maxValue, routePrefix) {
 }
 
 // ---------------------------------------------------------------------
-// Home: overview stats + a headline chart + jump-in points
+// Home (#/): renderHome lives in js/home.js
 // ---------------------------------------------------------------------
-const homeState = { granularity: "year" };
-
-// Independent of the chart above -- its own Week/Month/Year/All time
-// window (not Day/Month/Year/All: a single day of scrobbles makes for a
-// pretty thin "most played" list), also defaulting to Year.
-const MOST_PLAYED_WINDOWS = {
-  week: { label: "Week", rangeModifier: "-7 days" },
-  month: { label: "Month", rangeModifier: "-30 days" },
-  year: { label: "Year", rangeModifier: "-12 months" },
-  all: { label: "All", rangeModifier: null },
-};
-const MOST_PLAYED_WINDOW_ORDER = ["week", "month", "year", "all"];
-const mostPlayedState = { window: "year" };
-
-function renderHome() {
-  const stats = query(`
-    SELECT
-      (SELECT count(*) FROM artists) AS artists,
-      (SELECT count(*) FROM vinyl_holdings) AS vinyl,
-      (SELECT count(*) FROM scrobbles) AS scrobbles,
-      (SELECT count(*) FROM setlists) AS setlists,
-      (SELECT count(*) FROM songs) AS songs,
-      (SELECT count(*) FROM venues) AS venues,
-      (SELECT count(DISTINCT label) FROM vinyl_holdings WHERE label IS NOT NULL AND label != '') AS labels,
-      (SELECT count(DISTINCT aa.artist_id) FROM vinyl_holdings v JOIN album_artists aa ON aa.album_id = v.album_id) AS vinyl_bands,
-      (SELECT count(DISTINCT artist_id) FROM setlists) AS live_bands
-  `)[0];
-
-  const mostPlayedWindow = MOST_PLAYED_WINDOWS[mostPlayedState.window];
-  const topArtists = query(`
-    SELECT ar.id, ar.name, count(*) AS plays
-    FROM scrobbles s JOIN artists ar ON ar.id = s.artist_id
-    ${mostPlayedWindow.rangeModifier ? `WHERE s.played_at >= datetime('now', '${mostPlayedWindow.rangeModifier}')` : ""}
-    GROUP BY ar.id ORDER BY plays DESC LIMIT 10
-  `);
-
-  const g = GRANULARITIES[homeState.granularity];
-  const chartRows = query(`
-    SELECT strftime('${g.fmt}', played_at) AS bucket, count(*) AS c
-    FROM scrobbles
-    ${g.rangeModifier ? `WHERE played_at >= datetime('now', '${g.rangeModifier}')` : ""}
-    GROUP BY bucket ORDER BY bucket
-  `);
-
-  app.innerHTML = `
-    <div class="stat-groups">
-      <section class="stat-group stat-group--scrobble">
-        <h2 class="hud">Global Stats</h2>
-        <div class="stat-grid">
-          ${statCard("scrobble", stats.scrobbles.toLocaleString(), "Total songs played", "#/scrobbles")}
-          ${statCard("scrobble", stats.songs.toLocaleString(), "Unique tracks", "#/songs")}
-          ${statCard("scrobble", stats.artists.toLocaleString(), "Total artists", "#/artists")}
-        </div>
-      </section>
-      <section class="stat-group stat-group--live">
-        <h2 class="hud">Live Shows</h2>
-        <div class="stat-grid">
-          ${statCard("live", stats.setlists, "Shows attended", "#/shows")}
-          ${statCard("live", stats.venues, "Different venues", "#/venues")}
-          ${statCard("live", stats.live_bands, "Unique bands", "#/shows")}
-        </div>
-      </section>
-      <section class="stat-group stat-group--vinyl">
-        <h2 class="hud">Physical Media</h2>
-        <div class="stat-grid">
-          ${statCard("vinyl", stats.vinyl, "Records owned", "#/vinyl")}
-          ${statCard("vinyl", stats.labels, "Record labels", "#/vinyl")}
-          ${statCard("vinyl", stats.vinyl_bands, "Unique bands", "#/vinyl")}
-        </div>
-      </section>
-    </div>
-
-    <div class="section">
-      <h2>Listening activity</h2>
-      <div id="home-chart-toolbar"></div>
-      <div id="home-chart"></div>
-    </div>
-
-    <div class="section">
-      <h2>Most played</h2>
-      <div id="most-played-tabs" class="tabs-only"></div>
-      <div class="pill-list">
-        ${topArtists.map((a) => `
-          <a class="pill" href="#/artist/${a.id}">${esc(a.name)} <span class="count">${a.plays.toLocaleString()}</span></a>
-        `).join("") || '<div class="subtle">Nothing played in this window yet.</div>'}
-      </div>
-    </div>
-
-    <div class="section" id="latest-records">
-      <div class="section-head"><h2>Latest record buys</h2><a class="section-link" href="#/vinyl">The whole collection →</a></div>
-      ${latestRecordsHtml(8)}
-    </div>
-  `;
-
-  renderChartToolbar(document.getElementById("home-chart-toolbar"), homeState, renderHome, { center: true });
-  renderTimeWindowTabs(
-    document.getElementById("most-played-tabs"),
-    MOST_PLAYED_WINDOWS,
-    MOST_PLAYED_WINDOW_ORDER,
-    mostPlayedState.window,
-    (key) => { mostPlayedState.window = key; renderHome(); },
-    { center: true }
-  );
-  renderBarChart(
-    document.getElementById("home-chart"),
-    chartRows.map((r) => ({
-      label: bucketTickLabel(homeState.granularity, r.bucket),
-      tooltipLabel: humanBucketLabel(homeState.granularity, r.bucket),
-      value: r.c,
-      key: r.bucket,
-    })),
-    {
-      color: "var(--accent-scrobble)",
-      onClick: (d) => {
-        // Drill into the Scrobbles browse page, pre-filtered to this bucket.
-        scrobblesState.granularity = homeState.granularity;
-        scrobblesState.periodFilter = { key: d.key, label: humanBucketLabel(homeState.granularity, d.key) };
-        scrobblesState.page = 1;
-        location.hash = "#/scrobbles";
-      },
-    }
-  );
-  wireLatestRecords(document.getElementById("latest-records"));
-}
 
 // ---------------------------------------------------------------------
 // Browse: Artists (#/artists) -- searchable, sortable, paginated
@@ -546,7 +418,8 @@ function renderScrobblesBrowse() {
   const listWhereParts = searchWhere ? [searchWhere] : [];
   const listParams = [...searchParams];
   if (st.periodFilter) {
-    listWhereParts.push(`strftime('${g.fmt}', s.played_at) = ?`);
+    // a bucket picked on the home chart is in local time (tz: its UTC offset modifier); this page's own are UTC
+    listWhereParts.push(`strftime('${g.fmt}', s.played_at${st.periodFilter.tz ? `, '${st.periodFilter.tz}'` : ""}) = ?`);
     listParams.push(st.periodFilter.key);
   }
   const where = listWhereParts.length ? `WHERE ${listWhereParts.join(" AND ")}` : "";
@@ -1166,14 +1039,25 @@ function albumTracksHtml(albumId, songs) {
       <div class="list-right">${x.plays.toLocaleString()} play${x.plays === 1 ? "" : "s"}</div></div>`;
   const ref = albumReferenceTracklist(albumId);
   if (!ref) return songs.length ? `<div class="section"><h2>Tracks</h2>${songs.map(songRow).join("")}</div>` : "";
-  const { tracks, unlisted } = matchTracklist(ref.tracks, songs, albumId);
-  return `<div class="section">
-      <div class="section-head"><h2>Tracklist</h2><span class="subtle">from ${esc(ref.source)}</span></div>
-      ${tracks.map((t) => `<div class="list-item tl-line"${t.song ? ` data-song-id="${t.song.id}"` : ""}>
+  const main = matchTracklist(ref.tracks, songs, albumId);
+  // another-language version beside your pressing (Carolus Rex: Swedish LP + English version)
+  const version = ref.pressing ? versionTracklist(albumId) : null;
+  const other = version ? matchTracklist(version.tracks, songs, albumId, version.variant) : null;
+  // a recording on both (an instrumental intro) is counted once, on your pressing's line
+  const onMain = new Set(songs.filter((x) => !main.unlisted.includes(x)).map((x) => x.id));
+  if (other) other.tracks.forEach((t) => { if (t.song && onMain.has(t.song.id)) t.again = true; });
+  const unlisted = other ? main.unlisted.filter((x) => other.unlisted.includes(x)) : main.unlisted;
+  const lines = (list) => list.map((t) => `<div class="list-item tl-line"${t.song ? ` data-song-id="${t.song.id}"` : ""}>
         <span class="tl-pos">${esc(t.pos || "")}</span>
         <div class="list-title">${esc(t.title)}${t.again ? "" : liveDot(t.song)}</div>
-        <div class="list-right">${t.song && !t.again ? `${t.song.plays.toLocaleString()} play${t.song.plays === 1 ? "" : "s"}` : t.again ? `<span class="subtle" title="Counted on its first line above">↑</span>` : `<span class="subtle">not played</span>`}${t.dur ? `<span class="subtle tl-dur">${esc(t.dur)}</span>` : ""}</div></div>`).join("")}
+        <div class="list-right">${t.song && !t.again ? `${t.song.plays.toLocaleString()} play${t.song.plays === 1 ? "" : "s"}` : t.again ? `<span class="subtle" title="Counted on its first line above">↑</span>` : `<span class="subtle">not played</span>`}${t.dur ? `<span class="subtle tl-dur">${esc(t.dur)}</span>` : ""}</div></div>`).join("");
+  return `<div class="section">
+      <div class="section-head"><h2>Tracklist</h2><span class="subtle">from ${esc(ref.source)}</span></div>
+      ${lines(main.tracks)}
     </div>
+    ${other ? `<div class="section">
+      <div class="section-head"><h2>${esc(version.label)}</h2><span class="subtle">the same album in another language · MusicBrainz</span></div>
+      ${lines(other.tracks)}</div>` : ""}
     ${unlisted.length ? `<div class="section">
       <div class="section-head"><h2>Bonus &amp; other tracks</h2><span class="subtle">played from this album, not on ${ref.pressing ? "that pressing" : "the original release"} — deluxe and digital extras</span></div>
       ${unlisted.map(songRow).join("")}</div>` : ""}`;

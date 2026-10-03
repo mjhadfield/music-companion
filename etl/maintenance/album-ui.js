@@ -100,8 +100,9 @@ async function renderAlbumCompare(slot, aId, bId, { onMerged, defaultKeep, keys 
 }
 
 // A release-group candidate row: "Use this" (assign) or, if another local album already has it,
-// "Compare & merge".
-function rgRow(album, rg, host, { onDone, reason }) {
+// "Compare & merge". The first nine are numbered: inside a review list (mountReviewKeys) the
+// number key presses that row's button.
+function rgRow(album, rg, host, { onDone, reason, n }) {
   const div = document.createElement("div");
   div.className = "candidate";
   const types = [rg.primaryType, ...(rg.secondaryTypes || [])].filter(Boolean).join("/");
@@ -113,7 +114,8 @@ function rgRow(album, rg, host, { onDone, reason }) {
       <div class="meta">${esc(rg.artistCredit || "")}${types ? ` · ${esc(types)}` : ""}${rg.firstReleaseDate ? ` · ${esc(rg.firstReleaseDate)}` : ""}${rg.score != null ? ` · score ${rg.score}` : ""}${rg.similarity != null ? ` · title match ${rg.similarity}` : ""}</div>
       ${linked ? `<div class="meta warn-text">Already your album “${esc(linked.title)}”</div>` : ""}
     </div>
-    <div class="actions"><button class="small ${linked ? "" : "good"}" ${isCurrent ? "disabled" : ""}>${isCurrent ? "Current" : linked ? "Compare & merge" : "Use this"}</button></div>`;
+    <div class="actions">${n && n <= 9 && !isCurrent ? keyBtn(String(n), linked ? "Compare & merge" : "Use this", linked ? "" : "good")
+      : `<button class="small ${linked ? "" : "good"}" ${isCurrent ? "disabled" : ""}>${isCurrent ? "Current" : linked ? "Compare & merge" : "Use this"}</button>`}</div>`;
   const identity = { mbid: rg.mbid, title: rg.title, year: rg.firstReleaseDate ? parseInt(rg.firstReleaseDate.slice(0, 4), 10) : null };
   div.querySelector("button").addEventListener("click", () => {
     if (linked) renderAlbumCompare(host, album.albumId, linked.albumId, { keys: false, defaultKeep: "b", identity, onMerged: onDone });
@@ -190,8 +192,8 @@ function renderAlbumResolve(slot, album, { onDone, reason = "assigned" } = {}) {
       el.innerHTML = `<div class="status-line">No matches.${album.artistMbid ? " Try browsing the artist's whole discography instead." : ""}</div>`;
       return;
     }
-    el.innerHTML = "";
-    for (const c of data.candidates) el.appendChild(rgRow(album, c, host, { onDone, reason }));
+    el.innerHTML = `<div class="meta">Press 1–9 to use a result</div>`;
+    data.candidates.forEach((c, i) => el.appendChild(rgRow(album, c, host, { onDone, reason, n: i + 1 })));
   }
 
   async function browse() {
@@ -203,16 +205,16 @@ function renderAlbumResolve(slot, album, { onDone, reason = "assigned" } = {}) {
     let filter = "All";
     function paint() {
       const shown = data.releaseGroups.filter((g) => filter === "All" || (g.primaryType || "Other") === filter);
-      el.innerHTML = `<div class="meta">${plural(data.count, "release group")} for ${esc(data.artistName)} ${mbLink("artist", data.artistMbid)}, closest title first</div>
+      el.innerHTML = `<div class="meta">${plural(data.count, "release group")} for ${esc(data.artistName)} ${mbLink("artist", data.artistMbid)}, closest title first · press 1–9 to use one</div>
         <div class="rg-types">${kinds.map((k) => `<button class="chip filter-chip" aria-pressed="${k === filter}" data-k="${esc(k)}">${esc(k)}</button>`).join("")}</div>`;
       el.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => { filter = b.dataset.k; paint(); }));
-      for (const g of shown.slice(0, 60)) el.appendChild(rgRow(album, g, host, { onDone, reason }));
+      shown.slice(0, 60).forEach((g, i) => el.appendChild(rgRow(album, g, host, { onDone, reason, n: i + 1 })));
     }
     paint();
   }
 
   $("search").addEventListener("click", () => search($("q").value.trim()));
-  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") search($("q").value.trim()); });
+  $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") { search($("q").value.trim()); e.target.blur(); } });
   $("browse").addEventListener("click", browse);
   $("assign").addEventListener("click", () => {
     const m = $("manual").value.trim().match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);

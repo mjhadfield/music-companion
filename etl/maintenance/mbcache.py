@@ -114,6 +114,19 @@ def discogs_release_details(release_id: int):
     return _cached(f"lookup:discogs-api:{int(release_id)}", "lookup", lambda: discogs_api.release(release_id))
 
 
+def release_group_genres(rg_mbid: str):
+    """A release group's genres and its releases' (Maintenance > Genres suggestions). 2 requests."""
+    return _cached(f"lookup:rg-genres:{rg_mbid}", "lookup", lambda: mb.release_group_genres(rg_mbid))
+
+
+def release_genres(release_mbid: str):
+    return _cached(f"lookup:release-genres:{release_mbid}", "lookup", lambda: mb.release_genres(release_mbid))
+
+
+def artist_genres(artist_mbid: str):
+    return _cached(f"lookup:artist-genres:{artist_mbid}", "lookup", lambda: mb.artist_genres(artist_mbid))
+
+
 def artist_release_group_genres(artist_mbid: str):
     """An artist's release groups with their voted genres (MusicBrainz browse, 1 request / 100)."""
     return _cached(f"browse:rg-genres:{artist_mbid}", "browse", lambda: mb.browse_release_group_genres(artist_mbid))

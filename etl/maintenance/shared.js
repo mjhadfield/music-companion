@@ -137,7 +137,7 @@ async function undoAction(kind, id) {
   // Pages listen for this and reload what they're showing -- an undo from a toast must never
   // leave the view displaying the pre-undo state.
   document.dispatchEvent(new CustomEvent("mc:undone"));
-  toast(kind === "merge" ? `Undone — restored <b>${esc(data.restoredName)}</b>` : kind === "batch" ? `Undone — ${esc(data.name)} reverted` : `Undone — <b>${esc(data.name)}</b> restored`);
+  toast(kind === "merge" ? `Undone — restored <b>${esc(data.restoredName)}</b>` : (kind === "batch" || kind === "batchv2") ? `Undone — ${esc(data.name)} reverted` : `Undone — <b>${esc(data.name)}</b> restored`);
   notifyChanged();
   return true;
 }
@@ -176,14 +176,40 @@ function movedSummary(rowsMoved) {
 
 // -- Activity feed (merge_log + edit_log, with undo) ----------------------------------------
 
+// History items with reviewed batches folded in: each batch is one row (one Undo for all of it),
+// its merges and edits listed under it -- each still undoable on its own.
+function activityStream(data) {
+  const ids = new Set((data.batches || []).map((b) => b.batchId));
+  const children = new Map();
+  const loose = [];
+  for (const i of data.items) {
+    if (i.batchId && ids.has(i.batchId)) {
+      if (!children.has(i.batchId)) children.set(i.batchId, []);
+      children.get(i.batchId).push({ ...i, inBatch: true });
+    } else loose.push(i);
+  }
+  const heads = (data.batches || []).map((b) => ({ kind: "batch", ...b }));
+  const out = [];
+  for (const i of [...loose, ...heads].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))) {
+    out.push(i);
+    if (i.kind === "batch") out.push(...(children.get(i.batchId) || []));
+  }
+  return out;
+}
+
 function mountActivity(el, { entityType, limit = 25 } = {}) {
   async function load() {
     const params = new URLSearchParams({ limit });
     if (entityType) params.set("entityType", entityType);
     const { ok, data } = await api(`/api/history?${params}`);
     if (!ok) { el.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
-    if (!data.items.length) { el.innerHTML = `<div class="empty">Nothing yet.</div>`; return; }
-    el.innerHTML = `<ul class="activity">${data.items.map((i) => {
+    if (!data.items.length && !(data.batches || []).length) { el.innerHTML = `<div class="empty">Nothing yet.</div>`; return; }
+    el.innerHTML = `<ul class="activity">${activityStream(data).map((i) => {
+      if (i.kind === "batch") {
+        const btn = i.undoneAt ? `<span class="badge">undone</span>` : `<button class="small" data-kind="batchv2" data-id="${i.batchId}">Undo batch</button>`;
+        return `<li class="batch-head ${i.undoneAt ? "undone" : ""}"><time>${esc(i.at.slice(5, 16).replace("T", " "))}</time>
+          <span class="what">Reviewed batch${i.label ? ` <span class="who">${esc(i.label)}</span>` : ""} — ${plural(i.actions || 0, "change")} applied together</span>${btn}</li>`;
+      }
       let what;
       if (i.kind === "merge") {
         what = `Merged ${i.entityType} <span class="who">${esc(i.absorbedName)}</span> into <span class="who">${esc(i.canonicalName)}</span>`
@@ -205,6 +231,9 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
       } else if (i.changes._split) {
         const d = i.changes._split;
         what = `Split <span class="who">${esc(i.name)}</span> back out of <span class="who">${esc(d.fromTitle)}</span> <span class="meta">— ${plural(d.scrobbleIds.length, "play")}, ${plural(d.songIds.length, "song")}${d.vinylIds.length ? ", " + plural(d.vinylIds.length, "pressing") : ""}</span>`;
+      } else if (i.changes._splitSong) {
+        const d = i.changes._splitSong;
+        what = `Split <span class="who">${esc(i.name)}</span> back out of <span class="who">${esc(d.fromTitle)}</span> <span class="meta">— ${plural(d.scrobbleIds.length, "play")}, ${plural(d.setlistSongIds.length, "live play")}</span>`;
       } else if (i.changes._parts) {
         const d = i.changes._parts;
         what = d.after.length ? `Marked <span class="who">${esc(i.name)}</span> as a set of ${plural(d.after.length, "album")}` : `<span class="who">${esc(i.name)}</span> is no longer a set`;
@@ -228,7 +257,7 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
         what = `Edited ${i.entityType} <span class="who">${esc(i.name)}</span>: ${parts.join("; ") || "cover reset"}`;
       }
       const btn = i.undoable ? `<button class="small" data-kind="${i.kind}" data-id="${i.id}">Undo</button>` : (i.undoneAt ? `<span class="badge">undone</span>` : "");
-      return `<li class="${i.undoneAt ? "undone" : ""}"><time>${esc(i.at.slice(5, 16).replace("T", " "))}</time><span class="what">${what}</span>${btn}</li>`;
+      return `<li class="${i.undoneAt ? "undone" : ""} ${i.inBatch ? "in-batch" : ""}"><time>${esc(i.at.slice(5, 16).replace("T", " "))}</time><span class="what">${what}</span>${btn}</li>`;
     }).join("")}</ul>`;
     el.querySelectorAll("button[data-kind]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
@@ -269,17 +298,19 @@ function mountThemeToggle(btn) {
 
 function mountNav(active) {
   const header = document.getElementById("topnav");
-  const links = [["/", "Home"], ["/artists.html", "Artists"], ["/vinyl.html", "Vinyl"], ["/albums.html", "Albums"], ["/songs.html", "Songs"], ["/genres.html", "Genres"], ["/inbox.html", "Inbox"]];
+  const links = [["/", "Home"], ["/artist.html", "Workbench"], ["/artists.html", "Artists"], ["/vinyl.html", "Vinyl"], ["/albums.html", "Albums"], ["/songs.html", "Songs"], ["/genres.html", "Genres"], ["/inbox.html", "Inbox"]];
   header.className = "topnav";
   header.innerHTML = `
     <a class="brand" href="/">Music <b>Maintenance</b></a>
     <nav>${links.map(([href, label, soon]) =>
       `<a href="${href}" ${label === active ? 'aria-current="page"' : ""} ${soon ? 'class="soon" title="Coming in a later phase"' : ""}>${label}</a>`).join("")}</nav>
+    <input class="nav-search" id="nav-search" type="search" placeholder="Find an artist, album or song…" aria-label="Search everything" />
     <span class="spacer"></span>
     <button class="publish-btn small" id="publish-btn" title="Rebuild the public database the Companion site serves"><span class="dot"></span> Publish</button>
     <button class="theme-toggle small" id="theme-toggle" type="button"></button>
     <a class="companion" href="${COMPANION_URL}">Music Companion ↗</a>`;
   mountThemeToggle(header.querySelector("#theme-toggle"));
+  mountSearch(header.querySelector("#nav-search"));
   const btn = header.querySelector("#publish-btn");
 
   async function refreshStatus() {
@@ -498,13 +529,17 @@ function mountReviewKeys(container, { onActivate } = {}) {
   // Clicking an item's empty space selects it. Clicks on its own buttons/links/inputs don't --
   // they bubble here AFTER the button's handler has run, and re-selecting would undo whatever
   // the button just did to the selection (it's what made "Skip" appear to do nothing).
+  // Ticking a radio / checkbox (or clicking into a field) inside an item selects that item too.
   container.addEventListener("click", (e) => {
-    if (e.target.closest("button, a, input, select, textarea, label")) return;
+    if (e.target.closest("button, a")) return;
     const item = e.target.closest(".review-item");
     if (item && item !== active && !item.classList.contains("done")) setActive(item, false);
   });
+  // Shortcuts pause only while typing -- a focused radio or checkbox (just clicked) must not swallow them.
+  const typing = (el) => el.isContentEditable || el.matches("textarea, select")
+    || (el.matches("input") && !["radio", "checkbox", "button", "submit", "reset", "range", "color", "file"].includes(el.type));
   document.addEventListener("keydown", (e) => {
-    if (e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (typing(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
     if (container.offsetParent === null) return; // its tab isn't showing
     const list = items();
     if (!list.length) return;
@@ -540,6 +575,8 @@ function mountReviewKeys(container, { onActivate } = {}) {
     },
     setActive,
     reset() { active = null; },
+    // Select the first item still to do (without scrolling) -- e.g. as a list finishes loading.
+    first() { const el = items()[0]; if (el) setActive(el, false); },
   };
 }
 
@@ -558,4 +595,127 @@ function compareGrid(name, headA, headB, rows, keep) {
     ${cell("b", `<label class="pick"><input type="radio" name="${esc(name)}" value="b" ${keep === "b" ? "checked" : ""}/> Keep ${headB}</label>`, "head")}
     ${rows.map((r) => `<div class="label">${esc(r.label)}</div>${cell("a", r.a ?? "—", r.same ? "same" : "")}${cell("b", r.b ?? "—", r.same ? "same" : "")}`).join("")}
   </div>`;
+}
+
+// -- Review basket (api/batch.py) ------------------------------------------------------------
+// Reviewed changes queue up here instead of applying one by one. "Review & apply" runs a dry run
+// (/api/batch/preview: the exact actions, rolled back) and shows what each would move or why it
+// would be refused, plus the integrity verdict; Apply is only offered when that's all clean, and
+// commits everything as ONE batch -- one undo for the lot. Nothing is ever applied without it.
+//   items: key -> {action, text, el?}   (re-adding a key replaces it; el is the review item it came from)
+function createBasket({ label = "", artistId = null, onApplied } = {}) {
+  const items = new Map();
+  const bar = document.createElement("div");
+  bar.className = "basket-bar";
+  bar.hidden = true;
+  document.body.appendChild(bar);
+
+  function paint() {
+    bar.hidden = items.size === 0;
+    bar.innerHTML = `<span class="count"><b>${plural(items.size, "change")}</b> queued — nothing is changed until you apply</span>
+      <span class="spacer"></span><button class="small" data-role="clear">Clear</button><button class="good" data-role="review">Review & apply</button>`;
+    bar.querySelector("[data-role='clear']").addEventListener("click", () => {
+      if (!confirm(`Drop all ${items.size} queued changes? (Nothing has been applied.)`)) return;
+      for (const it of items.values()) it.el?.classList.remove("done", "queued");
+      items.clear();
+      paint();
+      document.dispatchEvent(new CustomEvent("mc:basket"));
+    });
+    bar.querySelector("[data-role='review']").addEventListener("click", review);
+  }
+
+  function describe(rowsMoved) {
+    const s = movedSummary(rowsMoved || {});
+    return s ? `<span class="meta">— ${esc(s)}</span>` : "";
+  }
+
+  async function review() {
+    const list = [...items.entries()];
+    const modal = document.createElement("div");
+    modal.className = "modal-scrim";
+    modal.innerHTML = `<div class="modal" role="dialog" aria-label="Review queued changes">
+      <div class="modal-head"><h2>Review ${plural(list.length, "change")}</h2><span class="spacer"></span><button class="small" data-role="close">✕</button></div>
+      <div class="status-line"><span class="spinner"></span> Checking every change against the database (a dry run — nothing is kept)…</div>
+      <ol class="basket-list">${list.map(([key, it]) => `<li data-key="${esc(key)}"><span class="what">${it.text}</span><span class="result"></span>
+        <button class="small" data-role="drop" title="Take this one out">✕</button></li>`).join("")}</ol>
+      <div class="modal-foot"><span class="verdict"></span><span class="spacer"></span><button data-role="cancel">Keep reviewing</button><button class="good" data-role="apply" disabled>Apply all</button></div>
+    </div>`;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelector("[data-role='close']").addEventListener("click", close);
+    modal.querySelector("[data-role='cancel']").addEventListener("click", close);
+    modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+    modal.querySelectorAll("[data-role='drop']").forEach((b) => b.addEventListener("click", () => {
+      const key = b.closest("li").dataset.key;
+      items.get(key)?.el?.classList.remove("done", "queued");
+      items.delete(key);
+      paint();
+      close();
+      document.dispatchEvent(new CustomEvent("mc:basket"));
+      if (items.size) review();
+    }));
+    const { ok, data } = await api("/api/batch/preview", { actions: list.map(([, it]) => it.action) });
+    modal.querySelector(".status-line").remove();
+    if (!ok) { modal.querySelector(".verdict").innerHTML = `<span class="bad-text">${esc(data.message)}</span>`; return; }
+    data.results.forEach((r, i) => {
+      const li = modal.querySelectorAll(".basket-list li")[i];
+      li.classList.add(r.ok ? "ok" : "bad");
+      li.querySelector(".result").innerHTML = r.ok ? describe(r.rowsMoved) : `<span class="bad-text">✗ ${esc(r.error)}</span>`;
+    });
+    const verdict = modal.querySelector(".verdict");
+    const apply = modal.querySelector("[data-role='apply']");
+    if (data.integrity.worsened.length) {
+      verdict.innerHTML = `<span class="bad-text">Would break integrity: ${data.integrity.worsened.map((w) => esc(`${w.description} (${w.before} → ${w.after})`)).join("; ")}</span>`;
+    } else if (!data.ok) {
+      verdict.innerHTML = `<span class="bad-text">Fix or remove the ✗ ones first — a batch applies all or nothing.</span>`;
+    } else {
+      verdict.innerHTML = `<span class="ok-text">✓ All ${list.length} check out, and the database stays consistent.</span>`;
+      apply.disabled = false;
+    }
+    apply.addEventListener("click", async () => {
+      apply.disabled = true;
+      apply.textContent = "Applying…";
+      const res = await api("/api/batch/apply", { actions: list.map(([, it]) => it.action), label, artistId });
+      if (!res.ok) { verdict.innerHTML = `<span class="bad-text">${esc(res.data.message)}</span>`; apply.textContent = "Apply all"; return; }
+      close();
+      for (const it of items.values()) it.el?.classList.add("done");
+      items.clear();
+      paint();
+      toast(`Applied ${plural(res.data.applied, "change")}${res.data.snapshot ? " (snapshot taken first)" : ""}`, { undo: { kind: "batchv2", id: res.data.batchId, onUndone: onApplied } });
+      notifyChanged();
+      onApplied?.(res.data);
+    });
+  }
+
+  paint();
+  return {
+    add(key, action, text, el) {
+      items.set(key, { action, text, el });
+      el?.classList.add("queued");
+      paint();
+      document.dispatchEvent(new CustomEvent("mc:basket"));
+    },
+    remove(key) { items.get(key)?.el?.classList.remove("queued", "done"); items.delete(key); paint(); },
+    // a list re-rendered (filter, paging): point a queued key at its new element so it shows as queued
+    attach(key, el) { const it = items.get(key); if (it && el) { it.el = el; el.classList.add("queued", "done"); } },
+    has: (key) => items.has(key),
+    get size() { return items.size; },
+    set label(v) { label = v; },   // the batch's name in Activity (e.g. the artist, once loaded)
+    review,
+  };
+}
+
+// -- Universal search (header): artists, albums, songs -> the artist workbench ----------------
+function mountSearch(input) {
+  mountTypeahead(input, {
+    minChars: 2,
+    fetchItems: async (q) => {
+      const { ok, data } = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      if (!ok) return [];
+      return [...data.artists.map((a) => ({ kind: "artist", ...a })), ...data.albums.map((a) => ({ kind: "album", ...a })), ...data.songs.map((s) => ({ kind: "song", ...s }))];
+    },
+    renderItem: (i) => i.kind === "artist" ? `<b>${esc(i.name)}</b> <span class="meta">artist</span>`
+      : `${esc(i.kind === "album" ? i.title : i.title)} <span class="meta">${i.kind} · ${esc(i.artistName || "")}</span>`,
+    onPick: (i) => { location.href = `/artist.html?id=${i.artistId}`; },
+  });
 }

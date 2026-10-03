@@ -11,7 +11,9 @@ from collections import defaultdict
 
 from rapidfuzz import fuzz, process
 
+import dupes
 import merge
+import singles
 from api.core import ApiError, read_conn, route, write_tx
 from titles import base_key, normalize_artist_name
 
@@ -126,7 +128,7 @@ def _title_hints(c, items, kind, table) -> None:
     by_artist = defaultdict(list)
     for it in new:
         by_artist[it["entity"]["artistId"]].append(it)
-    hint_ids = {}
+    hint_ids, reasons = {}, {}
     for artist_id, its in by_artist.items():
         rows = c.execute(f"SELECT id, title FROM {table} WHERE artist_id = ?", (artist_id,)).fetchall()
         keyed = defaultdict(list)
@@ -134,9 +136,25 @@ def _title_hints(c, items, kind, table) -> None:
             keyed[base_key(t)].append(i)
         for it in its:
             hint_ids[it["entityId"]] = [i for i in keyed.get(base_key(it["entity"]["title"]), []) if i != it["entityId"]]
+            if table == "songs":   # and the near-matches the duplicates queue would pair it with ("Total Hate '95")
+                for i, why in dupes.near_titles(it["entity"]["title"], [r for r in rows if r[0] != it["entityId"] and r[0] not in hint_ids[it["entityId"]]]):
+                    hint_ids[it["entityId"]].append(i)
+                    reasons[i] = why
     prof = PROFILE[kind.split("_")[1]](c, [i for v in hint_ids.values() for i in v])
     for it in new:
-        it["hints"] = [prof[i] for i in hint_ids.get(it["entityId"], []) if i in prof]
+        it["hints"] = [{**prof[i], **({"why": reasons[i]} if i in reasons else {})} for i in hint_ids.get(it["entityId"], []) if i in prof]
+
+
+def _single_hints(c, items) -> None:
+    """A new album that is really a lead single of an album you have (singles.py) -- folding it
+    in (Workbench / Albums > Singles) also routes the single's future plays to the album."""
+    new = {it["entityId"]: it for it in items if it["kind"] == "new_album" and it["entity"]}
+    if not new:
+        return
+    for x in singles.find_singles(c, album_ids=list(new)):
+        new[x["singleId"]]["single"] = {"albumId": x["target"]["albumId"], "title": x["target"]["title"], "artistId": x["artistId"]}
+        new[x["singleId"]]["warning"] = (f"Looks like a single from “{x['target']['title']}” — fold it in from the Workbench or "
+                                         f"Albums › Singles rather than accepting it as an album.")
 
 
 def _flag_doubtful_artists(c, items) -> None:
@@ -203,6 +221,7 @@ def inbox(req):
         _flag_doubtful_artists(c, items)
         _title_hints(c, items, "new_album", "albums")
         _title_hints(c, items, "new_song", "songs")
+        _single_hints(c, items)
         for it in items:
             it["clean"] = _is_clean(it)
         items.sort(key=lambda it: (it["clean"], -it["id"]))  # the ones needing a decision first; bulk-tickable after

@@ -223,6 +223,7 @@ section > .empty, [id$="-list"] > .empty { background: var(--surface-2); border:
 .review-item.skipped { opacity: 0.55; border-style: dashed; }
 .review-item .row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
 .review-item .actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 700px) { .review-item .row { flex-wrap: wrap; } .review-item .actions { flex-shrink: 1; justify-content: flex-start; } }
 .review-item .title { font-weight: 600; }
 .candidate {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
@@ -405,3 +406,50 @@ table.merge tr.flash td { animation: flash 1.6s ease-out; }
 .gsrc { display: inline-flex; gap: 10px; font-size: 0.72rem; color: var(--text-muted); }
 .gsrc i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 .gsrc .musicbrainz { border: 1px solid color-mix(in srgb, var(--accent-soft) 80%, transparent); } .gsrc .discogs { border: 1px solid color-mix(in srgb, var(--accent-vinyl) 90%, transparent); } .gsrc .manual { border: 1px solid color-mix(in srgb, var(--ok) 90%, transparent); }
+
+/* -- Workbench / review basket ---------------------------------------------------------------- */
+.topnav .nav-search { width: 260px; padding: 5px 10px; font-size: 0.82rem; }
+@media (max-width: 900px) {   /* narrow screens: the bar wraps, search takes its own row */
+  .topnav { flex-wrap: wrap; gap: 8px 14px; padding: 10px 16px; }
+  .topnav .nav-search { order: 10; width: 100%; }
+}
+.review-item.queued { border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+.review-item.queued::after { content: "queued"; font-family: var(--font-mono); font-size: 0.68rem; color: var(--ok); }
+.basket-bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 50; display: flex; align-items: center; gap: 10px;
+  width: min(760px, calc(100vw - 24px)); padding: 10px 14px; background: var(--bg-elevated); border: 1px solid var(--edge-strong);
+  border-radius: var(--radius-sm); box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.6); }
+.basket-bar[hidden] { display: none; }
+.basket-bar .spacer, .modal-head .spacer, .modal-foot .spacer { flex: 1; }
+.basket-bar .count { font-size: 0.86rem; }
+body:has(.basket-bar:not([hidden])) main { padding-bottom: 80px; }
+.modal-scrim { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, var(--bg) 70%, transparent); display: grid; place-items: center; padding: 16px; }
+.modal { width: min(880px, 100%); max-height: 88vh; overflow: auto; background: var(--bg-elevated); border: 1px solid var(--edge-strong); border-radius: var(--radius-sm); padding: 16px 18px; }
+.modal-head, .modal-foot { display: flex; align-items: center; gap: 8px; }
+.modal-head h2 { margin: 0; font-size: 1.05rem; }
+.modal-foot { margin-top: 12px; border-top: 1px solid var(--edge); padding-top: 12px; flex-wrap: wrap; }
+.basket-list { margin: 10px 0 0; padding-left: 22px; display: grid; gap: 6px; }
+.basket-list li { padding: 6px 8px; border: 1px solid var(--edge); border-radius: var(--radius-sm); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: center; }
+.basket-list li .result { grid-column: 1; font-size: 0.8rem; }
+.basket-list li button { grid-column: 2; grid-row: 1 / span 2; }
+.basket-list li.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.basket-list li.bad { border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
+
+/* -- Workbench review items (artist.html, Songs > Duplicates > Whole library; workbench-ui.js) -- */
+.wb-item { margin-bottom: 10px; }
+.wb-item table.data td, .wb-item table.data th { padding: 5px 8px; font-size: 0.84rem; vertical-align: middle; }
+.wb-item table.data tr.primary td { background: color-mix(in srgb, var(--ok) 7%, transparent); }
+.wb-item .namebox { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 0.82rem; }
+.wb-item .namebox input { flex: 1; max-width: 460px; padding: 4px 8px; }
+.wb-item .spell { font-size: 0.74rem; color: var(--text-muted); }
+.wb-item .sugg { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; align-items: start; padding: 6px 8px; border: 1px dashed var(--edge); border-radius: var(--radius-sm); margin-top: 6px; cursor: pointer; }
+.wb-item .sugg:has(input:checked) { border-style: solid; border-color: var(--ok); background: color-mix(in srgb, var(--ok) 6%, transparent); }
+.wb-item .sugg input[type=radio] { margin-top: 3px; }
+.wb-item .ev { font-size: 0.78rem; color: var(--text-muted); }
+.wb-item .slot { margin-top: 10px; }
+.wb-item .slot:empty { display: none; }
+.activity li.batch-head .what { font-weight: 600; }
+.activity li.in-batch { padding-left: 22px; border-left: 2px solid var(--edge); margin-left: 6px; }
+/* Linked artists row (workbench-ui.js mountArtistLinks) */
+.artist-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 2px; font-size: 0.85rem; }
+.artist-links .link-chip { display: inline-flex; gap: 6px; align-items: center; }
+.artist-links .link-q { width: 200px; padding: 3px 8px; font-size: 0.82rem; }

@@ -23,6 +23,13 @@ class SplitTitleTests(unittest.TestCase):
         self.assertEqual(variant_tags("Million Voices - Radio Edit"), {"edit"})
         self.assertIn("remix", variant_tags("Tell Me Why - MEDUZA Remix"))
 
+    def test_named_issue_mixes_are_editions(self):
+        for t in ["A Well Respected Man - Mono Mix", "Song - Stereo Mix", "Song (Original Mix)", "Song (Album Mix)", "Song - Single Mix"]:
+            self.assertEqual(variant_tags(t), set(), t)
+            self.assertEqual(base_key(t), base_key(t.split(" - ")[0].split(" (")[0]), t)
+        for t in ["Song - Hot Chip Remix", "Song - 2015 Mix", "Song - Mixed", "Song (Original Mix) [Dub]"]:
+            self.assertIn("remix", variant_tags(t), t)
+
     def test_single_version_is_edition(self):
         self.assertEqual(variant_tags("Paranoid - Single Version"), set())
         self.assertEqual(base_key("Paranoid - Single Version"), "paranoid")
@@ -49,6 +56,18 @@ class ArtistNameTests(unittest.TestCase):
         self.assertEqual(normalize_artist_name("The Beatles"), normalize_artist_name("Beatles, The"))
         self.assertEqual(normalize_artist_name("Toots & The Maytals"), normalize_artist_name("Toots and the Maytals"))
         self.assertEqual(normalize_artist_name("Motörhead"), "motorhead")
+
+
+class LanguageVersionTests(unittest.TestCase):
+    def test_language_versions_are_their_own_recordings(self):
+        from titles import split_title, variant_tags, base_key
+        self.assertEqual(split_title("Carolus Rex - English version"), ("Carolus Rex", {"lang-english"}))
+        self.assertEqual(variant_tags("Gott Mit Uns - Swedish Version"), {"lang-swedish"})
+        self.assertEqual(variant_tags("Sonne (English Version)"), {"lang-english"})
+        self.assertEqual(variant_tags("Carolus Rex"), set())
+        self.assertNotEqual(variant_tags("Carolus Rex - English version"), variant_tags("Carolus Rex - Swedish version"))
+        self.assertEqual(base_key("Carolus Rex (swedish)"), base_key("Carolus Rex"))      # one album, two languages
+        self.assertEqual(variant_tags("English Rose"), set())                              # a title, not a suffix
 
 
 if __name__ == "__main__":

@@ -302,6 +302,45 @@ def browse_release_group_genres(artist_mbid: str, max_pages: int = 3) -> list[di
     return out
 
 
+def _genre_list(entity: dict) -> list[dict]:
+    return [{"name": g.get("name"), "id": g.get("id"), "count": int(g.get("count") or 0)} for g in entity.get("genres") or [] if g.get("name")]
+
+
+def release_group_genres(rg_mbid: str) -> dict | None:
+    """One release group's voted genres AND its releases' (summed across editions) -- MusicBrainz
+    voters often tag a release, not the release group. Two requests. None if it isn't a release group.
+    -> {"group": [{name, id, count}], "releases": [{name, id, count}], "releaseCount": n}"""
+    try:
+        rg = _mb_get(f"release-group/{rg_mbid}", {"inc": "genres"})
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return None
+        raise
+    data = _mb_get("release", {"release-group": rg_mbid, "inc": "genres", "limit": 100})
+    total: dict[str, dict] = {}
+    for rel in data.get("releases", []):
+        for g in _genre_list(rel):
+            t = total.setdefault(g["name"], {**g, "count": 0})
+            t["count"] += g["count"]
+    return {"group": _genre_list(rg), "releases": sorted(total.values(), key=lambda g: -g["count"]),
+            "releaseCount": len(data.get("releases", []))}
+
+
+def release_genres(release_mbid: str) -> list[dict] | None:
+    """One release's (edition's) voted genres -- for an album still identified by an edition id."""
+    try:
+        return _genre_list(_mb_get(f"release/{release_mbid}", {"inc": "genres"}))
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            return None
+        raise
+
+
+def artist_genres(artist_mbid: str) -> list[dict]:
+    """An artist's voted genres -- only ever a hint for an album, never applied by itself."""
+    return _genre_list(_mb_get(f"artist/{artist_mbid}", {"inc": "genres"}))
+
+
 def lookup_discogs_release(release_id: int) -> list[dict]:
     """MusicBrainz's own URL relationships map a Discogs release page to the MB release(s) that
     link to it -- an exact, curated mapping, not a fuzzy guess. Returns [{releaseMbid,

@@ -1,0 +1,297 @@
+/* =====================================================================
+   Home (#/) -- see js/home.js. Everything is prefixed hp-.
+   ===================================================================== */
+.hp { --hp-ease: cubic-bezier(.2, .7, .2, 1); --hp-label: .74rem; max-width: 1240px; margin: 0 auto; display: flex; flex-direction: column; gap: 60px; }
+.hp a { color: inherit; }
+.hp-h2 { margin: 0; font-size: 1.35rem; font-weight: 500; letter-spacing: .03em; text-transform: uppercase; color: var(--silver); text-align: center; }
+.hp-ic { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.hp-arrow, .hp-chev { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; vertical-align: -0.12em; }
+.hp .hp-cue, .hp .hp-ctrl-phone { display: none; }
+.hp .hud { font-size: .8rem; }
+
+/* ---- page 1: the total + four tiles ---- */
+.hp-home { display: flex; flex-direction: column; gap: 26px; }
+.hp-total { display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+.hp-total-num { font-size: 4.6rem; font-weight: 600; line-height: 1.05; color: var(--accent-scrobble); letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.hp-total-sub { font-family: var(--font-mono); font-size: .88rem; color: var(--text-dim); letter-spacing: .02em; }
+.hp-total-sub b { color: var(--text); font-weight: 400; }
+.hp-total:hover .hp-total-num { color: var(--accent-hi); }
+
+.hp-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.hp-tile {
+  --c: var(--accent-scrobble);
+  position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 16px; min-width: 0;
+  padding: 22px 20px 20px; background: var(--surface-2); border: 1px solid var(--edge); box-shadow: var(--shadow);
+  clip-path: polygon(0 0, calc(100% - var(--chamfer)) 0, 100% var(--chamfer), 100% 100%, var(--chamfer) 100%, 0 calc(100% - var(--chamfer)));
+  transition: transform .12s, border-color .12s;
+}
+.hp-tile:hover { transform: translateY(-2px); border-color: var(--c); }
+.hp-tile::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--c); }
+.hp-vinyl { --c: var(--accent-vinyl); }
+.hp-live { --c: var(--accent-live); }
+.hp-tile-mark { position: absolute; right: -34px; bottom: -34px; width: 160px; height: 160px; color: var(--c); opacity: .06; stroke-width: 1.1; pointer-events: none; }
+/* everything on a tile is centred; its small icon sits in the top-right corner */
+.hp-tile { text-align: center; }
+.hp-tile-head { display: flex; flex-direction: column; align-items: center; }
+.hp-tile-num { font-size: 3.2rem; font-weight: 600; line-height: 1; color: var(--c); font-variant-numeric: tabular-nums; }
+.hp-tile-name { margin-top: 8px; font-family: var(--font-mono); font-size: .84rem; letter-spacing: .12em; text-transform: uppercase; color: var(--silver); }
+.hp-tile-ic { position: absolute; top: 18px; right: 18px; width: 26px; height: 26px; color: var(--c); opacity: .9; }
+.hp-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--edge); }
+.hp-stats-cap { grid-column: 1 / -1; margin-bottom: -4px; font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .1em; text-transform: uppercase; color: var(--c); }
+.hp-stat { min-width: 0; }
+.hp-stat.wide { grid-column: 1 / -1; }
+.hp-stat.desk { display: none; } /* a fifth figure, where a desktop tile has the room */
+@media (min-width: 1100px) { .hp-stat.desk { display: block; } }
+.hp-stat b { display: block; font-size: 1.25rem; font-weight: 600; line-height: 1.15; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-stat span { display: block; margin-top: 3px; font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .06em; text-transform: uppercase; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* tiny charts: a tile's decades / years, the activity page's hours and weekdays */
+.hp-mini { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.hp-mini-bars { display: flex; align-items: flex-end; gap: 2px; height: 46px; }
+.hp-mini-bars i { flex: 1; min-width: 0; height: var(--h); background: color-mix(in srgb, var(--c, var(--accent-scrobble)) 45%, transparent); border-radius: 1px 1px 0 0;
+  transform-origin: bottom; transition: transform .5s var(--hp-ease) calc(var(--i) * 18ms); }
+.hp-mini-bars i.pk { background: var(--c, var(--accent-scrobble)); }
+.hp-mini-cap { display: flex; justify-content: space-between; gap: 6px; font-family: var(--font-mono); font-size: .7rem; letter-spacing: .05em; color: var(--text-dim); text-transform: uppercase; white-space: nowrap; }
+.hp-mini-cap .pk { color: var(--c, var(--accent-soft)); overflow: hidden; text-overflow: ellipsis; }
+.hp-mini-split .hp-mini-cap { justify-content: center; }
+.hp-split { display: flex; gap: 2px; height: 12px; }
+.hp-split i { min-width: 3px; background: color-mix(in srgb, var(--c) calc(100% - var(--i) * 22%), var(--surface-3)); border-radius: 1px; }
+
+/* ---- segmented controls with a sliding highlight ---- */
+.hp-ctrl { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+.hp-seg { position: relative; display: inline-flex; border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--surface); }
+.hp-seg button { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 18px;
+  border: 0; background: none; color: var(--text-dim); font-family: var(--font-mono); font-size: .8rem; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; transition: color .25s; }
+.hp-seg button:hover { color: var(--text); }
+.hp-seg button[aria-pressed="true"] { color: var(--accent-soft); }
+.hp-seg .hp-ic { width: 18px; height: 18px; }
+.hp-seg-ind { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent);
+  transition: transform .35s var(--hp-ease), width .35s var(--hp-ease); }
+
+/* ---- swapping content: lift away, then rise in one by one ---- */
+.hp-swap > *, .hp-rows > li, .hp-kpi { transition: opacity .38s var(--hp-ease) calc(var(--i, 0) * 45ms), transform .46s var(--hp-ease) calc(var(--i, 0) * 45ms); }
+.hp-swap.hp-out > *, .hp-swap.hp-out .hp-rows > li, .hp-swap.hp-out .hp-kpi { opacity: 0; transform: translateY(-8px); transition-duration: .15s; transition-delay: 0s; }
+.hp-swap.hp-pre > *, .hp-swap.hp-pre .hp-rows > li, .hp-swap.hp-pre .hp-kpi { opacity: 0; transform: translateY(14px); transition: none; }
+.hp-swap.hp-pre .hp-bar, .hp-swap.hp-pre .hp-mini-bars i { transform: scaleY(0); transition: none; }
+.hp-swap.hp-out .hp-bar, .hp-swap.hp-out .hp-mini-bars i { transform: scaleY(0); transition: transform .18s ease; }
+
+/* ---- listening: activity + most played ---- */
+.hp-listen-body { display: flex; flex-direction: column; gap: 60px; }
+.hp-activity, .hp-most { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.hp-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.hp-kpi { padding: 14px 16px; background: var(--surface); border: 1px solid var(--edge); min-width: 0; }
+.hp-kpi b { display: block; font-size: 1.85rem; font-weight: 600; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; }
+.hp-kpi:first-child b { color: var(--accent-scrobble); }
+.hp-kpi span { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim); }
+.hp-chart-wrap { display: flex; flex-direction: column; padding-top: 10px; }
+.hp-chart { position: relative; height: 280px; }
+.hp-tick { position: absolute; left: 52px; right: 0; height: 0; border-top: 1px solid var(--gridline); opacity: .7; }
+.hp-tick span { position: absolute; left: -52px; top: -8px; width: 44px; text-align: right; font-family: var(--font-mono); font-size: .72rem; color: var(--text-dim); }
+.hp-bars { position: absolute; left: 52px; right: 0; top: 0; bottom: 0; display: flex; align-items: flex-end; gap: 4px; }
+.hp-bar { flex: 1; min-width: 0; height: var(--h); padding: 0; border: 0; border-radius: 2px 2px 0 0; background: var(--accent-scrobble); cursor: pointer;
+  transform-origin: bottom; transition: transform .56s var(--hp-ease) var(--d), filter .15s; }
+.hp-bar:hover { filter: brightness(1.25); }
+.hp-bar.pk { background: var(--accent-soft); }
+.hp-xl { display: flex; gap: 4px; margin: 7px 0 0 52px; height: 16px; }
+.hp-xl span { flex: 1; min-width: 0; display: flex; justify-content: center; white-space: nowrap; font-family: var(--font-mono); font-size: .72rem; color: var(--text-dim); text-transform: uppercase; }
+.hp-peak { margin-top: 10px; text-align: center; font-family: var(--font-mono); font-size: .76rem; letter-spacing: .05em; color: var(--text-dim); text-transform: uppercase; }
+.hp-peak b { color: var(--accent-soft); font-weight: 400; }
+.hp-shape { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.hp-shape-panel { padding: 14px 16px 12px; background: var(--surface); border: 1px solid var(--edge); min-width: 0; }
+.hp-shape-panel h3 { margin: 0 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); font-size: var(--hp-label); font-weight: 400;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--silver); }
+.hp-shape-panel h3 small { color: var(--text-dim); font-size: inherit; letter-spacing: .04em; text-transform: none; }
+
+.hp-card { display: flex; flex-direction: column; gap: 18px; padding: 20px; background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow); min-width: 0; }
+.hp-ctrl-stack { flex-direction: column; align-items: center; gap: 10px; }
+.hp-ctrl-stack .hp-seg { width: 100%; max-width: 460px; }
+.hp-ctrl-stack .hp-seg button { flex: 1; padding: 0 8px; }
+.hp-mp { display: flex; flex-direction: column; gap: 14px; }
+.hp-art { position: relative; flex: none; width: 44px; height: 44px; overflow: hidden; background: var(--surface-3); display: grid; place-items: center; }
+.hp-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hp-noart { font-weight: 600; font-size: 1.2rem; color: var(--accent-soft); text-transform: uppercase; background: linear-gradient(135deg, var(--surface-3), var(--accent-wash)); }
+.hp-hero { display: flex; align-items: center; gap: 18px; min-width: 0; }
+.hp-art.hp-art-xl { width: 132px; height: 132px; font-size: 3rem; box-shadow: var(--shadow); }
+.hp-hero-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.hp-hero-rank { font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.hp-hero-title { font-size: 1.7rem; font-weight: 600; line-height: 1.15; color: var(--text); overflow-wrap: anywhere; }
+.hp-hero-sub { font-size: 1.02rem; color: var(--text-dim); }
+.hp-hero-num { margin-top: 6px; font-family: var(--font-mono); font-size: .8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .08em; }
+.hp-hero-num b { font-family: var(--font-display); font-size: 1.8rem; color: var(--accent-scrobble); font-weight: 600; letter-spacing: 0; margin-right: 4px; font-variant-numeric: tabular-nums; }
+.hp-hero-share { font-family: var(--font-mono); font-size: .7rem; color: var(--text-dim); letter-spacing: .05em; text-transform: uppercase; }
+.hp-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.hp-rows li { --i: 0; }
+.hp-rows a { position: relative; display: grid; grid-template-columns: 24px 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 4px 10px; border-radius: var(--radius-sm); }
+.hp-rows a:hover { background: var(--accent-wash); }
+.hp-rk { font-family: var(--font-mono); font-size: .84rem; color: var(--text-dim); text-align: right; }
+.hp-rt { min-width: 0; display: flex; flex-direction: column; }
+.hp-rt b { font-weight: 600; font-size: 1.04rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-rt span { font-size: .88rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-rc { font-family: var(--font-mono); font-size: .9rem; color: var(--silver); font-variant-numeric: tabular-nums; }
+.hp-rbar { position: absolute; left: 84px; right: 4px; bottom: 3px; height: 2px; background: var(--edge); }
+.hp-rbar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--w); background: color-mix(in srgb, var(--accent) 70%, transparent);
+  transform-origin: left; transition: transform .6s var(--hp-ease) calc(var(--i, 0) * 45ms + 80ms); }
+.hp-swap.hp-pre .hp-rbar::after { transform: scaleX(0); transition: none; }
+.hp-empty { padding: 40px 0; text-align: center; }
+
+/* ---- latest record buys ---- */
+.hp-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.hp-head .hp-h2 { text-align: left; }
+.hp-head .section-link { font-size: .95rem; }
+.hp-short { display: none; }
+.hp-records .rec-title { font-size: 1.05rem; }
+.hp-records .rec-artist { font-size: .95rem; }
+.hp-records .rec-meta, .hp-records .rec-press, .hp-records .rec-added { font-size: .76rem; }
+.hp-records .rec-label { font-size: .85rem; }
+
+/* ---- tablet and desktop: activity and most played are one panel under one period switch ---- */
+@media (min-width: 641px) {
+  .hp-listen { display: flex; flex-direction: column; gap: 24px; padding: 26px 28px 30px; background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow);
+    clip-path: polygon(0 0, calc(100% - var(--chamfer)) 0, 100% var(--chamfer), 100% 100%, var(--chamfer) 100%, 0 calc(100% - var(--chamfer))); }
+  .hp-listen-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 20px; border-bottom: 1px solid var(--edge); }
+  .hp-listen-head .hp-h2 { text-align: left; }
+  .hp-listen-body .hp-h2 { display: none; }
+  .hp-listen .hp-card { padding: 0; background: none; border: 0; box-shadow: none; }
+  .hp-listen .hp-kpi, .hp-listen .hp-shape-panel { background: var(--surface-2); }
+  .hp-ctrl-stack .hp-seg { max-width: none; }
+}
+@media (min-width: 1100px) {
+  .hp-listen-body { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 36px; }
+  .hp-most { padding-left: 36px; border-left: 1px solid var(--edge); }
+  /* the chart grows to match the most-played list beside it */
+  #hp-act-body { flex: 1; display: flex; flex-direction: column; gap: 18px; }
+  .hp-chart-wrap { flex: 1; }
+  .hp-chart { flex: 1; height: auto; min-height: 300px; }
+}
+@media (max-width: 1099px) and (min-width: 641px) {
+  .hp-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hp-most { padding-top: 28px; border-top: 1px solid var(--edge); }
+  .hp-listen-body { gap: 28px; }
+}
+
+/* ---- phone: the home page is its own scroller, four pages that snap one to the next ---- */
+@media (max-width: 640px) {
+  body[data-route="home"] main#app { padding: 0 14px; min-height: 0; }
+  body[data-route="home"] .footer { display: none; }
+  body[data-route="home"] .topbar-back { visibility: hidden; }
+  .hp { --hp-label: .66rem; --hp-page: calc(100dvh - var(--hp-chrome, 112px)); height: var(--hp-page); overflow-y: auto; overscroll-behavior-y: contain;
+    scroll-snap-type: y mandatory; gap: 0; margin: 0 -14px; padding: 0 14px; scrollbar-width: none; }
+  .hp::-webkit-scrollbar { display: none; }
+  .hp-listen, .hp-listen-body { display: contents; }
+  .hp-listen-head { display: none; }
+  .hp .hp-ctrl-phone { display: flex; justify-content: center; }
+  .hp-page { flex-shrink: 0; min-height: var(--hp-page); box-sizing: border-box; padding: 14px 0 6px; scroll-snap-align: start; scroll-snap-stop: always;
+    display: flex; flex-direction: column; gap: 12px; }
+  .hp-h2 { font-size: 1.15rem; }
+  .hp .hp-cue { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: auto; min-height: 28px; font-family: var(--font-mono); font-size: .64rem;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--text-dim); }
+  .hp-seg button { min-height: 40px; padding: 0 12px; font-size: .74rem; }
+  .hp-period button { padding: 0 11px; }
+
+  /* page 1 is exactly one screen: the tiles take what's left and drop detail when it's short */
+  .hp-home { height: var(--hp-page); min-height: 0; gap: 10px; }
+  .hp .hud { font-size: .7rem; }
+  .hp-total-num { font-size: clamp(2.4rem, 7.5svh, 3.3rem); }
+  .hp-total-sub { font-size: .7rem; }
+  .hp-tiles { flex: 1; min-height: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  /* on a phone a tile's content sits as one block in the middle, whatever it has room to show */
+  .hp-tile { container-type: size; padding: 14px 12px 12px; gap: 8px; --chamfer: 12px; justify-content: center; }
+  .hp-tile .hp-stats { margin-top: 0; }
+  .hp-tile .hp-mini-bars { height: 24px; }
+  .hp-tile-num { font-size: clamp(2rem, min(24cqw, 26cqh), 3.2rem); }
+  .hp-tile-name { font-size: .8rem; letter-spacing: .1em; margin-top: 6px; }
+  .hp-tile-ic { display: none; } /* no room beside a centred number: the faint watermark says what it is */
+  .hp-tile-mark { width: 110px; height: 110px; right: -26px; bottom: -26px; }
+  .hp-mini-bars { height: 30px; }
+  .hp-mini-cap { font-size: .62rem; }
+  .hp-split { height: 10px; }
+  .hp-stats { gap: 8px 8px; padding-top: 8px; }
+  .hp-stats-cap { margin-bottom: -5px; line-height: 1.3; }
+  .hp-stat b { font-size: 1.12rem; }
+  .hp-stat span { letter-spacing: .02em; }
+
+  .hp-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .hp-kpi { padding: 9px 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+  .hp-kpi b { font-size: 1.3rem; }
+  .hp-chart-wrap { padding-top: 6px; }
+  .hp-chart { height: clamp(110px, 22svh, 220px); }
+  .hp-tick { left: 36px; }
+  .hp-tick span { left: -36px; width: 32px; font-size: .58rem; }
+  .hp-bars { left: 36px; gap: 2px; }
+  .hp-xl { margin-left: 36px; gap: 2px; }
+  .hp-xl span { font-size: .58rem; }
+  .hp-peak { font-size: .66rem; margin-top: 6px; }
+  .hp-shape { gap: 8px; }
+  .hp-shape-panel { padding: 10px 10px 8px; }
+  .hp-shape-panel .hp-mini-bars { height: 34px; }
+
+  .hp-card { padding: 12px; gap: 12px; }
+  .hp-ctrl-stack { gap: 8px; }
+  .hp-mp { gap: 10px; }
+  .hp-hero { gap: 14px; }
+  .hp-art.hp-art-xl { width: 96px; height: 96px; font-size: 2.4rem; }
+  .hp-hero-title { font-size: 1.2rem; }
+  .hp-hero-sub { font-size: .88rem; }
+  .hp-hero-num b { font-size: 1.35rem; }
+  .hp-hero-share { display: none; }
+  .hp-rows a { grid-template-columns: 18px 36px minmax(0, 1fr) auto; gap: 9px; padding: 4px 2px 8px; }
+  .hp-art { width: 36px; height: 36px; }
+  .hp-rbar { left: 65px; }
+  .hp-rt b { font-size: .92rem; }
+  .hp-rt span { font-size: .76rem; }
+  .hp-rc { font-size: .8rem; }
+
+  .hp-long { display: none; }
+  .hp-short { display: inline; }
+  .hp-head { margin-bottom: 12px; }
+  .hp-records .home-wall .rec:nth-child(n+5) { display: none; }
+  .hp-records .rec-title { font-size: .95rem; }
+  .hp-records .rec-artist { font-size: .85rem; }
+}
+/* a short tile (small phone, browser bars showing) sheds detail in turn: its last name, its chart, then the other name */
+@container (max-height: 284px) { .hp-tile .hp-stat.extra { display: none; } }
+@container (max-height: 212px) { .hp-tile:not(:has(.hp-stats-cap)) .hp-mini { display: none; } }
+@container (max-height: 172px) { .hp-tile .hp-stat.wide { display: none; } }
+/* the two tiles headed "Last 30 days" are a line taller: the chart outranks the name until even that won't fit */
+@container (max-height: 227px) { .hp-tile:has(.hp-stats-cap) .hp-stat.wide { display: none; } }
+@container (max-height: 189px) { .hp-tile:has(.hp-stats-cap) .hp-mini { display: none; } }
+@container (min-height: 182px) and (max-height: 189px) { .hp-tile:has(.hp-stats-cap) .hp-stat.wide:not(.extra) { display: block; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .hp *, .hp-seg-ind { transition: none !important; }
+}
+.hp-lc { text-transform: lowercase; }
+
+/* ---- a 1080p-sized desktop window: the listening panel and the latest records each fit on screen ----
+   Spacing, row heights and covers tighten; the text stays the size it is at 1440p (which this leaves alone). */
+@media (min-width: 1100px) and (max-height: 1100px) {
+  .hp-listen { gap: 16px; padding: 18px 26px 22px; }
+  .hp-listen-head { padding-bottom: 14px; }
+  .hp-activity, .hp-most { gap: 14px; }
+  .hp-listen .hp-card { gap: 12px; }
+  .hp-seg button { min-height: 38px; }
+  .hp-kpi { padding: 10px 14px; }
+  .hp-kpi b { font-size: 1.6rem; }
+  .hp-chart { min-height: 220px; }
+  .hp-chart-wrap { padding-top: 6px; }
+  .hp-shape-panel { padding: 10px 14px 8px; }
+  .hp-shape-panel .hp-mini-bars { height: 36px; }
+  .hp-art.hp-art-xl { width: 104px; height: 104px; }
+  .hp-hero-title { font-size: 1.5rem; }
+  .hp-hero-num { margin-top: 2px; }
+  .hp-hero-num b { font-size: 1.55rem; }
+  .hp-rows a { grid-template-columns: 24px 36px minmax(0, 1fr) auto; padding: 3px 4px 7px; }
+  .hp-rows .hp-art { width: 36px; height: 36px; }
+  .hp-rbar { left: 76px; bottom: 2px; }
+  /* two rows of record covers fit under the heading: the grid narrows with the window height */
+  .hp-records { width: 100%; max-width: max(760px, calc(200vh - 860px)); margin-inline: auto; }
+}
+@media (min-width: 1100px) and (max-height: 780px) {
+  .hp-art.hp-art-xl { width: 84px; height: 84px; font-size: 2.2rem; }
+  .hp-hero-share { display: none; }
+  .hp-rows a { padding: 2px 4px 5px; }
+  .hp-rows .hp-art { width: 30px; height: 30px; }
+  .hp-rows a { grid-template-columns: 24px 30px minmax(0, 1fr) auto; }
+  .hp-rbar { left: 70px; }
+  .hp-rt span { font-size: .8rem; }
+}

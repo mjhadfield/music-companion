@@ -21,6 +21,8 @@
   <div class="tabs" id="tabs">
     <button data-tab="discography">Discography</button>
     <button data-tab="missing">Missing MBID</button>
+    <button data-tab="suggestions">Suggestions</button>
+    <button data-tab="singles">Singles</button>
     <button data-tab="duplicates">Duplicates</button>
     <button data-tab="verify">Verify</button>
     <button data-tab="editions">Editions</button>
@@ -41,6 +43,38 @@
         <div class="disco-main" id="artist-view"><div class="empty">Pick an artist from the list, or search above.</div></div>
       </div>
     </div>
+  </section>
+
+  <!-- Suggestions (album-suggest sweep) ------------------------------------------------- -->
+  <section data-panel="suggestions" hidden>
+    <div class="card">
+      <div class="toolbar">
+        <label>Find ids for the top <input type="number" id="as-limit" value="100" min="1" max="200" style="width:70px" /> albums with none — owned and most played first</label>
+        <button id="as-start" class="primary">Find suggestions</button>
+      </div>
+      <p class="meta" style="margin:8px 0 0">Matches each album against its artist's MusicBrainz discography, then checks the songs you've played from it against the release's tracklist (about 1 request per artist and 2 per album, cached after). It only writes suggestions — nothing changes until you queue one and apply. <b>High</b>: same title, no live/studio mix-up, and at least half your played songs are on it — the only ones that arrive selected.</p>
+      <div id="as-sweep"></div>
+    </div>
+    <div class="toolbar" style="margin-top:14px">
+      <div class="chips" id="as-tiers"></div>
+      <span class="spacer"></span>
+      <button class="small good" id="as-queue-all">Queue every selected</button>
+    </div>
+    <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>a</kbd> queue selected id</span><span><kbd>r</kbd> none of these</span><span><kbd>f</kbd> find on MusicBrainz</span><span><kbd>x</kbd> not on MusicBrainz</span><span><kbd>s</kbd> skip</span></div>
+    <div id="as-list"><div class="status-line">Loading…</div></div>
+  </section>
+
+  <!-- Singles filed as albums (singles.py) ------------------------------------------------ -->
+  <section data-panel="singles" hidden>
+    <p class="meta" style="margin:0 0 10px">Lead singles that became their own “album” (Spotify and Last.fm treat a single as a release): an album named after one of its tracks, whose every track is also on a bigger album of the same artist. Folding one moves its plays to that album, merges any copy of a song it has into the album's, and points the single's title and editions at the album so future plays land there. <b>High</b> ones have nothing against them and can be queued together; <b>Review</b> ones have a reason shown.</p>
+    <div class="toolbar">
+      <div class="chips" id="sg-tiers"></div>
+      <input type="search" id="sg-find" placeholder="Filter artists…" />
+      <span class="spacer"></span>
+      <button class="small good" id="sg-queue-all">Queue every one shown</button>
+    </div>
+    <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> fold into album</span><span><kbd>d</kbd> not a single</span><span><kbd>s</kbd> skip</span></div>
+    <div id="sg-list"><div class="status-line">Loading…</div></div>
   </section>
 
   <!-- Missing MBID ----------------------------------------------------------------------- -->
@@ -104,6 +138,7 @@
 
 <script src="shared.js"></script>
 <script src="album-ui.js"></script>
+<script src="workbench-ui.js"></script>
 <script src="editions-ui.js"></script>
 <script>
 mountNav("Albums");
@@ -193,6 +228,8 @@ document.addEventListener("mc:undone", () => {
   const t = tabs.current();
   if (t === "discography" && currentArtistId) reopen();
   else if (t === "missing") loadMissing();
+  else if (t === "suggestions") loadAlbumSuggestions();
+  else if (t === "singles") loadSingles();
   else if (t === "verify") loadVerify();
 });
 
@@ -246,6 +283,84 @@ mountTypeahead(document.getElementById("disco-search"), {
 // ---------------------------------------------------------------------------------------------
 
 const missTbody = document.getElementById("miss-tbody");
+
+// ---- Suggestions: album ids from the album-suggest sweep, reviewed into a basket -------------------
+const asList = document.getElementById("as-list");
+const asKeys = mountReviewKeys(asList);
+// one basket for the whole page (Suggestions + Singles): one bar, one review, one batch
+const albumBasket = createBasket({ label: "Albums", onApplied: () => { if (tabs.current() === "singles") loadSingles(); else loadAlbumSuggestions(); } });
+const asBasket = albumBasket;
+let asTier = "high";
+async function loadAlbumSuggestions() {
+  const { ok, data } = await api(`/api/albums/suggestions?tier=${asTier}`);
+  if (!ok) { asList.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const total = data.counts.high + data.counts.medium + data.counts.low;
+  tabs.setCount("suggestions", total);
+  document.getElementById("as-tiers").innerHTML = ["high", "medium", "low"].map((t) =>
+    `<button class="chip filter-chip" data-tier="${t}" aria-pressed="${t === asTier}">${t[0].toUpperCase() + t.slice(1)} <span class="meta">${fmtNum(data.counts[t])}</span></button>`).join("");
+  asList.innerHTML = "";
+  asKeys.reset();
+  for (const m of data.items) {
+    const el = albumSuggestItem(m, { basket: asBasket, keys: asKeys, showArtist: true, onResolved: () => tabs.setCount("suggestions", asList.querySelectorAll(".review-item:not(.done)").length) });
+    if (asBasket.has(`mb:${m.albumId}`)) asBasket.attach(`mb:${m.albumId}`, el);
+    asList.appendChild(el);
+  }
+  if (!data.items.length) asList.innerHTML = `<div class="empty">${total ? "None at this tier." : "No album suggestions waiting — use “Find suggestions” above."}</div>`;
+  asKeys.first();
+  if (data.count > data.items.length) asList.insertAdjacentHTML("beforeend", `<div class="meta" style="padding:8px">Showing the first ${fmtNum(data.items.length)} of ${fmtNum(data.count)} — apply these and the rest come up.</div>`);
+}
+document.getElementById("as-tiers").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-tier]");
+  if (b) { asTier = b.dataset.tier; loadAlbumSuggestions(); }
+});
+document.getElementById("as-queue-all").addEventListener("click", () => {
+  const items = [...asList.querySelectorAll(".review-item:not(.done)")].filter((el) => el.querySelector(".sugg input[type=radio]:checked"));
+  if (!items.length) { toast("Nothing selected here — pick a suggestion on the ones you're sure of."); return; }
+  items.forEach((el) => el.querySelector("[data-key='a']").click());
+  toast(`${plural(items.length, "album")} queued — Review & apply checks each one first`);
+});
+document.getElementById("as-start").addEventListener("click", async () => {
+  const limit = Math.max(1, Math.min(200, parseInt(document.getElementById("as-limit").value, 10) || 100));
+  await runSweep(document.getElementById("as-sweep"), "album-suggest", limit);
+  loadAlbumSuggestions();
+});
+
+// ---- Singles: lead singles filed as albums, folded in through a basket -----------------------------
+const sgList = document.getElementById("sg-list");
+const sgKeys = mountReviewKeys(sgList);
+const sgBasket = albumBasket;
+let sgTier = "high", sgData = null;
+async function loadSingles() {
+  const { ok, data } = await api(`/api/albums/singles`);
+  if (!ok) { sgList.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  sgData = data;
+  tabs.setCount("singles", data.count);
+  paintSingles();
+}
+function paintSingles() {
+  const f = document.getElementById("sg-find").value.trim().toLowerCase();
+  document.getElementById("sg-tiers").innerHTML = [["high", "High"], ["review", "Review"]].map(([t, label]) =>
+    `<button class="chip filter-chip" data-tier="${t}" aria-pressed="${t === sgTier}">${label} <span class="meta">${fmtNum(sgData.counts[t])}</span></button>`).join("");
+  const shown = sgData.items.filter((x) => x.tier === sgTier && (!f || (x.artistName || "").toLowerCase().includes(f)));
+  sgList.innerHTML = "";
+  sgKeys.reset();
+  for (const x of shown.slice(0, 200)) {
+    const el = singleItem(x, { basket: sgBasket, keys: sgKeys, showArtist: true });
+    if (sgBasket.has(x.key)) sgBasket.attach(x.key, el);
+    sgList.appendChild(el);
+  }
+  if (!shown.length) sgList.innerHTML = `<div class="empty">Nothing here.</div>`;
+  else if (shown.length > 200) sgList.insertAdjacentHTML("beforeend", `<div class="meta" style="padding:8px">Showing 200 of ${fmtNum(shown.length)} — apply these and the rest come up.</div>`);
+  sgKeys.first();
+}
+document.getElementById("sg-tiers").addEventListener("click", (e) => { const b = e.target.closest("[data-tier]"); if (b) { sgTier = b.dataset.tier; paintSingles(); } });
+document.getElementById("sg-find").addEventListener("input", () => sgData && paintSingles());
+document.getElementById("sg-queue-all").addEventListener("click", () => {
+  const items = [...sgList.querySelectorAll(".review-item:not(.done)")];
+  if (!items.length) { toast("Nothing left to queue here."); return; }
+  items.forEach((el) => el.querySelector("[data-key='m']").click());
+  toast(`${plural(items.length, "single")} queued — Review & apply checks each one first`);
+});
 
 async function loadMissing() {
   const min = Math.max(1, parseInt(document.getElementById("miss-min").value, 10) || 3);
@@ -424,6 +539,8 @@ document.getElementById("ver-start").addEventListener("click", async (e) => {
 const tabs = mountTabs(document.getElementById("tabs"), {
   discography: () => loadQueue(),
   missing: loadMissing,
+  suggestions: loadAlbumSuggestions,
+  singles: loadSingles,
   duplicates: runDupScan,
   verify: loadVerify,
   editions: () => mountEditions(document.getElementById("editions")).load(),

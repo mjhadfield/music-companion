@@ -81,6 +81,10 @@
   .wa-h { margin: 18px 0 8px; }
   .tl-fetch { margin-bottom: 14px; }
   .livedot { color: var(--accent-live, #f43f5e); font-style: normal; }
+  .lib-pane { flex: 1; padding: 14px 18px; }
+  .disco-body[hidden] { display: none; }   /* its display: grid would otherwise beat [hidden] */
+  .lib-head { margin-bottom: 10px; }
+  .lib-head .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
 </style>
 </head>
 <body>
@@ -120,8 +124,9 @@
   <section data-panel="dupes" hidden>
     <div class="card flush disco-shell">
       <div class="disco-top">
+        <div class="chips" id="dupe-mode"><button class="chip filter-chip" data-mode="artist" aria-pressed="true">By artist</button><button class="chip filter-chip" data-mode="library" aria-pressed="false">Whole library</button></div>
         <input type="search" class="search-box" id="dupe-filter" placeholder="Filter artists…" />
-        <label class="meta"><input type="checkbox" id="dupe-reviewed" /> show reviewed</label>
+        <label class="meta" id="dupe-reviewed-wrap"><input type="checkbox" id="dupe-reviewed" /> show reviewed</label>
         <span class="meta" id="dupe-total"></span>
       </div>
       <div class="disco-body">
@@ -131,6 +136,7 @@
         </aside>
         <div class="disco-main" id="dupe-view"><div class="empty">Pick an artist — most-scrobbled first. Remaster/mono/single-version duplicates on the same album are pre-ticked; live, remix and demo versions never are.</div></div>
       </div>
+      <div class="disco-main lib-pane" id="dupe-library" hidden></div>
     </div>
   </section>
 
@@ -149,6 +155,7 @@
 <script src="album-ui.js"></script>
 <script src="recordings-ui.js"></script>
 <script src="songtools-ui.js"></script>
+<script src="workbench-ui.js"></script>
 <script>
 mountNav("Songs");
 
@@ -279,8 +286,10 @@ function describe(s, row) {
   return "";
 }
 
+let liveLinked = [];   // artists linked to the performer on screen -- their songs are offered too
 function renderLive(data) {
   const songs = data.songs;
+  liveLinked = (data.linked || []).map((l) => l.artistId);
   const by = (st) => songs.filter((s) => s.status === st);
   const done = songs.filter((s) => ["ok", "marked"].includes(s.status)).length;
   const todo = songs.filter((s) => ["match", "album", "newalbum", "lookedup", "nonsong"].includes(s.status));
@@ -297,6 +306,7 @@ function renderLive(data) {
       <span class="spacer" style="flex:1"></span>
       ${keyBtn("n", "Next artist")}
       <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> accept</span><span><kbd>r</kbd> reject</span><span><kbd>x</kbd> other: pick the song / album, or mark</span><span><kbd>s</kbd> skip</span><span><kbd>n</kbd> next artist</span></div>
+      <div class="artist-links" data-role="links" title="A solo act and its band (Ace Frehley / Kiss): their recordings are offered for this performer's live songs"></div>
     </div>
     <div class="disco-content">
       <div class="artist-actions">
@@ -333,6 +343,7 @@ function renderLive(data) {
     await runSweep(box, "live-albums", Math.min(lookable.length, 200), { artistId: a.artistId });
     reloadLive();
   });
+  mountArtistLinks(liveView.querySelector("[data-role='links']"), a.artistId, data.linked || [], reloadLive);
   liveKeys.reset();
 }
 
@@ -352,7 +363,7 @@ function liveItem(s, data) {
       ${s.cover && s.albumTitle ? `<div class="meta">now: ${esc(s.artistName)} — ${esc(s.albumTitle)}</div>` : ""}</div>`;
   let right = "", accept = "Accept", altBtn = "";
   if (s.status === "match" && s.target.relink) {
-    right = `<div><span class="badge accent">${esc(s.target.performerName)}'s own recording</span> ${songLine(s.target)}
+    right = `<div><span class="badge accent">${esc(s.target.performerName)}'s ${s.target.linked ? "recording · linked artist" : "own recording"}</span> ${songLine(s.target)}
       <div style="margin-top:3px">${s.target.exact ? `<span class="badge high">same title</span>` : `<span class="badge medium">close title · ${s.target.score}</span>`}</div></div>`;
     accept = `Use ${esc(s.target.performerName)}'s version`;
     if (s.alt && !s.alt.keep) altBtn = `<button class="small" data-role="alt" title="Merge into ${esc(s.alt.artistName)}'s “${esc(s.alt.title)}” instead">Use the original</button>`;
@@ -361,8 +372,8 @@ function liveItem(s, data) {
       ${s.target.edition ? ` <label class="meta"><input type="checkbox" data-role="rename" checked /> rename to “${esc(s.target.baseTitle)}”</label>` : ""}</div></div>`;
     accept = "Merge";
   } else if (s.status === "album") {
-    right = `<div>${s.mbAlbum.relinkNew ? `<span class="badge accent">${esc(s.mbAlbum.performerName)}'s own recording</span> ` : ""}<span class="t-title">${esc(s.mbAlbum.title)}</span>${s.mbAlbum.year ? ` <span class="meta">(${s.mbAlbum.year})</span>` : ""} ${mbLink("album", s.mbAlbum.rgMbid)}
-      <div class="meta">MusicBrainz lists ${s.mbAlbum.relinkNew ? "their recording" : "this song"} on ${s.mbAlbum.byTitle ? `“${esc(s.mbAlbum.rgTitle)}” — the same title as this album of yours (yours isn't identified by MusicBrainz yet)` : "this album of yours"}</div></div>`;
+    right = `<div>${s.mbAlbum.relinkNew ? `<span class="badge accent">${esc(s.mbAlbum.performerName)}'s ${s.mbAlbum.linked ? "recording · linked artist" : "own recording"}</span> ` : ""}<span class="t-title">${esc(s.mbAlbum.title)}</span>${s.mbAlbum.year ? ` <span class="meta">(${s.mbAlbum.year})</span>` : ""} ${s.mbAlbum.rgMbid ? mbLink("album", s.mbAlbum.rgMbid) : ""}
+      <div class="meta">${s.mbAlbum.byTracklist ? `It's on the tracklist of this album of yours` : `MusicBrainz lists ${s.mbAlbum.relinkNew ? "their recording" : "this song"} on ${s.mbAlbum.byTitle ? `“${esc(s.mbAlbum.rgTitle)}” — the same title as this album of yours (yours isn't identified by MusicBrainz yet)` : "this album of yours"}`}</div></div>`;
     accept = s.mbAlbum.relinkNew ? "Add to album" : "Link to album";
   } else if (s.status === "newalbum") {
     const first = s.mbCandidates.indexOf(chosenCandidate(s, null));
@@ -427,8 +438,9 @@ function liveItem(s, data) {
 // this band's plays; picking the original artist's merges as usual.
 function toggleMore(host, s, performerId, onDone) {
   if (host.childElementCount) { host.innerHTML = ""; return; }
-  const artists = s.cover ? [s.artistId, performerId] : [s.artistId];
-  const who = s.cover ? `${esc(s.artistName)}'s or this band's` : `${esc(s.artistName)}'s`;
+  // linked artists too (Kiss for Ace Frehley): picking one of theirs re-links only this performer's plays
+  const artists = [...new Set([s.artistId, ...(s.cover ? [performerId] : []), ...liveLinked])];
+  const who = s.cover || liveLinked.length ? `${esc(s.artistName)}'s${s.cover ? ", this band's" : ""}${liveLinked.length ? " or a linked artist's" : ""}` : `${esc(s.artistName)}'s`;
   host.innerHTML = `<div class="more">
       <div><div class="meta">It's this song</div><input type="text" data-role="song-q" placeholder="Search ${who} songs…" /></div>
       <div><div class="meta">…or it's on this album</div><input type="text" data-role="album-q" placeholder="Search ${who} albums…" /></div>
@@ -437,7 +449,7 @@ function toggleMore(host, s, performerId, onDone) {
     </div>`;
   mountTypeahead(host.querySelector("[data-role='song-q']"), {
     fetchItems: async (q) => ((await api(`/api/songs/search?artistId=${artists.join(",")}&q=${encodeURIComponent(q)}`)).data.songs || []).filter((x) => x.songId !== s.songId),
-    renderItem: (x) => `<span>${esc(x.title)} <span class="meta">${s.cover ? esc(x.artistName) + " · " : ""}${x.albumTitle ? esc(x.albumTitle) : "(no album)"}</span></span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`,
+    renderItem: (x) => `<span>${esc(x.title)} <span class="meta">${artists.length > 1 ? esc(x.artistName) + " · " : ""}${x.albumTitle ? esc(x.albumTitle) : "(no album)"}</span></span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`,
     onPick: async (x) => {
       const act = x.artistId === s.artistId ? { type: "merge", absorbedId: s.songId, canonicalId: x.songId }
         : { type: "relink", songId: s.songId, toSongId: x.songId, performerId };
@@ -629,7 +641,7 @@ function paintDupeQueue() {
     </div>`).join("") || `<div class="empty">No matches.</div>`;
   el.querySelectorAll(".q-row").forEach((r) => r.addEventListener("click", () => openDupes(parseInt(r.dataset.id, 10))));
 }
-document.getElementById("dupe-filter").addEventListener("input", paintDupeQueue);
+document.getElementById("dupe-filter").addEventListener("input", () => { if (dupeMode === "library") { clearTimeout(libTimer); libTimer = setTimeout(loadLibrary, 300); } else paintDupeQueue(); });
 document.getElementById("dupe-reviewed").addEventListener("change", loadDupeQueue);
 
 function nextDupe() {
@@ -758,16 +770,78 @@ function groupBlock(g, songs, { crossAlbum }) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Duplicates -- whole library: every open group across all artists, one kind at a time, most
+// played first. Nothing applies from here directly: m / d queue into the basket, which dry-runs
+// the lot before it's applied as one undoable batch.
+// ---------------------------------------------------------------------------------------------
+
+let dupeMode = "artist", libKind = "edition", libSplit = false, libOffset = 0, libTimer = null;
+const lib = document.getElementById("dupe-library");
+const libKeys = mountReviewKeys(lib);
+const basket = createBasket({ label: "Song duplicates", onApplied: () => { if (dupeMode === "library") loadLibrary(); splitsView?.load(); } });
+const LIB_KINDS = [["edition", "Same recording"], ["possible", "Possible duplicates"], ["variant", "Different versions"], ["all", "All"]];
+const LIB_NOTES = {
+  edition: "The same recording spelled differently — remaster, mono, single-version tags. Ticked only where they share an album.",
+  possible: "Titles that look like one song but don't match exactly — spacing, a dropped “the”, a number on the end, a near spelling. Never ticked: check each one.",
+  variant: "Live, remix, demo and acoustic versions next to the song. Versions stay separate by default — “Keep separate” stops one coming back; merge only on purpose (it can be split back out).",
+  all: "Everything, most played first.",
+};
+
+function setDupeMode(mode) {
+  dupeMode = mode;
+  document.querySelectorAll("#dupe-mode [data-mode]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+  document.querySelector("[data-panel='dupes'] .disco-body").hidden = mode === "library";
+  document.getElementById("dupe-reviewed-wrap").hidden = mode === "library";
+  lib.hidden = mode !== "library";
+  history.replaceState(null, "", mode === "library" ? "#dupes/library" : dupeArtist ? `#dupes/${dupeArtist}` : "#dupes");
+  if (mode === "library") loadLibrary();
+}
+document.getElementById("dupe-mode").addEventListener("click", (e) => { const b = e.target.closest("[data-mode]"); if (b) setDupeMode(b.dataset.mode); });
+
+async function loadLibrary(more = false) {
+  libOffset = more ? libOffset + 40 : 0;
+  const q = document.getElementById("dupe-filter").value.trim();
+  if (!more) lib.innerHTML = `<div class="status-line" style="padding:16px">Loading…</div>`;
+  const { ok, data } = await api(`/api/songs/review-queue?kind=${libKind}&split=${libSplit ? 1 : 0}&offset=${libOffset}&limit=40&q=${encodeURIComponent(q)}`);
+  if (!ok) { lib.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  if (!more) {
+    const total = data.counts.edition + data.counts.possible + data.counts.variant;
+    lib.innerHTML = `<div class="lib-head">
+        <div class="chips">${LIB_KINDS.map(([k, label]) => `<button class="chip filter-chip" data-kind="${k}" aria-pressed="${k === libKind}">${label} <span class="meta">${fmtNum(k === "all" ? total : data.counts[k])}</span></button>`).join("")}
+          <button class="chip filter-chip" data-role="split" aria-pressed="${libSplit}" title="Its live shows sit on one row and its plays on another — merging fixes every live count">Live split only <span class="meta">${fmtNum(data.counts.split)}</span></button></div>
+        <p class="sec-note">${LIB_NOTES[libKind]}</p>
+        <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> queue merge</span><span><kbd>d</kbd> not the same / keep separate</span><span><kbd>s</kbd> skip</span></div>
+      </div><div data-role="list"></div><div data-role="more"></div>`;
+    lib.querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => { libKind = b.dataset.kind; loadLibrary(); }));
+    lib.querySelector("[data-role='split']").addEventListener("click", () => { libSplit = !libSplit; loadLibrary(); });
+    libKeys.reset();
+  }
+  const list = lib.querySelector("[data-role='list']");
+  for (const g of data.items) {
+    const el = songGroupItem(g, { basket, keys: libKeys, showArtist: true });
+    if (basket.has(g.key)) basket.attach(g.key, el);
+    list.appendChild(el);
+  }
+  if (!list.children.length) list.innerHTML = `<div class="empty">Nothing here${q ? ` for “${esc(q)}”` : ""}.</div>`;
+  if (!more) libKeys.first();
+  const shown = libOffset + data.items.length;
+  const moreEl = lib.querySelector("[data-role='more']");
+  moreEl.innerHTML = shown < data.total ? `<div style="text-align:center; padding:12px"><button class="small" data-role="more-btn">Show more <span class="meta">${fmtNum(shown)} of ${fmtNum(data.total)}</span></button></div>` : "";
+  moreEl.querySelector("[data-role='more-btn']")?.addEventListener("click", () => loadLibrary(true));
+}
+
+// ---------------------------------------------------------------------------------------------
 
 document.addEventListener("mc:undone", () => {
   if (tabs.current() === "live" && liveArtist) reloadLive();
-  if (tabs.current() === "dupes" && dupeArtist) reloadDupes();
+  if (tabs.current() === "dupes" && dupeMode === "library") loadLibrary();
+  else if (tabs.current() === "dupes" && dupeArtist) reloadDupes();
 });
 document.addEventListener("keydown", (e) => {
   if (e.key !== "n" || e.target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey) return;
   const t = tabs.current();
   if (t === "live" && liveArtist) { e.preventDefault(); nextLive(); }
-  if (t === "dupes" && dupeArtist) { e.preventDefault(); nextDupe(); }
+  if (t === "dupes" && dupeArtist && dupeMode === "artist") { e.preventDefault(); nextDupe(); }
 });
 
 let splitsView = null, tracklistsView = null;
@@ -775,15 +849,16 @@ const tabs = mountTabs(document.getElementById("tabs"), {
   live: loadLiveQueue,
   dupes: loadDupeQueue,
   recordings: () => mountRecordings(document.getElementById("recordings")).load(),
-  splits: () => (splitsView = mountSplits(document.getElementById("splits"))).load(),
+  splits: () => (splitsView = mountSplits(document.getElementById("splits"), { basket })).load(),
   tracklists: () => (tracklistsView = mountTracklists(document.getElementById("tracklists"))).load(),
   wrongalbum: () => mountWrongAlbums(document.getElementById("wrongalbum")).load(),
   activity: () => mountActivity(document.getElementById("activity"), { entityType: "song", limit: 60 }),
 }, {
   onSubpath: (tab, sub) => {
+    if (tab === "dupes" && sub === "library") { setDupeMode("library"); return; }
     if (!/^\d+$/.test(sub)) return;
     if (tab === "live") { if (!liveQueue.length) loadLiveQueue(); openLive(parseInt(sub, 10)); }
-    if (tab === "dupes") { if (!dupeQueue.length) loadDupeQueue(); openDupes(parseInt(sub, 10)); }
+    if (tab === "dupes") { if (!dupeQueue.length) loadDupeQueue(); setDupeMode("artist"); openDupes(parseInt(sub, 10)); }
     if (tab === "tracklists") { if (!tracklistsView) (tracklistsView = mountTracklists(document.getElementById("tracklists"))).load(); tracklistsView.open(parseInt(sub, 10)); }
   },
 });

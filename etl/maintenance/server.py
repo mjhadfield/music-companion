@@ -44,7 +44,7 @@ from common import DB_OVERRIDDEN, DB_PATH, connect as db_connect, load_env  # no
 from migrations import migrate  # noqa: E402
 import covers  # noqa: E402
 import merge  # noqa: E402
-from api import albums as _albums, artists as _artists, editions as _editions, general as _general, genres as _genres, imports as _imports, recordings as _recordings, songtools as _songtools, songs as _songs, vinyl as _vinyl  # noqa: E402,F401  (registers routes)
+from api import albums as _albums, artists as _artists, batch as _batch, editions as _editions, general as _general, genres as _genres, housekeeping as _housekeeping, imports as _imports, recordings as _recordings, songtools as _songtools, songs as _songs, vinyl as _vinyl, workbench as _workbench  # noqa: E402,F401  (registers routes)
 from api.core import ROUTES, ApiError, Req, merge_error_response  # noqa: E402
 
 load_env()
@@ -58,6 +58,7 @@ PAGES = {
     "/albums.html": "albums.html",
     "/vinyl.html": "vinyl.html",
     "/songs.html": "songs.html",
+    "/artist.html": "artist.html",
     "/inbox.html": "inbox.html",
     "/genres.html": "genres.html",
 }
@@ -68,6 +69,7 @@ REDIRECTS = {
 }
 STATIC = {"/shared.js": ("shared.js", "application/javascript; charset=utf-8"),
           "/album-ui.js": ("album-ui.js", "application/javascript; charset=utf-8"),
+          "/workbench-ui.js": ("workbench-ui.js", "application/javascript; charset=utf-8"),
           "/artist-ui.js": ("artist-ui.js", "application/javascript; charset=utf-8"),
           "/editions-ui.js": ("editions-ui.js", "application/javascript; charset=utf-8"),
           "/recordings-ui.js": ("recordings-ui.js", "application/javascript; charset=utf-8"),
@@ -83,6 +85,20 @@ BACKUP_DIR = DB_PATH.parent / ".refresh_backups"
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
 _general.JOBS, _general.JOBS_LOCK = jobs, jobs_lock
+
+
+def _busy_reason(kinds=("refresh", "refresh-auto", "build", "sweep")) -> str | None:
+    """Why a scheduled import shouldn't start now (None = free): something already running, or a
+    manual refresh waiting for Accept / Reject (a Reject restores the pre-refresh copy)."""
+    with jobs_lock:
+        for job in jobs.values():
+            kind = job["kind"].split(":")[0]
+            if not job["done"] and kind in kinds:
+                return {"refresh": "a manual refresh is running", "refresh-auto": "an automatic Last.fm update is running",
+                        "build": "a publish is running", "sweep": "a MusicBrainz sweep is running"}[kind]
+            if kind == "refresh" and job["done"] and job["decision"] is None and "refresh" in kinds:
+                return "a manual refresh is waiting for Accept / Reject"
+    return None
 
 
 def run_job(job_id: str, cmd_args: list[str]) -> None:
@@ -198,6 +214,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/imports":
             imports_dir = ROOT / "imports"
             return self._send_json({"files": sorted(p.name for p in imports_dir.glob("*.csv")) if imports_dir.exists() else []})
+        if path == "/api/scheduled/lastfm":
+            return self._scheduled_result(query.get("jobId", ""))
         if path.startswith("/status/"):
             job_id = path[len("/status/"):]
             since = int(query.get("since", "0") or 0)
@@ -222,6 +240,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"error": "body must be JSON"}, 400)
         if path == "/run":
             return self._handle_run(body)
+        if path == "/api/scheduled/lastfm":
+            return self._handle_scheduled_lastfm()
         if path == "/build":
             return self._handle_build()
         if path.startswith("/decision/"):
@@ -229,7 +249,51 @@ class Handler(BaseHTTPRequestHandler):
         if not self._dispatch("POST", path, {}, body):
             self.send_error(404)
 
+    def _handle_scheduled_lastfm(self):
+        """The scheduled incremental Last.fm pull (Citadel's "Last.fm scrobbles" job). Same import as
+        the manual Refresh, but accepted as it lands -- what's new goes to the import Inbox for review,
+        and a session snapshot is taken first. Skipped (not failed) while anything else is running or a
+        manual refresh is waiting for Accept / Reject."""
+        busy = _busy_reason()
+        if busy:
+            return self._send_json({"skipped": busy})
+        snapshot = merge.ensure_snapshot()
+        conn = db_connect()
+        try:
+            run_before = conn.execute("SELECT coalesce(max(id), 0) FROM import_runs").fetchone()[0]
+        finally:
+            conn.close()
+        job_id = uuid.uuid4().hex
+        with jobs_lock:
+            jobs[job_id] = {"lines": [], "done": False, "returncode": None, "kind": "refresh-auto", "backup": None,
+                            "decision": "accepted", "runBefore": run_before}
+        threading.Thread(target=run_job, args=(job_id, ["etl/refresh.py", "--lastfm"]), daemon=True).start()
+        self._send_json({"jobId": job_id, "snapshot": snapshot})
+
+    def _scheduled_result(self, job_id: str):
+        with jobs_lock:
+            job = jobs.get(job_id)
+            if not job or job["kind"] != "refresh-auto":
+                return self._send_json({"error": "unknown job"}, status=404)
+            done, code, tail, run_before = job["done"], job["returncode"], job["lines"][-8:], job["runBefore"]
+        out = {"done": done, "returncode": code}
+        if done:
+            conn = db_connect()
+            try:
+                row = conn.execute("SELECT summary_json FROM import_runs WHERE source = 'lastfm' AND id > ? ORDER BY id DESC LIMIT 1",
+                                   (run_before,)).fetchone()
+                out["summary"] = json.loads(row[0]) if row and row[0] else None
+                out["inboxPending"] = conn.execute("SELECT count(*) FROM import_events WHERE reviewed_at IS NULL").fetchone()[0]
+            finally:
+                conn.close()
+            if code:
+                out["tail"] = [x.rstrip() for x in tail]
+        self._send_json(out)
+
     def _handle_run(self, body):
+        busy = _busy_reason(kinds=("refresh-auto",))
+        if busy:
+            return self._send_json({"error": busy + " -- try again in a minute."}, status=409)
         args = []
         if body.get("lastfm"):
             args.append("--lastfm")

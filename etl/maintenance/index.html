@@ -92,6 +92,25 @@
   </section>
 
   <section>
+    <div class="card" id="integrity-card">
+      <div class="card-head"><h2>Data integrity</h2><span class="spacer"></span><span class="meta" id="integrity-verdict">Checking…</span>
+        <button class="small" id="integrity-full" title="SQLite's own page-level check — a few seconds">Full check</button></div>
+      <p class="meta" style="margin:4px 0 8px">Checked again after every reviewed batch — a batch that would make any <b>hard</b> count go up is rolled back before it lands.</p>
+      <table class="data"><thead><tr><th>Check</th><th>Kind</th><th class="num">Now</th><th></th></tr></thead><tbody id="integrity-rows"></tbody></table>
+    </div>
+  </section>
+
+  <section>
+    <div class="card">
+      <details id="hk">
+        <summary><h2 style="display:inline">Housekeeping</h2> <span class="meta" id="hk-total"></span></summary>
+        <p class="meta">Safety copies the tools have left behind. Nothing is deleted unless you tick it; the newest copies, and any a pending refresh still needs, can't be ticked.</p>
+        <div id="hk-body"><div class="status-line">Loading…</div></div>
+      </details>
+    </div>
+  </section>
+
+  <section>
     <div class="card">
       <div class="card-head"><h2>Recent activity</h2><span class="spacer"></span><span class="meta">every merge and edit can be undone</span></div>
       <div id="activity"></div>
@@ -103,6 +122,63 @@
 <script>
 mountNav("Home");
 mountActivity(document.getElementById("activity"), { limit: 15 });
+
+// ---- Integrity ------------------------------------------------------------------------------
+const fixBasket = createBasket({ label: "Integrity fixes", onApplied: () => loadIntegrity() });
+const SEVERITY = { hard: ["hard", "bad"], soft: ["worth a look", "warn"], info: ["info", ""] };
+async function loadIntegrity(full = false) {
+  const verdict = document.getElementById("integrity-verdict");
+  const { ok, data } = await api(`/api/integrity${full ? "?full=1" : ""}`);
+  if (!ok) { verdict.textContent = data.message; return; }
+  const qc = data.quickCheck ? (data.quickCheck.join(" ") === "ok" ? " · SQLite page check: ok" : ` · SQLite page check: ${data.quickCheck.slice(0, 3).join("; ")}`) : "";
+  verdict.innerHTML = (data.hard ? `<span class="bad-text">${plural(data.hard, "hard problem")}</span>` : `<span class="ok-text">✓ No hard problems</span>`) + esc(qc);
+  document.getElementById("integrity-rows").innerHTML = data.items.map((i) => `<tr>
+      <td>${esc(i.description)}${i.examples.length ? `<details><summary class="meta">examples</summary><div class="meta">${i.examples.slice(0, 20).map((e) => esc(e.text)).join("<br>")}</div></details>` : ""}</td>
+      <td><span class="badge ${SEVERITY[i.severity][1]}">${SEVERITY[i.severity][0]}</span></td>
+      <td class="num">${i.count ? `<b>${fmtNum(i.count)}</b>` : "0"}</td>
+      <td class="actions">${i.fixable && i.count ? `<button class="small" data-fix="${i.check}">Queue fix</button>` : ""}</td></tr>`).join("");
+  document.querySelectorAll("[data-fix='alias_missing_target']").forEach((b) => b.addEventListener("click", () => {
+    const item = data.items.find((x) => x.check === "alias_missing_target");
+    item.examples.forEach((e) => fixBasket.add(`alias:${e.id}`, { type: "removeAlias", aliasId: e.id }, `Remove dangling import alias ${esc(e.text)}`));
+    toast(`${plural(item.examples.length, "alias")} queued — Review & apply checks them first`);
+  }));
+}
+document.getElementById("integrity-full").addEventListener("click", async (e) => {
+  e.target.disabled = true; e.target.textContent = "Checking…";
+  await loadIntegrity(true);
+  e.target.disabled = false; e.target.textContent = "Full check";
+});
+document.addEventListener("mc:changed", () => loadIntegrity());
+loadIntegrity();
+
+// ---- Housekeeping -----------------------------------------------------------------------------
+const mb = (n) => `${(n / 1048576).toLocaleString(undefined, { maximumFractionDigits: 0 })} MB`;
+async function loadHousekeeping() {
+  const body = document.getElementById("hk-body");
+  const { ok, data } = await api("/api/housekeeping");
+  if (!ok) { body.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  document.getElementById("hk-total").textContent = `${mb(data.bytes)} in safety copies`;
+  body.innerHTML = data.folders.filter((f) => f.files.length).map((f) => `
+    <h3 style="margin:14px 0 4px">${esc(f.folder)} <span class="meta">${mb(f.bytes)}</span></h3><p class="meta" style="margin:0 0 6px">${esc(f.description)}</p>
+    <table class="data"><tbody>${f.files.map((x) => `<tr><td style="width:28px"><input type="checkbox" data-path="${esc(x.path)}" data-bytes="${x.bytes}" ${x.keep ? `disabled title="${esc(x.keep)}"` : ""}></td>
+      <td>${esc(x.name)}${x.keep ? ` <span class="meta">— kept: ${esc(x.keep)}</span>` : ""}</td><td class="meta">${esc(x.modified)}</td><td class="num">${mb(x.bytes)}</td></tr>`).join("")}</tbody></table>`).join("")
+    + `<div class="toolbar" style="margin-top:12px"><span class="meta" id="hk-ticked">Nothing ticked</span><span class="spacer"></span><button class="small" id="hk-delete" disabled>Delete ticked</button></div>`;
+  const ticked = () => [...body.querySelectorAll("input[data-path]:checked")];
+  body.addEventListener("change", () => {
+    const t = ticked(), bytes = t.reduce((n, x) => n + +x.dataset.bytes, 0);
+    document.getElementById("hk-ticked").textContent = t.length ? `${plural(t.length, "file")} ticked — ${mb(bytes)}` : "Nothing ticked";
+    document.getElementById("hk-delete").disabled = !t.length;
+  });
+  document.getElementById("hk-delete").addEventListener("click", async () => {
+    const t = ticked();
+    if (!confirm(`Permanently delete ${plural(t.length, "safety copy", "safety copies")} (${mb(t.reduce((n, x) => n + +x.dataset.bytes, 0))})? This can't be undone.`)) return;
+    const res = await api("/api/housekeeping/delete", { paths: t.map((x) => x.dataset.path) });
+    if (!res.ok) { toast(esc(res.data.message), { error: true, timeout: 9000 }); return; }
+    toast(`Deleted ${plural(res.data.deleted, "file")} — ${mb(res.data.bytes)} freed`);
+    loadHousekeeping();
+  });
+}
+document.getElementById("hk").addEventListener("toggle", (e) => { if (e.target.open) loadHousekeeping(); });
 
 async function loadOverview() {
   const { ok, data } = await api("/api/overview");

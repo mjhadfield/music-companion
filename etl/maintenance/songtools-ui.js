@@ -5,7 +5,7 @@ const sgRow = (m) => `<span class="sg-row${m.setlistCount && !m.scrobbleCount ? 
   ${(m.tags || []).map((t) => `<span class="badge warn">${esc(t)}</span>`).join("")}</span>`;
 
 // -- Splits ------------------------------------------------------------------------------------
-function mountSplits(outer) {
+function mountSplits(outer, { basket } = {}) {
   outer.innerHTML = `<div data-role="variants"></div><div data-role="splits"></div>`;
   const vroot = outer.querySelector("[data-role='variants']"), root = outer.querySelector("[data-role='splits']");
   // live / remix / demo recordings that were merged into the studio song -- ticked to un-merge
@@ -23,8 +23,25 @@ function mountSplits(outer) {
     })), {
       head: `Live, demo & remix versions merged into studio songs <span class="meta">${fmtNum(data.count)}</span>`,
       cols: ["Merged-away recording", "Kind", "Merged into"],
-      buttons: [["unmerge", "Un-merge ticked", "good"]],
-      onAction: async (_act, ids) => {
+      buttons: [["unmerge", "Un-merge ticked", "good"], ...(basket ? [["split", "Split out ticked instead"]] : [])],
+      onAction: async (act, ids) => {
+        // Split out: for a merge whose undo is blocked ("undo that first" / a later change depends
+        // on it). Takes the version's plays + shows back out by the text they arrived under, into
+        // the basket -- dry-run like everything else before it's applied.
+        if (act === "split") {
+          const byId = new Map(data.items.map((x) => [x.logId, x]));
+          let queued = 0;
+          const skipped = [];
+          for (const id of ids) {
+            const x = byId.get(id);
+            if (!x.holderId || !x.rawTitles.length) { skipped.push(x.absorbed); continue; }
+            basket.add(`split:${x.logId}`, { type: "splitSong", songId: x.holderId, rawTitles: x.rawTitles, title: x.absorbed, mergeLogId: x.logId },
+              `Split “<b>${esc(x.absorbed)}</b>” back out (${esc(x.rawTitles.map((r) => `“${r}”`).join(", "))}) — expect ${plural(x.plays, "play")}${x.shows ? `, ${plural(x.shows, "show")}` : ""}`);
+            queued++;
+          }
+          toast(`${plural(queued, "split")} queued — review & apply from the bar below${skipped.length ? ` · can't split ${skipped.map(esc).join(", ")} (its plays are spread over several songs now)` : ""}`, { error: !queued });
+          return;
+        }
         const { ok: ok2, data: d2 } = await api("/api/songs/undo-variant-merges", { ids });
         if (!ok2) { toast(esc(d2.message), { error: true, timeout: 9000 }); return; }
         const failed = d2.failed.length ? ` · ${plural(d2.failed.length, "couldn't be undone", "couldn't be undone")}: ${d2.failed.map((f) => esc(f.error)).join("; ")}` : "";

@@ -59,20 +59,29 @@ def history(req):
     args = (entity_type,) if entity_type else ()
     with read_conn() as c:
         merges = c.execute(
-            f"SELECT id, entity_type, absorbed_name, canonical_name, absorbed_mbid, rows_moved_json, merged_at, undone_at, undo_json IS NOT NULL "
+            f"SELECT id, entity_type, absorbed_name, canonical_name, absorbed_mbid, rows_moved_json, merged_at, undone_at, undo_json IS NOT NULL, batch_id "
             f"FROM merge_log {where} ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
         edits = c.execute(
-            f"SELECT id, entity_type, entity_id, entity_name, changes_json, reason, created_at, undone_at FROM edit_log {where} ORDER BY id DESC LIMIT ?",
+            f"SELECT id, entity_type, entity_id, entity_name, changes_json, reason, created_at, undone_at, batch_id FROM edit_log {where} ORDER BY id DESC LIMIT ?",
             (*args, limit)).fetchall()
     items = [{
         "kind": "merge", "id": r[0], "entityType": r[1], "absorbedName": r[2], "canonicalName": r[3], "absorbedMbid": r[4],
-        "rowsMoved": json.loads(r[5]), "at": r[6], "undoneAt": r[7], "undoable": bool(r[8]) and not r[7],
+        "rowsMoved": json.loads(r[5]), "at": r[6], "undoneAt": r[7], "undoable": bool(r[8]) and not r[7], "batchId": r[9],
     } for r in merges] + [{
         "kind": "edit", "id": r[0], "entityType": r[1], "entityId": r[2], "name": r[3], "changes": json.loads(r[4]),
-        "reason": r[5], "at": r[6], "undoneAt": r[7], "undoable": not r[7],
+        "reason": r[5], "at": r[6], "undoneAt": r[7], "undoable": not r[7], "batchId": r[8],
     } for r in edits]
     items.sort(key=lambda i: i["at"], reverse=True)
-    return {"items": items[:limit]}
+    items = items[:limit]
+    # reviewed batches (api/batch.py): the page shows each as one undoable step with its merges and
+    # edits under it. Unfiltered, every recent batch (some are only marks / dismissals); filtered to
+    # an entity type, the ones with something of that type in view.
+    in_view = {i["batchId"] for i in items if i["batchId"]}
+    with read_conn() as c:
+        rows = c.execute("SELECT id, label, summary_json, created_at, undone_at FROM batches ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    batches = [{"batchId": r[0], "label": r[1], "actions": json.loads(r[2] or "{}").get("actions"), "at": r[3], "undoneAt": r[4]}
+               for r in rows if not entity_type or r[0] in in_view]
+    return {"items": items, "batches": batches}
 
 
 @route("POST", "/api/history/undo", mutating=True)
@@ -101,6 +110,9 @@ def undo(req):
                     c.execute("UPDATE suggestions SET status = 'pending', decided_at = NULL WHERE id = ?", (int(reason.split(":")[1]),))
                 results.append(r)
         return {"undone": results, "name": plural_names([r["name"] for r in results])}
+    if kind == "batchv2":  # a workbench / queue batch (api/batch.py): undone whole, all or nothing
+        from api.batch import undo_batch
+        return undo_batch(req.int("id", required=True))
     if kind == "batch":
         # A mixed reviewed batch (merges + edits + marks, e.g. a whole artist's live songs),
         # undone together, newest first.

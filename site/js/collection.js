@@ -118,6 +118,7 @@ const normTitle = (t) => String(t || "").normalize("NFKD").replace(/[\u0300-\u03
   .replace(/\s*[([].*?[)\]]/g, "").replace(EDITION_TAIL, "").replace(/['’`´]/g, "").replace(/&/g, " and ")
   .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 const compactTitle = (t) => normTitle(t).replace(/ /g, "");
+const LANGUAGE_TAIL = /^(english|swedish|german|french|spanish|italian|portuguese|japanese|finnish|norwegian|danish|dutch|polish|russian|hungarian|czech|latin|korean|chinese)(\s+(version|language|lyrics?|vocals?|edition))?$/;
 // A different recording, not just another edition: live, remix, demo, acoustic, instrumental --
 // read only from the title's bracketed / " - " tail ("Live Wire" is just a title). -> tag or "".
 function variantOf(title) {
@@ -125,6 +126,8 @@ function variantOf(title) {
   const tails = [...t.matchAll(/[([]([^)\]]*)[)\]]/g)].map((m) => m[1]);
   const dash = t.indexOf(" - ");
   if (dash > 0) tails.push(t.slice(dash + 3));
+  // a language version is its own recording ("Carolus Rex - English Version" beside the Swedish one)
+  for (const x of tails) { const m = x.trim().toLowerCase().match(LANGUAGE_TAIL); if (m) return `lang-${m[1]}`; }
   const tail = tails.join(" ").toLowerCase();
   if (/\b(live|unplugged)\b/.test(tail)) return "live";
   if (/\bremix\b|\bmix\b/.test(tail) && !/\boriginal mix\b/.test(tail)) return "remix";
@@ -894,7 +897,9 @@ function albumSongGroups(albumId) {
 // A line matched by hand in maintenance (track_links: "Come On (Part 1)" = "Come On (Let the Good
 // Times Roll)") takes its song first, and no other line claims that song by title.
 // -> {tracks: [{pos, title, dur, song, again}], unlisted: [songs not on it]}
-function matchTracklist(pressingTracks, songs, albumId) {
+// `lineVariant` ("lang-english"): the lines of another-language tracklist -- a line takes that
+// language's version of a shared title, else (a title unique to that language) the plain song.
+function matchTracklist(pressingTracks, songs, albumId, lineVariant = "") {
   const bySong = Object.fromEntries(songs.map((x) => [trackKey(x.title), x]));
   const linked = new Map();
   if (albumId != null && hasTable("track_links")) {
@@ -909,7 +914,11 @@ function matchTracklist(pressingTracks, songs, albumId) {
   const matchTrack = (title, recording) => {
     const mine = linked.get(title.trim().toLowerCase());
     if (mine) { linked.delete(title.trim().toLowerCase()); return { song: mine, again: false }; }
-    const k = normTitle(title), c = k.replace(/ /g, ""), v = variantOf(title);
+    const k = normTitle(title), c = k.replace(/ /g, ""), v = variantOf(title) || lineVariant;
+    if (v && v === lineVariant && !bySong[`${k}#${v}`] && bySong[k] && !used.has(bySong[k].id)) {   // unique to this language
+      used.add(bySong[k].id);
+      return { song: bySong[k], again: false };
+    }
     const free = () => songs.filter((x) => !used.has(x.id) && (x.variant || "") === v); // a live track only matches live songs
     const only = (list) => (list.length === 1 ? list[0] : null);
     let song = (recording && songs.find((x) => x.mbids?.has(recording))) // the same MusicBrainz recording, whatever it's called
@@ -941,15 +950,28 @@ function matchTracklist(pressingTracks, songs, albumId) {
 // MusicBrainz's original release of the album (the album-tracklists sweep), for albums not on vinyl.
 function musicbrainzTracklist(albumId) {
   if (!hasTable("album_tracklists")) return null;
+  const src = query(`SELECT source, release_date, country, format FROM album_tracklist_sources WHERE album_id = ?`, [albumId])[0] || {};
+  if (src.source === "version") return null;   // another-language version, shown beside a pressing -- versionTracklist()
   const tracks = query(`SELECT number, title, recording_mbid, length_ms FROM album_tracklists WHERE album_id = ? ORDER BY position`, [albumId]);
   if (!tracks.length) return null;
-  const src = query(`SELECT release_date, country, format FROM album_tracklist_sources WHERE album_id = ?`, [albumId])[0] || {};
   const mmss = (ms) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, "0")}` : null);
   const what = [(src.release_date || "").slice(0, 4), src.country && src.country !== "XW" ? src.country : null, src.format].filter(Boolean).join(" ");
   return {
     tracks: tracks.map((t) => ({ position: t.number, title: t.title, duration: mmss(t.length_ms), recordingMbid: t.recording_mbid })),
     source: `the original release${what ? ` (${what})` : ""} · MusicBrainz`,
   };
+}
+
+// Another-language version of an album you own a pressing of (Carolus Rex: your Swedish LP + the
+// English version), stored from maintenance as source 'version'. -> {label, variant, tracks} | null
+function versionTracklist(albumId) {
+  if (!hasTable("album_tracklists")) return null;
+  const src = query(`SELECT release_title FROM album_tracklist_sources WHERE album_id = ? AND source = 'version'`, [albumId])[0];
+  if (!src) return null;
+  const tracks = query(`SELECT number, title, recording_mbid FROM album_tracklists WHERE album_id = ? ORDER BY position`, [albumId]);
+  const lang = (src.release_title || "").toLowerCase().match(/\b(english|swedish|german|french|spanish|italian|portuguese|japanese|finnish|norwegian|danish|dutch|polish|russian|hungarian|czech|latin|korean|chinese)\b/);
+  return tracks.length ? { label: src.release_title, variant: lang ? `lang-${lang[1]}` : "",
+    tracks: tracks.map((t) => ({ position: t.number, title: t.title, recordingMbid: t.recording_mbid })) } : null;
 }
 
 // The album page's reference tracklist, from a pressing you own: an original press if you have
