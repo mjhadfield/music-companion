@@ -136,6 +136,7 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
 
     look_cols = {r[1] for r in c.execute("PRAGMA table_info(vinyl_holdings)")}
     looks = {r[0]: r[1:] for r in c.execute("SELECT id, cover_file, display_title, release_year FROM vinyl_holdings")} if "cover_file" in look_cols else {}
+    presses = {r[0]: r[1:] for r in c.execute("SELECT id, press_kind, press_year FROM vinyl_holdings")} if "press_kind" in look_cols else {}
     parts_of = defaultdict(list)  # a set's albums (migration 011)
     for set_id, pid, ptitle, pyear, pmbid in c.execute(
             "SELECT ap.album_id, al.id, al.title, al.year, al.mbid FROM album_parts ap JOIN albums al ON al.id = ap.part_album_id ORDER BY ap.position"):
@@ -154,6 +155,11 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
         discogs = cache.get(discogs_key) if rel_id else None
         fmt_info = parse_format(fmt)
         pressing_year = released.get(str(rel_id)) if rel_id else None
+        press_kind, press_year = presses.get(vid, (None, None))
+        detected = {"reissue": fmt_info["reissue"], "year": pressing_year}
+        if press_kind:  # set by hand: what Discogs' tags and dates imply is overruled
+            fmt_info = {**fmt_info, "reissue": press_kind in ("reissue", "repress")}
+        pressing_year = press_year or pressing_year
         # The album's own release group decides the original year; the pressing's release group
         # only stands in when it IS the album's (a mis-linked pressing must not suggest a year).
         year_source = rg or (pressing_rg if pressing_rg and pressing_rg.get("mbid") == mbid else None)
@@ -184,6 +190,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
             "suggestions": [s for s in pending.get(vid, [])],
             # this copy's own look on the site (NULL = the album's): see migration 010
             "look": dict(zip(("coverFile", "displayTitle", "releaseYear"), looks.get(vid, (None, None, None)))),
+            # this pressing, by hand (migration 015): kind and year; `detected` is what Discogs implies
+            "press": {"kind": press_kind, "year": press_year, "detected": detected},
         }
         h["checks"] = _checks(h, rg_checked, album_id in reviewed)
         h["score"] = sum({"ok": 0, "na": 0, "unknown": 1, "warn": 2, "bad": 4}[x["status"]] for x in h["checks"])
@@ -289,10 +297,17 @@ def _checks(h: dict, rg_checked: bool, reviewed: bool) -> list[dict]:
             if a["editionTags"] else "Title has no edition suffix", "title" if a["editionTags"] else None)
 
     if not is_set:  # a set's cover was checked above: there's no MusicBrainz art to fetch for it
-        cover = a["coverStatus"]
-        add("cover", "Cover art", "ok" if cover == "ok" else "bad" if cover == "none" else "warn",
-            {"ok": "Has cover art", "none": "Cover Art Archive had nothing — paste an image URL"}.get(cover, "No cover fetched yet"),
-            None if cover == "ok" else "cover")
+        cover, own = a["coverStatus"], h["look"]["coverFile"]
+        if cover != "ok" and own and h["look"]["displayTitle"]:
+            # a copy that's its own release (a single filed under its album): its own cover is what the site shows for it
+            add("cover", "Cover art", "ok", f"Has its own cover as “{h['look']['displayTitle']}” — the album “{a['title']}” has none of its own yet", None)
+        elif cover != "ok" and own:
+            add("cover", "Cover art", "warn", "This copy has its own cover, but the album has none — use it for the album too", "cover")
+        else:
+            add("cover", "Cover art", "ok" if cover == "ok" else "bad" if cover == "none" else "warn",
+                {"ok": "Has cover art", "none": "Cover Art Archive had nothing — pick one of this pressing's photos, or paste an image URL"}.get(
+                    cover, "No cover yet — fetch it, or pick one of this pressing's photos"),
+                None if cover == "ok" else "cover")
 
     # Several copies of one album: a copy that's really its own release (its own title on Discogs --
     # "Electric Ladyland Part 1" -- or a picture disc) should look like itself on the site.
@@ -593,6 +608,49 @@ def copy_cover(req):
     with write_tx() as c:
         e = merge.edit_entity(c, "vinyl", vid, {"cover_file": name}, "this copy's cover")
     return {"vinylId": vid, "coverFile": name, "editId": e["editId"]}
+
+
+PRESS_KINDS = ("original", "reissue", "repress")
+
+
+@route("POST", "/api/vinyl/pressing", mutating=True)
+def set_pressing(req):
+    """What kind of pressing this copy is, when Discogs can't say (a dateless repress shows as an
+    original): kind 'original' | 'reissue' | 'repress' or "" (= from Discogs), and an optional year.
+    Undoable (an edit)."""
+    vid = req.int("vinylId", required=True)
+    kind = req.str("kind") or None
+    if kind and kind not in PRESS_KINDS:
+        raise ApiError(f"kind must be one of {', '.join(PRESS_KINDS)} (or empty)")
+    year = req.body.get("year")
+    year = int(year) if str(year or "").strip().isdigit() else None
+    if year is not None and not 1900 <= year <= 2100:
+        raise ApiError("year must be between 1900 and 2100")
+    with write_tx() as c:
+        if not c.execute("SELECT 1 FROM vinyl_holdings WHERE id = ?", (vid,)).fetchone():
+            raise ApiError("holding not found", 404)
+        e = merge.edit_entity(c, "vinyl", vid, {"press_kind": kind, "press_year": year}, "this pressing, by hand")
+    return {"vinylId": vid, "kind": kind, "year": year, "editId": e["editId"]}
+
+
+@route("POST", "/api/vinyl/copy-cover-to-album", mutating=True)
+def copy_cover_to_album(req):
+    """This copy's own cover becomes its album's cover too (the album had none: a single copy whose
+    Discogs photo was picked as its look). The album's cover isn't journaled -- like a fetched one,
+    it's replaced by fetching or pasting another."""
+    import shutil
+    import covers
+    vid = req.int("vinylId", required=True)
+    with read_conn() as c:
+        row = c.execute("SELECT v.cover_file, v.album_id, al.title FROM vinyl_holdings v JOIN albums al ON al.id = v.album_id WHERE v.id = ?", (vid,)).fetchone()
+    if not row:
+        raise ApiError("holding not found", 404)
+    if not row[0] or not (covers.COVERS_DIR / row[0]).is_file():
+        raise ApiError("This copy has no cover of its own to use")
+    shutil.copyfile(covers.COVERS_DIR / row[0], covers.COVERS_DIR / f"{row[1]}.jpg")
+    with write_tx() as c:
+        covers._mark(c, row[1], "ok")
+    return {"albumId": row[1], "title": row[2], "coverStatus": "ok"}
 
 
 @route("POST", "/api/vinyl/copy-identity", mutating=True)

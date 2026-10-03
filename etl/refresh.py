@@ -120,6 +120,25 @@ def report(conn, before: dict) -> None:
     for _, title, artist_name, fmt in new_vinyl:
         print(f"    {artist_name} -- {title} ({fmt})")
 
+    # A Discogs import also compares the records you already have (discogs_import.py): changes and
+    # records missing from the export wait in the Inbox -- nothing was overwritten or removed.
+    held = conn.execute("""
+        SELECT kind, detail_json FROM import_events
+        WHERE run_id > ? AND kind IN ('holding_changed', 'holding_missing') ORDER BY id
+    """, (before["max_run_id"],)).fetchall()
+    if held:
+        import json
+        changed = [json.loads(d) for k, d in held if k == "holding_changed"]
+        gone = [json.loads(d) for k, d in held if k == "holding_missing"]
+        if changed:
+            print(f"\nChanged on Discogs (to apply or keep in the Inbox): {len(changed)}")
+            for d in changed:
+                print(f"    {d.get('artist')} -- {d.get('title')}: {', '.join(d.get('changes', {}))}")
+        if gone:
+            print(f"\nIn your collection but not in this export (nothing removed): {len(gone)}")
+            for d in gone:
+                print(f"    {d.get('artist')} -- {d.get('title')}")
+
     new_artist_rows = conn.execute(
         "SELECT id, name, mbid FROM artists WHERE id > ? ORDER BY id", (before["max_artist_id"],)
     ).fetchall()

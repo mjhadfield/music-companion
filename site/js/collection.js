@@ -409,6 +409,9 @@ function groupRecords(list, group, desc = false) {
   return keys.map((k) => ({ key: k, items: out.get(k) }));
 }
 
+// a group heading: genre groups are named by genre, shown with capitals
+const groupLabel = (key) => (collectionState.group === "genre" ? genreName(key) : key);
+
 function renderStats(host, shown, total) {
   const uniq = (f) => new Set(shown.flatMap((r) => [].concat(f(r))).filter(Boolean)).size;
   const top = (f) => {
@@ -431,8 +434,8 @@ function renderStats(host, shown, total) {
     <div class="cs" title="The decade most of these albums first came out"><b>${topDecade ? topDecade[0] : "—"}</b><span>Top Released</span></div>
     <div class="cs" title="The decade most of these records were pressed"><b>${topPressed ? topPressed[0] : "—"}</b><span>Top Pressed</span></div>
     <div class="cs"><b>${shown.length - reissues}</b><span>original presses</span></div>
-    <div class="cs cs-genres">${topGenres.length ? `<div class="gmix">${topGenres.map(([g, c], i) => `<i style="flex:${c}; --i:${i}" title="${esc(g)} · ${c}"></i>`).join("")}</div>
-      <span>${topGenres.slice(0, 4).map(([g]) => esc(g)).join(" · ")}</span>` : `<span class="subtle">genres appear once they've been fetched</span>`}</div>`;
+    <div class="cs cs-genres">${topGenres.length ? `<div class="gmix">${topGenres.map(([g, c], i) => `<i style="flex:${c}; --i:${i}" title="${esc(genreName(g))} · ${c}"></i>`).join("")}</div>
+      <span>${topGenres.slice(0, 4).map(([g]) => esc(genreName(g))).join(" · ")}</span>` : `<span class="subtle">genres appear once they've been fetched</span>`}</div>`;
   void gsum;
 }
 
@@ -453,7 +456,7 @@ function renderFacets(host, all, onChange) {
     const open = st.more[facet];
     const visible = open ? entries : entries.slice(0, limit);
     return `<div class="facet"><span class="f-title">${title}</span><div class="f-chips">${visible.map(([v, n]) =>
-      `<button class="fchip${st.facets[facet].has(v) ? " on" : ""}" data-facet="${facet}" data-val="${esc(v)}" ${n || st.facets[facet].has(v) ? "" : "disabled"}>${esc(v)} <i>${n}</i></button>`).join("")}
+      `<button class="fchip${st.facets[facet].has(v) ? " on" : ""}" data-facet="${facet}" data-val="${esc(v)}" ${n || st.facets[facet].has(v) ? "" : "disabled"}>${esc(facet === "genre" ? genreName(v) : v)} <i>${n}</i></button>`).join("")}
       ${entries.length > limit ? `<button class="linkish" data-more="${facet}">${open ? "less" : `+${entries.length - limit} more`}</button>` : ""}</div></div>`;
   };
   host.innerHTML = row("genre", "Genre", 12) + row("decade", "Released", 12) + row("pressed", "Pressed", 12) + row("format", "Format", 12)
@@ -523,7 +526,7 @@ function wireLatestRecords(host) {
 }
 
 function renderWall(host, groups) {
-  host.innerHTML = groups.map((g) => `${g.key !== null ? `<h3 class="coll-group">${esc(g.key)} <span>${g.items.length}</span></h3>` : ""}
+  host.innerHTML = groups.map((g) => `${g.key !== null ? `<h3 class="coll-group">${esc(groupLabel(g.key))} <span>${g.items.length}</span></h3>` : ""}
     <div class="wall">${g.items.map((r) => recTileHtml(r)).join("")}</div>`).join("");
   host.querySelectorAll(".rec").forEach((b) => b.addEventListener("click", () => openRecord(+b.dataset.id)));
 }
@@ -531,7 +534,7 @@ function renderWall(host, groups) {
 function renderList(host, groups) {
   host.innerHTML = `<div class="table-scroll"><table class="data-table coll-table"><thead><tr><th></th><th>Title</th><th>Artist</th><th class="num">Year</th>
       <th class="num">Pressed</th><th>Label · cat#</th><th>Format</th><th>Condition</th><th>Rating</th><th>Added</th></tr></thead><tbody>
-    ${groups.map((g) => `${g.key !== null ? `<tr class="grp"><td colspan="10">${esc(g.key)} <span class="subtle">${g.items.length}</span></td></tr>` : ""}
+    ${groups.map((g) => `${g.key !== null ? `<tr class="grp"><td colspan="10">${esc(groupLabel(g.key))} <span class="subtle">${g.items.length}</span></td></tr>` : ""}
       ${g.items.map((r) => `<tr data-id="${r.id}"><td>${coverImg(r, "lthumb")}</td><td class="row-title">${esc(r.title)}</td><td>${esc(r.artist_name)}</td>
         <td class="num">${r.year || ""}</td><td class="num">${r.pressing_year || ""}${r.reissue ? ' <span class="subtle">RE</span>' : ""}</td><td>${esc([r.label, r.catalog_number].filter(Boolean).join(" · "))}</td>
         <td>${esc(r.fmt.media || "")} ${colourDot(r)}</td>
@@ -600,7 +603,7 @@ function renderInsights(host, shown) {
     e = e.slice(0, limit);
     const max = Math.max(1, ...e.map(([, n]) => n));
     return `<div class="ins"><h3>${title}</h3>${e.length ? e.map(([k, n]) => `<button class="ibar" ${facet ? `data-facet="${facet}" data-val="${esc(k)}"` : "disabled"}>
-      <span class="ik">${esc(k)}</span><span class="iv"><i style="width:${(100 * n) / max}%"></i></span><span class="in">${n}</span></button>`).join("") : `<div class="subtle">—</div>`}</div>`;
+      <span class="ik">${esc(facet === "genre" ? genreName(k) : k)}</span><span class="iv"><i style="width:${(100 * n) / max}%"></i></span><span class="in">${n}</span></button>`).join("") : `<div class="subtle">—</div>`}</div>`;
   };
   const orig = shown.filter((r) => !r.reissue).length;
   host.innerHTML = `<div class="ins-grid">
@@ -803,7 +806,7 @@ function recordDetailHtml(r, all) {
         <h2>${esc(r.title)}</h2>
         <div><button class="linkish big" data-role="artist-page">${esc(r.artist_name)}</button>${r.year ? ` · ${r.year}` : ""}</div>
         <div class="rd-rating">${starsHtml(r.rating) || `<span class="subtle">not rated</span>`}</div>
-        ${r.genres.length ? `<div class="rd-genres">${r.genres.map((g) => `<button class="gtag" data-genre="${esc(g)}" title="Show all ${esc(g)} records">${esc(g)}</button>`).join("")}</div>` : ""}
+        ${r.genres.length ? `<div class="rd-genres">${r.genres.map((g) => `<button class="gtag" data-genre="${esc(g)}" title="Show all ${esc(genreName(g))} records">${esc(genreName(g))}</button>`).join("")}</div>` : ""}
       </div>
     </div>
 
@@ -1004,5 +1007,5 @@ function artistGenreNames(artistId, limit = 8) {
 function genreTagsHtml(names, label = "") {
   if (!names.length) return "";
   return `<div class="genre-row">${label ? `<span class="subtle">${esc(label)}</span>` : ""}${names.map((g) =>
-    `<a class="gtag" href="#/vinyl?genre=${encodeURIComponent(g)}" title="Your ${esc(g)} records">${esc(g)}</a>`).join("")}</div>`;
+    `<a class="gtag" href="#/vinyl?genre=${encodeURIComponent(g)}" title="Your ${esc(genreName(g))} records">${esc(genreName(g))}</a>`).join("")}</div>`;
 }

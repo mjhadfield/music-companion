@@ -110,7 +110,12 @@ CREATE TABLE IF NOT EXISTS vinyl_holdings (
     -- disc): its own cover file (in the covers dir), title and first-release year. NULL = the album's.
     cover_file              TEXT,
     display_title           TEXT,
-    release_year            INTEGER
+    release_year            INTEGER,
+    -- What kind of pressing this copy is, set by hand when Discogs can't say (a dateless repress):
+    -- 'original' | 'reissue' | 'repress', NULL = from the format tags and years. press_year: this
+    -- pressing's year by hand (NULL = Discogs' "Released").
+    press_kind              TEXT,
+    press_year              INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_vinyl_album ON vinyl_holdings(album_id);

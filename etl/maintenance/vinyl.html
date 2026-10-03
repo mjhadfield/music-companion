@@ -719,17 +719,48 @@ function renderTitleYear(el, h) {
 function renderCover(el, h) {
   const a = h.album;
   const has = a.coverStatus === "ok";
+  const own = h.look?.coverFile;
   el.innerHTML = `
     <div style="display:flex; gap:14px; align-items:flex-start; flex-wrap:wrap">
-      ${has ? `<img class="big-cover" src="/covers/${a.albumId}.jpg?t=${Date.now()}" alt="" />` : ""}
+      ${has ? `<img class="big-cover" src="/covers/${a.albumId}.jpg?t=${Date.now()}" alt="" title="The album's cover" />` : ""}
+      ${own ? `<img class="big-cover" src="/covers/${esc(own)}" alt="" title="This copy's own cover" />` : ""}
       <div style="flex:1; min-width:240px">
-        <div class="meta">${has ? "The album's cover (the original release's art, shared by every pressing)." : a.coverStatus === "none" ? "The Cover Art Archive had nothing for this release group — paste a direct image link instead." : "No cover fetched yet."}</div>
+        <div class="meta">${has ? "The album's cover (the original release's art, shared by every pressing)." : a.coverStatus === "none" ? "The Cover Art Archive had nothing for this release group — pick one of this pressing's photos, or paste a direct image link." : "The album has no cover yet."}
+          ${own ? `<br>${has ? "Beside it, this copy's own cover — what the site shows for this record." : "Shown: this copy's own cover — what the site shows for this record. The album itself (the artist's picture, album pages) has none."}` : ""}</div>
+        ${own && !has && !h.look.displayTitle ? `<div class="inline-form" style="margin-top:8px"><button class="small primary" data-act="own-to-album">Use this copy's cover for the album too</button></div>` : ""}
+        ${own && !has && h.look.displayTitle ? `<div class="meta" style="margin-top:6px">This copy shows as its own release (“${esc(h.look.displayTitle)}”), so its cover isn't offered for the album — fetch or pick the album's own below.</div>` : ""}
         <div class="inline-form" style="margin-top:8px">
           ${keyBtn("c", has ? "Re-fetch from MusicBrainz" : "Fetch from MusicBrainz", "", `data-act="fetch" ${a.mbid ? "" : "disabled title=\"Needs an album MBID first\""}`)}
+          <button class="small" data-act="album-photos" ${h.mbReleaseId || h.discogsReleaseId ? "" : "disabled"}>Pick from this pressing's photos</button>
         </div>
+        <div class="look-photos" data-role="album-photos"></div>
         <div class="inline-form" style="margin-top:8px"><input type="text" data-role="url" placeholder="https://… (a direct image link)" style="flex:1; min-width:220px" /><button class="small" data-act="url">Use this image</button></div>
       </div>
     </div>`;
+  el.querySelector("[data-act='own-to-album']")?.addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    const { ok, data } = await api("/api/vinyl/copy-cover-to-album", { vinylId: h.vinylId });
+    if (!ok) { toast(esc(data.message), { error: true }); e.currentTarget.disabled = false; return; }
+    toast(`<b>${esc(data.title)}</b> now has this copy's cover`);
+    refresh();
+  });
+  el.querySelector("[data-act='album-photos']").addEventListener("click", async (e) => {
+    e.currentTarget.disabled = true;
+    const slot = el.querySelector("[data-role='album-photos']");
+    slot.innerHTML = `<span class="meta">Fetching this pressing's photos…</span>`;
+    const { ok, data } = await api(`/api/vinyl/copy-images?vinylId=${h.vinylId}`);
+    if (!ok) { slot.innerHTML = `<span class="status-line error">${esc(data.message)}</span>`; return; }
+    slot.innerHTML = data.images.length ? data.images.map((im, i) => `
+      <button class="look-photo" data-pick="${i}" title="${esc(im.label)} — use as the album's cover"><img src="${esc(im.thumb)}" alt="" referrerpolicy="no-referrer" loading="lazy" onerror="this.closest('.look-photo').remove()" /><span>${im.source === "caa" ? "Cover Art Archive" : `Discogs ${i + 1 - data.images.filter((x) => x.source === "caa").length}`}</span></button>`).join("")
+      : `<span class="meta">Neither Discogs nor the Cover Art Archive has a photo of this pressing — paste a link instead.</span>`;
+    slot.querySelectorAll("[data-pick]").forEach((b) => b.addEventListener("click", async () => {
+      const im = data.images[+b.dataset.pick];
+      const { ok: k, data: d } = await api("/api/albums/set-cover", { albumId: a.albumId, url: im.url });
+      if (!k) { toast(esc(d.message), { error: true }); return; }
+      toast(`Cover art saved for <b>${esc(a.title)}</b>: ${esc(im.label)}`);
+      refresh();
+    }));
+  });
   el.querySelector("[data-act='fetch']").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     btn.disabled = true;
@@ -992,7 +1023,8 @@ document.getElementById("sweep-btn").addEventListener("click", async (e) => {
 });
 
 document.addEventListener("mc:undone", () => load(true));
-load(false);
+// vinyl.html#record/<holding id> (e.g. from an Inbox item) opens that record
+load(false).then(() => { const m = location.hash.match(/^#record\/(\d+)/); if (m && all.some((h) => h.vinylId === +m[1])) openDrawer(+m[1]); });
 </script>
 </body>
 </html>

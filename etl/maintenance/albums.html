@@ -10,6 +10,28 @@
 
   main.wide { max-width: 1340px; }
   .search-box { font-size: 0.95rem; padding: 9px 12px; background: var(--surface); }
+
+  /* Covers */
+  .cv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+  .cv-card { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius-sm); min-width: 0; }
+  .cv-card[data-choice="use"] { border-color: var(--ok); }
+  .cv-card[data-choice="wrong"], .cv-card[data-choice="skip"] { opacity: .6; }
+  .cv-art { position: relative; aspect-ratio: 1; background: var(--surface-2); border: 1px solid var(--edge); display: grid; place-items: center; overflow: hidden; }
+  .cv-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cv-art .cv-msg { padding: 14px; text-align: center; font-size: .8rem; color: var(--text-dim); }
+  .cv-name { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; min-width: 0; }
+  .cv-name a { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cv-card select, .cv-card input[type=url] { width: 100%; min-width: 0; font-size: .82rem; }
+  .cv-name .cv-sub { display: block; font-size: .8rem; color: var(--text-dim); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cv-name > div { min-width: 0; }
+  .cv-choice { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--edge); border-radius: var(--radius-sm); overflow: hidden; }
+  .cv-choice button { border: 0; border-radius: 0; padding: 6px 2px; font-size: .74rem; background: var(--surface-2); color: var(--text-dim); }
+  .cv-choice button + button { border-left: 1px solid var(--edge); }
+  .cv-choice button[aria-pressed="true"] { background: var(--accent-wash); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  .cv-choice button[data-c="use"][aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--ok); }
+  .cv-choice button:disabled { opacity: .35; }
+  .cv-bar { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px solid var(--edge); border-radius: var(--radius-sm); }
 </style>
 </head>
 <body>
@@ -23,6 +45,7 @@
     <button data-tab="missing">Missing MBID</button>
     <button data-tab="suggestions">Suggestions</button>
     <button data-tab="singles">Singles</button>
+    <button data-tab="covers">Covers</button>
     <button data-tab="duplicates">Duplicates</button>
     <button data-tab="verify">Verify</button>
     <button data-tab="editions">Editions</button>
@@ -75,6 +98,20 @@
     </div>
     <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> fold into album</span><span><kbd>d</kbd> not a single</span><span><kbd>s</kbd> skip</span></div>
     <div id="sg-list"><div class="status-line">Loading…</div></div>
+  </section>
+
+  <!-- Covers: at least one picture per artist -------------------------------------------------- -->
+  <section data-panel="covers" hidden>
+    <p class="meta" style="margin:0 0 10px" id="cv-intro"></p>
+    <div class="toolbar"><div class="chips" id="cv-modes"></div>
+      <span id="cv-pick" style="display:none"><input type="search" id="cv-artist-q" placeholder="Find an artist…" style="width:200px" />
+        <select id="cv-artist-list" aria-label="Artists with albums to cover"></select></span>
+      <span class="meta" id="cv-summary"></span><span class="spacer"></span>
+      <button class="small" id="cv-first" style="display:none">Back to the top</button></div>
+    <div id="cv-grid" class="cv-grid"><div class="status-line">Loading…</div></div>
+    <div class="cv-bar"><span id="cv-tally" class="meta"></span><span class="spacer"></span>
+      <button class="small" id="cv-skip-page">Leave these for later →</button>
+      <button class="primary" id="cv-save">Save</button></div>
   </section>
 
   <!-- Missing MBID ----------------------------------------------------------------------- -->
@@ -183,6 +220,16 @@ async function openArtist(artistId, highlightAlbumId) {
   renderArtist(data, highlightAlbumId);
 }
 
+// The "All albums" table's order: by title (versions of a record sit together), most played first, or by year.
+const DISCO_SORTS = [["title", "Title"], ["plays", "Plays"], ["year", "Year"]];
+let discoSort = (() => { try { return localStorage.getItem("disco-sort") || "title"; } catch { return "title"; } })();
+function sortAlbums(albums) {
+  const byTitle = (x, y) => (x.baseKey || "").localeCompare(y.baseKey || "") || x.title.localeCompare(y.title);
+  const by = { title: byTitle, plays: (x, y) => y.scrobbleCount - x.scrobbleCount || byTitle(x, y),
+    year: (x, y) => (x.year ?? 9999) - (y.year ?? 9999) || byTitle(x, y) };
+  return [...albums].sort(by[discoSort] || byTitle);
+}
+
 function renderArtist(data, highlightAlbumId) {
   const byId = Object.fromEntries(data.albums.map((a) => [a.albumId, a]));
   const grouped = new Set(data.groups.flatMap((g) => g.albumIds));
@@ -208,7 +255,9 @@ function renderArtist(data, highlightAlbumId) {
     <div class="disco-content">
       <div class="section-label"><h3>Likely duplicates</h3><span class="meta">${plural(data.groups.length, "group")}${simBlocks.length ? ` · ${plural(simBlocks.length, "similar-title set")}` : ""}</span></div>
       <div data-role="groups"></div>
-      <div class="section-label"><h3>All ${esc(a.name)} albums</h3><span class="meta">tick any albums to merge them — pick the one to keep with the radio</span></div>
+      <div class="section-label"><h3>All ${esc(a.name)} albums</h3><span class="meta">tick any albums to merge them — pick the one to keep with the radio</span>
+        <span class="spacer" style="flex:1"></span><div class="chips" data-role="sort">${DISCO_SORTS.map(([k, label]) =>
+          `<button class="chip filter-chip" data-sort="${k}" aria-pressed="${k === discoSort}">${label}</button>`).join("")}</div></div>
       <div class="block"><div data-role="all"></div></div>
     </div>`;
   artistView.scrollTop = 0;
@@ -217,7 +266,18 @@ function renderArtist(data, highlightAlbumId) {
   if (!data.groups.length && !simBlocks.length) groupsEl.innerHTML = `<div class="notice">No likely duplicates for ${esc(a.name)} — use the list below for anything the grouping missed.</div>`;
   data.groups.forEach((g) => groupsEl.appendChild(mergeBlock(g.albumIds.map((i) => byId[i]), { primary: g.primary, checkedAll: true, label: "versions" })));
   simBlocks.forEach((ids) => groupsEl.appendChild(mergeBlock(ids.map((i) => byId[i]), { primary: null, checkedAll: false, label: "similar titles — check these" })));
-  artistView.querySelector("[data-role='all']").appendChild(mergeTable(data.albums, { checkedAll: false, primary: null, compact: true, highlight: highlightAlbumId, onMerged: reopen }));
+  const allEl = artistView.querySelector("[data-role='all']");
+  const paintAll = () => allEl.replaceChildren(mergeTable(sortAlbums(data.albums), { checkedAll: false, primary: null, compact: true, highlight: highlightAlbumId, onMerged: reopen,
+    fixId: { artistName: a.name, artistMbid: a.mbid, onDone: reopen } }));
+  paintAll();
+  artistView.querySelector("[data-role='sort']").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-sort]");
+    if (!b || b.dataset.sort === discoSort) return;
+    discoSort = b.dataset.sort;
+    try { localStorage.setItem("disco-sort", discoSort); } catch { /* fine */ }
+    artistView.querySelectorAll("[data-role='sort'] [data-sort]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    paintAll();
+  });
   discoKeys.reset();
   if (highlightAlbumId) artistView.querySelector(`tr[data-id="${highlightAlbumId}"]`)?.scrollIntoView({ block: "center" });
 }
@@ -534,6 +594,210 @@ document.getElementById("ver-start").addEventListener("click", async (e) => {
   loadVerify();
 });
 
+// ---- Covers: artists with no cover on any album, a cover proposed for each -----------------------------
+const cvGrid = document.getElementById("cv-grid");
+let cvOffset = 0, cvData = null, cvMode = "artists", cvArtistId = null;
+const CAA = "https://coverartarchive.org";
+const CV_INTRO = {
+  artists: `The site shows an artist as the cover of their most played album that has one, so these artists — none of their albums has a cover yet — show as a blank square. Each card proposes their most played album with a MusicBrainz id and previews its front cover straight from the Cover Art Archive. <b>Nothing is saved until you press Save</b>: <b>Use</b> keeps the cover, <b>Wrong</b> turns this album's cover down (the next album is proposed next time), <b>Skip</b> leaves the artist without a picture, <b>Later</b> does nothing. Another album, or your own image link, can be picked on the card. Covers reach the site at the next Publish.`,
+  artist: `One band's whole discography at once: every album credited to them that has no cover yet, most played first — including ones with no MusicBrainz id or that the archive had nothing for, where you can paste an image link (or fix the id with “wrong id?”). Pick an artist from the list (the most played with albums still to cover) or find one. <b>Nothing is saved until you press Save</b>: <b>Use</b> keeps the cover, <b>Wrong</b> turns it down, <b>Later</b> does nothing. Covers reach the site at the next Publish.`,
+  albums: `Artists that already have a picture: their other albums still without a cover, most played first, previewed from the Cover Art Archive. <b>Nothing is saved until you press Save</b>: <b>Use</b> keeps the cover, <b>Wrong</b> turns it down (the album leaves this list — or fix its id with “wrong id?”), <b>Later</b> does nothing. Albums with no MusicBrainz id aren't listed: give them one in Discography or Missing MBID first. Covers reach the site at the next Publish.`,
+};
+async function loadCovers() {
+  const { ok, data } = await api(`/api/albums/covers-queue?mode=${cvMode}&offset=${cvOffset}${cvMode === "artist" && cvArtistId ? `&artistId=${cvArtistId}` : ""}`);
+  if (!ok) { cvGrid.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  cvData = data;
+  if (cvMode === "artist" && !("artists" in data)) { cvGrid.innerHTML = `<div class="empty">This view needs the maintenance server restarted first.</div>`; return; }
+  if (!data.counts && cvMode === "albums") { cvGrid.innerHTML = `<div class="empty">This view needs the maintenance server restarted first.</div>`; return; }
+  data.counts ||= { artists: data.count, albums: null }; // a server not yet restarted for the albums view
+  tabs.setCount("covers", data.counts.artists);
+  document.getElementById("cv-intro").innerHTML = CV_INTRO[cvMode];
+  document.getElementById("cv-modes").innerHTML = [["artists", "One per artist"], ["albums", "Most played albums"], ["artist", "By artist"]].map(([m, label]) =>
+    `<button class="chip filter-chip" data-mode="${m}" aria-pressed="${m === cvMode}">${label} <span class="meta">${data.counts[m] == null ? "" : fmtNum(data.counts[m])}</span></button>`).join("");
+  const byArtist = cvMode === "artist";
+  document.getElementById("cv-pick").style.display = byArtist ? "" : "none";
+  if (byArtist) {
+    const list = [...(data.artists || [])];
+    if (data.artist && !list.some((x) => x.artistId === data.artist.artistId)) list.unshift({ artistId: data.artist.artistId, name: data.artist.name, missing: data.count });
+    document.getElementById("cv-artist-list").innerHTML = `<option value="">Most played with albums to cover…</option>` + list.map((x) =>
+      `<option value="${x.artistId}"${x.artistId === cvArtistId ? " selected" : ""}>${esc(x.name)} — ${fmtNum(x.missing)} to cover</option>`).join("");
+  }
+  const what = cvMode === "albums" ? "albums without a cover" : "artists without a cover";
+  document.getElementById("cv-summary").textContent = byArtist
+    ? (data.artist ? `${data.artist.name}: ${plural(data.count, "album")} without a cover · ${fmtNum(data.covered)} already have one` : "")
+    : data.count ? `showing ${fmtNum(cvOffset + 1)}–${fmtNum(cvOffset + data.items.length)} of ${fmtNum(data.count)} ${what}, most played first` : "";
+  document.getElementById("cv-first").style.display = cvOffset === 0 || byArtist ? "none" : ""; // [hidden] loses to the button styles
+  document.getElementById("cv-skip-page").textContent = byArtist ? "Next artist →" : "Leave these for later →";
+  cvGrid.innerHTML = "";
+  if (!data.items.length) cvGrid.innerHTML = `<div class="empty">${byArtist ? (data.artist ? `Every ${esc(data.artist.name)} album has a cover.` : "Pick an artist above.")
+    : data.count ? "That's the end of the list." : cvMode === "albums" ? "Every album here has a cover." : "Every artist you've played has a cover."}</div>`;
+  // an album card is an artist card with just that one album
+  const cards = cvMode === "albums"
+    ? data.items.map((x) => ({ artistId: x.artistId, artistName: x.artistName, plays: x.plays, candidateId: x.albumId, albumMode: true,
+        albums: [{ albumId: x.albumId, title: x.title, mbid: x.mbid, coverStatus: null, plays: x.plays, rejected: false }] }))
+    : byArtist
+    ? data.items.map((x) => ({ artistId: data.artist.artistId, artistName: data.artist.name, plays: x.plays, candidateId: x.albumId, albumMode: true,
+        sub: [x.year, x.rejected ? "cover turned down before" : ""].filter(Boolean).join(" · "), albums: [x] }))
+    : data.items;
+  for (const it of cards) cvGrid.appendChild(coverCard(it));
+  cvTally();
+}
+document.getElementById("cv-modes").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-mode]");
+  if (!b || b.dataset.mode === cvMode) return;
+  cvMode = b.dataset.mode;
+  cvOffset = 0;
+  loadCovers();
+});
+
+function coverCard(it) {
+  const card = document.createElement("div");
+  card.className = "cv-card";
+  const usable = (a) => a.mbid && a.coverStatus !== "none" && !a.rejected;
+  const why = (a) => (!a.mbid ? " (no MusicBrainz id)" : a.coverStatus === "none" ? " (no art on the archive)" : a.rejected ? " (turned down)" : "");
+  const start = it.candidateId ?? it.albums[0]?.albumId;
+  card.innerHTML = `
+    <div class="cv-art"></div>
+    ${it.albumMode
+      ? `<div class="cv-name"><div><b>${esc(it.albums[0].title)}</b>${it.sub != null ? `<span class="cv-sub">${esc(it.sub) || "&nbsp;"}</span>`
+          : `<a class="cv-sub" href="artist.html?id=${it.artistId}" title="Open in the workbench">${esc(it.artistName)}</a>`}</div><span class="meta">${fmtNum(it.plays)} plays</span></div>`
+      : `<div class="cv-name"><a href="artist.html?id=${it.artistId}" title="Open in the workbench">${esc(it.artistName)}</a><span class="meta">${fmtNum(it.plays)} plays</span></div>`}
+    <select aria-label="Album for ${esc(it.artistName)}"${it.albumMode ? " hidden" : ""}>${it.albums.map((a) =>
+      `<option value="${a.albumId}"${a.albumId === start ? " selected" : ""}>${esc(a.title)} — ${fmtNum(a.plays)}${esc(why(a))}</option>`).join("")}</select>
+    <input type="url" placeholder="…or paste an image link" aria-label="Image link for ${esc(it.artistName)}" />
+    <div class="cv-choice" role="group" aria-label="What to do">
+      <button type="button" data-c="use" title="Keep this cover">Use</button>
+      <button type="button" data-c="wrong" title="${it.albumMode ? "Not this cover: take the album off this list" : "Not this cover: propose the artist's next album next time"}">Wrong</button>
+      ${it.albumMode ? "" : `<button type="button" data-c="skip" title="Leave this artist without a picture">Skip</button>`}
+      <button type="button" data-c="later" title="Do nothing for now">Later</button>
+    </div>
+    <div class="meta" data-role="note"></div>`;
+  const art = card.querySelector(".cv-art"), sel = card.querySelector("select"), url = card.querySelector("input"), note = card.querySelector("[data-role='note']");
+  const album = () => it.albums.find((a) => a.albumId === +sel.value);
+  card._cv = { artistId: it.artistId, artistName: it.artistName, loaded: false };
+  const choose = (c) => {
+    card.dataset.choice = c;
+    card.querySelectorAll(".cv-choice button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.c === c)));
+    cvTally();
+  };
+  card.querySelectorAll(".cv-choice button").forEach((b) => b.addEventListener("click", () => choose(b.dataset.c)));
+  const enable = () => {
+    const a = album(), link = url.value.trim();
+    card.querySelector("[data-c='use']").disabled = !card._cv.loaded;
+    card.querySelector("[data-c='wrong']").disabled = !card._cv.loaded || Boolean(link) || !a?.mbid; // turning down is about the archive's cover
+  };
+  // the preview: the same order the save uses (covers.fetch_from_cover_art_archive) -- a release, else a release group
+  const preview = () => {
+    const a = album(), link = url.value.trim();
+    card._cv.loaded = false;
+    choose("later");
+    enable();
+    const show = (srcs, missing) => {
+      if (!srcs.length) { art.innerHTML = `<div class="cv-msg">${missing}</div>`; enable(); return; }
+      art.innerHTML = `<div class="cv-msg">Loading…</div>`;
+      const img = new Image();
+      img.alt = "";
+      img.onload = () => { art.replaceChildren(img); card._cv.loaded = true; enable(); choose("use"); };
+      img.onerror = () => show(srcs.slice(1), missing);
+      img.src = srcs[0];
+    };
+    if (link) {
+      note.textContent = `Your link, saved as ${a ? `“${a.title}”` : "this album"}'s cover`;
+      return show(/^https?:\/\//.test(link) ? [link] : [], "That link isn't an image the browser could load.");
+    }
+    if (!a) { note.textContent = ""; return show([], "No albums."); }
+    note.innerHTML = `${a.mbid ? `${mbLink("release-group", a.mbid, "MusicBrainz")} · ` : ""}<a href="#discography/${it.artistId}" title="Wrong release? Change the album's MusicBrainz id in Discography">${a.mbid ? "wrong id?" : "add an id"}</a>`;
+    if (!a.mbid) return show([], "This album has no MusicBrainz id — pick another, or paste an image link.");
+    if (a.coverStatus === "none") return show([], "The Cover Art Archive had nothing for this album — pick another, or paste an image link.");
+    show([`${CAA}/release/${a.mbid}/front-250`, `${CAA}/release-group/${a.mbid}/front-250`],
+      "No front cover on the Cover Art Archive — pick another album, or paste an image link.");
+  };
+  sel.addEventListener("change", preview);
+  let t;
+  url.addEventListener("input", () => { clearTimeout(t); t = setTimeout(preview, 400); });
+  card._cv.pick = () => ({ album: album(), link: url.value.trim() });
+  preview();
+  return card;
+}
+
+function cvTally() {
+  const n = { use: 0, wrong: 0, skip: 0, later: 0 };
+  cvGrid.querySelectorAll(".cv-card").forEach((c) => { n[c.dataset.choice || "later"]++; });
+  document.getElementById("cv-tally").textContent = `${plural(n.use, "cover")} to keep · ${n.wrong} wrong · ${n.skip} skipped · ${n.later} for later`;
+  document.getElementById("cv-save").disabled = !(n.use + n.wrong + n.skip);
+}
+
+document.getElementById("cv-save").addEventListener("click", async (e) => {
+  const btn = e.target;
+  const cards = [...cvGrid.querySelectorAll(".cv-card")];
+  const later = cards.filter((c) => (c.dataset.choice || "later") === "later").length;
+  const uses = cards.filter((c) => c.dataset.choice === "use").map((c) => ({ ...c._cv.pick(), artistName: c._cv.artistName }));
+  const marks = [
+    ...cards.filter((c) => c.dataset.choice === "wrong").map((c) => ({ type: "mark", entityType: "album", entityId: c._cv.pick().album.albumId, mark: cvData.marks.rejected })),
+    ...cards.filter((c) => c.dataset.choice === "skip").map((c) => ({ type: "mark", entityType: "artist", entityId: c._cv.artistId, mark: cvData.marks.skip })),
+  ];
+  btn.disabled = true;
+  let batchId = null;
+  if (marks.length) {
+    const { ok, data } = await api("/api/batch/apply", { actions: marks, label: "Covers: turned down / skipped" });
+    if (!ok) { toast(esc(data.message), { error: true, timeout: 9000 }); btn.disabled = false; return; }
+    batchId = data.batchId;
+  }
+  const saved = [], failed = [];
+  for (let i = 0; i < uses.length; i++) {
+    const u = uses[i];
+    btn.textContent = `Saving ${i + 1} of ${uses.length}…`;
+    const { ok, data } = u.link
+      ? await api("/api/albums/set-cover", { albumId: u.album.albumId, url: u.link })
+      : await api("/api/albums/fetch-cover", { albumId: u.album.albumId });
+    if (ok && (u.link || data.found)) saved.push({ albumId: u.album.albumId, status: u.album.coverStatus ?? null });
+    else failed.push(`${u.artistName}: ${ok ? "the archive sent nothing back" : data.message}`);
+  }
+  btn.textContent = "Save";
+  const parts = [saved.length && `${plural(saved.length, "cover")} saved`, marks.length && `${marks.length} turned down or skipped`].filter(Boolean);
+  const el = toast(`${parts.join(" · ") || "Nothing saved"}${failed.length ? ` — not saved: ${esc(failed.join("; "))}` : ""}`, { error: failed.length > 0, timeout: 20000 });
+  if (saved.length || batchId) {
+    const undo = document.createElement("button");
+    undo.className = "small";
+    undo.textContent = "Undo";
+    undo.addEventListener("click", async () => {
+      undo.disabled = true;
+      for (const s of saved) await api("/api/albums/clear-cover", { albumId: s.albumId, status: s.status });
+      if (batchId) await api("/api/batch/undo", { batchId });
+      el.remove();
+      toast("Undone");
+      loadCovers();
+    });
+    el.insertBefore(undo, el.querySelector("[data-role='close']"));
+  }
+  if (cvMode !== "artist") cvOffset += later; // the ones left for later stay at the top of the list: step past them
+  loadCovers();
+});
+// an album id changed elsewhere on the page (Discography's Change): the cards are refreshed when you come back
+let cvStale = false;
+document.addEventListener("mc:changed", () => { if (tabs.current() !== "covers") cvStale = true; });
+document.addEventListener("mc:undone", () => { if (tabs.current() !== "covers") cvStale = true; });
+document.addEventListener("mc:tab", (e) => { if (e.detail === "covers" && cvStale && cvData) { cvStale = false; loadCovers(); } });
+document.getElementById("cv-skip-page").addEventListener("click", () => {
+  if (cvMode === "artist") { // the next artist in the list
+    const list = cvData?.artists || [];
+    const i = list.findIndex((x) => x.artistId === cvArtistId);
+    const next = list[i + 1] || list[0];
+    if (next) { cvArtistId = next.artistId; loadCovers(); }
+    return;
+  }
+  cvOffset += cvData?.items.length || 0;
+  loadCovers();
+});
+document.getElementById("cv-artist-list").addEventListener("change", (e) => { cvArtistId = parseInt(e.target.value, 10) || null; loadCovers(); });
+mountTypeahead(document.getElementById("cv-artist-q"), {
+  minChars: 2,
+  fetchItems: async (q) => ((await api(`/api/albums/search?q=${encodeURIComponent(q)}`)).data.artists || []),
+  renderItem: (x) => `<span>${esc(x.name)}</span><span class="meta">pick</span>`,
+  onPick: (x) => { const q = document.getElementById("cv-artist-q"); q.value = ""; q.blur(); cvArtistId = x.artistId; loadCovers(); },
+});
+document.getElementById("cv-first").addEventListener("click", () => { cvOffset = 0; loadCovers(); });
+
 // ---------------------------------------------------------------------------------------------
 
 const tabs = mountTabs(document.getElementById("tabs"), {
@@ -541,6 +805,7 @@ const tabs = mountTabs(document.getElementById("tabs"), {
   missing: loadMissing,
   suggestions: loadAlbumSuggestions,
   singles: loadSingles,
+  covers: loadCovers,
   duplicates: runDupScan,
   verify: loadVerify,
   editions: () => mountEditions(document.getElementById("editions")).load(),

@@ -271,6 +271,133 @@ def set_cover(req):
     return {"albumId": album_id, "coverStatus": "ok"}
 
 
+@route("POST", "/api/albums/clear-cover", mutating=True)
+def clear_cover(req):
+    """The Covers tab's Undo: takes back a cover saved moments ago (see covers.remove_cover)."""
+    album_id = req.int("albumId", required=True)
+    status = req.body.get("status")
+    if status not in (None, "none"):
+        raise ApiError("status must be null or 'none'")
+    with write_tx() as c:
+        if not c.execute("SELECT 1 FROM albums WHERE id = ?", (album_id,)).fetchone():
+            raise ApiError("album not found", 404)
+        moved = covers.remove_cover(c, album_id, status)
+    return {"albumId": album_id, "removed": moved, "coverStatus": status}
+
+
+# ---- Covers: at least one picture per artist ---------------------------------------------------
+# The site's home page shows an artist as the cover of the album of theirs you've played most that has
+# one -- so an artist with no covered album at all is a blank square. This queue lists those artists,
+# most played first, each with the album whose cover would stand in for them: their most played album
+# with a MusicBrainz id that the Cover Art Archive hasn't already come up empty for, and that you
+# haven't turned down. The page previews the cover straight from the archive; nothing is saved until
+# you say so (fetch-cover / set-cover), and a turned-down cover or a skipped artist is a review mark.
+COVER_REJECTED = "cover-rejected"   # on an album: not this cover, propose the next album
+COVER_SKIP = "cover-skip"           # on an artist: leave them without a picture
+COVERS_PAGE = 24
+
+
+def _covers_where() -> str:
+    return f"""
+        FROM (SELECT artist_id, count(*) AS plays FROM scrobbles GROUP BY artist_id) p
+        JOIN artists ar ON ar.id = p.artist_id
+        WHERE EXISTS (SELECT 1 FROM scrobbles s WHERE s.artist_id = ar.id AND s.album_id IS NOT NULL)
+          AND NOT EXISTS (SELECT 1 FROM scrobbles s JOIN albums al ON al.id = s.album_id WHERE s.artist_id = ar.id AND al.cover_status = 'ok')
+          AND NOT EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'artist' AND m.entity_id = ar.id AND m.mark = '{COVER_SKIP}')"""
+
+
+def covers_queue_rows(c, offset: int = 0, limit: int = COVERS_PAGE) -> tuple[int, list[dict]]:
+    total = c.execute(f"SELECT count(*) {_covers_where()}").fetchone()[0]
+    items = []
+    for artist_id, name, plays in c.execute(f"SELECT ar.id, ar.name, p.plays {_covers_where()} ORDER BY p.plays DESC, ar.name LIMIT ? OFFSET ?",
+                                            (limit, offset)).fetchall():
+        albums = [{"albumId": r[0], "title": r[1], "mbid": r[2], "coverStatus": r[3], "plays": r[4], "rejected": bool(r[5])} for r in c.execute(
+            f"""SELECT al.id, al.title, al.mbid, al.cover_status, count(*) AS n,
+                       EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'album' AND m.entity_id = al.id AND m.mark = '{COVER_REJECTED}')
+                FROM scrobbles s JOIN albums al ON al.id = s.album_id WHERE s.artist_id = ?
+                GROUP BY al.id ORDER BY n DESC, al.title LIMIT 10""", (artist_id,))]
+        pick = next((a for a in albums if a["mbid"] and a["coverStatus"] is None and not a["rejected"]), None)
+        items.append({"artistId": artist_id, "artistName": name, "plays": plays, "albums": albums,
+                      "candidateId": pick["albumId"] if pick else None})
+    return total, items
+
+
+# The second pass, once an artist has a picture: their other albums, most played first -- every album
+# you play a lot gets its own cover. Only albums with an id the archive hasn't come up empty for, and
+# that you haven't turned down; albums with no id are fixed in Discography (or the Missing MBID tab).
+def _album_covers_where() -> str:
+    return f"""
+        FROM (SELECT album_id, count(*) AS plays FROM scrobbles WHERE album_id IS NOT NULL GROUP BY album_id) p
+        JOIN albums al ON al.id = p.album_id
+        JOIN artists ar ON ar.id = al.artist_id
+        WHERE al.cover_status IS NULL AND al.mbid IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'album' AND m.entity_id = al.id AND m.mark = '{COVER_REJECTED}')
+          -- "has a picture" exactly as the site decides it: a covered album among the artist's played ones
+          AND EXISTS (SELECT 1 FROM scrobbles s JOIN albums other ON other.id = s.album_id WHERE s.artist_id = al.artist_id AND other.cover_status = 'ok')"""
+
+
+def album_covers_rows(c, offset: int = 0, limit: int = COVERS_PAGE) -> tuple[int, list[dict]]:
+    total = c.execute(f"SELECT count(*) {_album_covers_where()}").fetchone()[0]
+    items = [{"albumId": r[0], "title": r[1], "mbid": r[2], "plays": r[3], "artistId": r[4], "artistName": r[5]} for r in c.execute(
+        f"SELECT al.id, al.title, al.mbid, p.plays, ar.id, ar.name {_album_covers_where()} ORDER BY p.plays DESC, al.title LIMIT ? OFFSET ?", (limit, offset))]
+    return total, items
+
+
+# By artist: one band's whole discography at once -- every album credited to them that has no cover
+# (including ones with no id yet, or that the archive had nothing for: a link can still be pasted).
+def artist_covers_rows(c, artist_id: int) -> dict:
+    artist = c.execute("SELECT id, name, mbid FROM artists WHERE id = ?", (artist_id,)).fetchone()
+    if not artist:
+        raise ApiError("artist not found", 404)
+    rows = c.execute(f"""
+        SELECT al.id, al.title, al.mbid, al.cover_status, al.year,
+               (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays,
+               EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'album' AND m.entity_id = al.id AND m.mark = '{COVER_REJECTED}')
+        FROM album_artists aa JOIN albums al ON al.id = aa.album_id
+        WHERE aa.artist_id = ? ORDER BY plays DESC, al.year, al.title""", (artist_id,)).fetchall()
+    albums = [{"albumId": r[0], "title": r[1], "mbid": r[2], "coverStatus": r[3], "year": r[4], "plays": r[5], "rejected": bool(r[6])} for r in rows]
+    return {"artist": {"artistId": artist[0], "name": artist[1], "mbid": artist[2]},
+            "items": [a for a in albums if a["coverStatus"] != "ok"], "covered": sum(a["coverStatus"] == "ok" for a in albums)}
+
+
+def cover_artists(c, limit: int = 100) -> list[dict]:
+    """Artists with albums still to cover (an id, not looked up, not turned down), most played first."""
+    return [{"artistId": r[0], "name": r[1], "missing": r[2], "plays": r[3]} for r in c.execute(f"""
+        SELECT ar.id, ar.name, count(*) AS missing, coalesce(p.plays, 0) AS plays
+        FROM album_artists aa JOIN albums al ON al.id = aa.album_id JOIN artists ar ON ar.id = aa.artist_id
+        LEFT JOIN (SELECT artist_id, count(*) AS plays FROM scrobbles GROUP BY artist_id) p ON p.artist_id = ar.id
+        WHERE al.cover_status IS NULL AND al.mbid IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM review_marks m WHERE m.entity_type = 'album' AND m.entity_id = al.id AND m.mark = '{COVER_REJECTED}')
+        GROUP BY ar.id ORDER BY plays DESC, ar.name LIMIT ?""", (limit,))]
+
+
+@route("GET", "/api/albums/covers-queue")
+def covers_queue(req):
+    """mode=artists (default): one picture per artist. mode=albums: the most played albums still without one.
+    mode=artist: one artist's albums without a cover (artistId; without it, just the list of artists to pick from)."""
+    offset, limit = max(0, req.int("offset", 0)), max(1, min(60, req.int("limit", COVERS_PAGE)))
+    with read_conn() as c:
+        if req.str("mode") == "artist":
+            counts = {"artists": c.execute(f"SELECT count(*) {_covers_where()}").fetchone()[0],
+                      "albums": c.execute(f"SELECT count(*) {_album_covers_where()}").fetchone()[0]}
+            out = {"counts": counts, "artists": cover_artists(c), "marks": {"rejected": COVER_REJECTED, "skip": COVER_SKIP}}
+            artist_id = req.int("artistId")
+            if artist_id:
+                one = artist_covers_rows(c, artist_id)
+                out.update(one, count=len(one["items"]))
+            else:
+                out.update(items=[], count=0, artist=None)
+            return out
+        if req.str("mode") == "albums":
+            total, items = album_covers_rows(c, offset, limit)
+            other = c.execute(f"SELECT count(*) {_covers_where()}").fetchone()[0]
+            counts = {"artists": other, "albums": total}
+        else:
+            total, items = covers_queue_rows(c, offset, limit)
+            counts = {"artists": total, "albums": c.execute(f"SELECT count(*) {_album_covers_where()}").fetchone()[0]}
+    return {"count": total, "counts": counts, "items": items, "marks": {"rejected": COVER_REJECTED, "skip": COVER_SKIP}}
+
+
 @route("POST", "/api/albums/merge", mutating=True)
 def merge_albums(req):
     identity = req.body.get("identity") or None

@@ -4,7 +4,9 @@
 Kinds: new_artist / new_album / new_song, edition_linked (an album edition attached to an album --
 only the by-name ones reach the inbox; exact MusicBrainz links are recorded as already reviewed),
 unresolved_release, mbid_clash (the source says this is the same thing as another row), suspect
-(detail.reason says why). Reviewing only ever sets reviewed_at; fixes go through the normal merge
+(detail.reason says why). From a Discogs import (entity_type 'vinyl'): new_holding (a record added, and
+the album it was filed under), holding_changed (the export differs from your copy: apply or keep) and
+holding_missing (a record of yours the export no longer lists). Reviewing only ever sets reviewed_at; fixes go through the normal merge
 engine, so they show in the activity feed and undo like any other merge."""
 import json
 from collections import defaultdict
@@ -22,7 +24,8 @@ TABS = {
     "artists": "(e.entity_type = 'artist')",
     "albums": "(e.entity_type = 'album')",
     "songs": "(e.entity_type = 'song')",
-    "other": "(e.entity_type IS NULL OR e.entity_type NOT IN ('artist', 'album', 'song'))",
+    "vinyl": "(e.entity_type = 'vinyl')",
+    "other": "(e.entity_type IS NULL OR e.entity_type NOT IN ('artist', 'album', 'song', 'vinyl'))",
 }
 LIMIT = 300
 
@@ -34,7 +37,7 @@ def _in(ids) -> str:
 def settle_gone(c) -> None:
     """Items whose artist/album/song has since been merged away or deleted are settled -- whatever
     was done to it was the review."""
-    for et, table in TABLE.items():
+    for et, table in {**TABLE, "vinyl": "vinyl_holdings"}.items():
         c.execute(f"UPDATE import_events SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND entity_type = ? "
                   f"AND entity_id IS NOT NULL AND entity_id NOT IN (SELECT id FROM {table})", (et,))
 
@@ -122,6 +125,20 @@ def _artist_hints(c, items) -> None:
         it["hints"] = [{**prof[i], "score": s} for i, s in hint_ids.get(it["entityId"], []) if i in prof]
 
 
+def _title_hints_words(title: str) -> list[str]:
+    return [w for w in base_key(title).split() if w not in ("the", "a", "an")]
+
+
+def _title_contains(a: str, b: str) -> bool:
+    """One album title's words are all, in order, inside the other's (and it's a real title, not "Live")."""
+    wa, wb = _title_hints_words(a), _title_hints_words(b)
+    short, long_ = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+    if not short or len(short) == len(long_) or len("".join(short)) < 5:
+        return False
+    n = len(short)
+    return any(long_[i:i + n] == short for i in range(len(long_) - n + 1))
+
+
 def _title_hints(c, items, kind, table) -> None:
     """Same artist, same base title (a new "Vol 4 (Remaster)" beside "Vol. 4")."""
     new = [it for it in items if it["kind"] == kind and it["entity"]]
@@ -140,6 +157,11 @@ def _title_hints(c, items, kind, table) -> None:
                 for i, why in dupes.near_titles(it["entity"]["title"], [r for r in rows if r[0] != it["entityId"] and r[0] not in hint_ids[it["entityId"]]]):
                     hint_ids[it["entityId"]].append(i)
                     reasons[i] = why
+            else:   # and an album whose title holds the other's whole ("MTV Unplugged" / "Unplugged") -- a hint only
+                for i, t in rows:
+                    if i != it["entityId"] and i not in hint_ids[it["entityId"]] and _title_contains(it["entity"]["title"], t):
+                        hint_ids[it["entityId"]].append(i)
+                        reasons[i] = "contains"
     prof = PROFILE[kind.split("_")[1]](c, [i for v in hint_ids.values() for i in v])
     for it in new:
         it["hints"] = [{**prof[i], **({"why": reasons[i]} if i in reasons else {})} for i in hint_ids.get(it["entityId"], []) if i in prof]
@@ -176,6 +198,8 @@ def _is_clean(it) -> bool:
     """Pre-ticked for bulk accept: nothing here suggests it's anything but what it says."""
     if it["kind"] in ("new_artist", "new_album", "new_song"):
         return not it["hints"] and not it.get("warning")
+    if it["kind"] == "new_holding":
+        return True  # its new album / artist (if any) are their own items
     if it["kind"] == "edition_linked":
         e = it["entity"]
         return bool(e and e["mbid"] and e["mbid"] == it["detail"].get("releaseGroup"))
@@ -243,6 +267,25 @@ def review(req):
 
 def unreview(c, ids) -> int:
     return c.execute(f"UPDATE import_events SET reviewed_at = NULL WHERE id IN ({_in(ids)})", list(ids)).rowcount
+
+
+@route("POST", "/api/imports/apply-holding", mutating=True)
+def apply_holding(req):
+    """A "Changed on Discogs" item: copy the export's values onto your record (journaled, undoable) and
+    settle the item. `fields` (optional) applies only some of them."""
+    event_id = req.int("eventId", required=True)
+    only = set(req.body.get("fields") or [])
+    with write_tx() as c:
+        row = c.execute("SELECT kind, entity_id, detail_json, reviewed_at FROM import_events WHERE id = ? AND entity_type = 'vinyl'", (event_id,)).fetchone()
+        if not row or row[0] != "holding_changed":
+            raise ApiError("that item isn't a Discogs change", 404)
+        changes = {f: v[1] for f, v in json.loads(row[2]).get("changes", {}).items() if not only or f in only}
+        if not changes:
+            raise ApiError("nothing to apply")
+        edit = merge.edit_entity(c, "vinyl", row[1], changes, "Discogs import: changed on Discogs")
+        reviewed = c.execute("UPDATE import_events SET reviewed_at = datetime('now') WHERE id = ? AND reviewed_at IS NULL", (event_id,)).rowcount
+    undo = ([{"kind": "edit", "id": edit["editId"]}] if edit["editId"] else []) + ([{"kind": "inbox", "id": [event_id]}] if reviewed else [])
+    return {"holdingId": row[1], "applied": list(edit["changes"]), "undo": {"kind": "batch", "id": undo}}
 
 
 @route("POST", "/api/imports/merge", mutating=True)

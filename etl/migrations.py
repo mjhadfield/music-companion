@@ -494,6 +494,16 @@ def _m014_artist_links(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_artist_links_linked ON artist_links(linked_artist_id);
     """)
 
+def _m015_press_override(conn: sqlite3.Connection) -> None:
+    """A copy's pressing, set by hand when Discogs can't tell (a dateless repress shows as an
+    original): press_kind 'original' | 'reissue' | 'repress' (NULL = from the format tags and
+    years) and press_year (NULL = Discogs' "Released"). Public: the site reads both."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(vinyl_holdings)")}
+    for col, typ in (("press_kind", "TEXT"), ("press_year", "INTEGER")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE vinyl_holdings ADD COLUMN {col} {typ}")
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -509,6 +519,7 @@ MIGRATIONS = [
     ("012_track_links", _m012_track_links),
     ("013_batches", _m013_batches),
     ("014_artist_links", _m014_artist_links),
+    ("015_press_override", _m015_press_override),
 ]
 
 

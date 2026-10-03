@@ -45,6 +45,21 @@ def _mark(conn, album_id: int, status: str) -> None:
     )
 
 
+def remove_cover(conn, album_id: int, status: str | None = None) -> bool:
+    """Undo a cover just saved: the file moves aside to .removed/ (not deleted -- nothing the site
+    serves, and recoverable) and the album goes back to `status` (None = never looked up).
+    -> whether there was a file to move."""
+    src = COVERS_DIR / f"{album_id}.jpg"
+    moved = src.is_file()
+    if moved:
+        import time
+        aside = COVERS_DIR / ".removed"
+        aside.mkdir(parents=True, exist_ok=True)
+        src.rename(aside / f"{album_id}-{int(time.time())}.jpg")
+    conn.execute("UPDATE albums SET cover_status = ?, cover_updated_at = datetime('now') WHERE id = ?", (status, album_id))
+    return moved
+
+
 def has_local_cover(album_id: int) -> bool:
     return (COVERS_DIR / f"{album_id}.jpg").is_file()
 

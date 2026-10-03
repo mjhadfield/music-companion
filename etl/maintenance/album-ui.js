@@ -226,7 +226,9 @@ function renderAlbumResolve(slot, album, { onDone, reason = "assigned" } = {}) {
 
 
 // A table of albums with a keep-radio and a merge checkbox per row, plus the merge controls.
-function mergeTable(albums, { checkedAll, primary, mergeKey, compact, highlight, onMerged }) {
+// `fixId` ({ artistName, artistMbid, onDone }): each row's MusicBrainz cell gets a Change / Add button that
+// opens the identity toolkit (renderAlbumResolve) under the row -- for an album filed under the wrong id.
+function mergeTable(albums, { checkedAll, primary, mergeKey, compact, highlight, onMerged, fixId }) {
   const wrap = document.createElement("div");
   const state = {
     primary: primary ?? (checkedAll ? albums[0].albumId : null),
@@ -252,7 +254,7 @@ function mergeTable(albums, { checkedAll, primary, mergeKey, compact, highlight,
             <td>${thumb(x)}</td>
             <td><span class="t-title">${esc(x.title)}</span>${tagBadges(x)}${x.mergedIn ? ` <span class="meta" title="versions already merged into this one">+${x.mergedIn} merged</span>` : ""}</td>
             <td>${x.year ?? "<span class='muted'>—</span>"}</td>
-            <td>${x.mbid ? mbLink("album", x.mbid) : `<span class="badge warn">none</span>`} ${mbTypeText(x)}</td>
+            <td>${x.mbid ? mbLink("album", x.mbid) : `<span class="badge warn">none</span>`} ${mbTypeText(x)}${fixId ? ` <button class="small" data-fix="${x.albumId}" title="${x.mbid ? "Wrong release? Find the right one on MusicBrainz" : "Find it on MusicBrainz"}">${x.mbid ? "Change" : "Add"}</button>` : ""}</td>
             <td class="num">${fmtNum(x.scrobbleCount)}</td>
             <td>${vinylBadges(x)}</td>
             <td class="num">${fmtNum(x.songCount)}</td>
@@ -283,6 +285,19 @@ function mergeTable(albums, { checkedAll, primary, mergeKey, compact, highlight,
       paint();
     }));
     wrap.querySelector("[data-role='clean']")?.addEventListener("click", () => { wrap.querySelector("[data-role='title']").value = p.baseTitle; });
+    wrap.querySelectorAll("[data-fix]").forEach((b) => b.addEventListener("click", () => {
+      const tr = b.closest("tr");
+      const open = tr.nextElementSibling?.classList.contains("panel-row");
+      wrap.querySelectorAll("tr.panel-row").forEach((r) => r.remove());
+      if (open) return; // a second click closes it
+      const panel = document.createElement("tr");
+      panel.className = "panel-row";
+      panel.innerHTML = `<td colspan="${tr.children.length}"><div></div></td>`;
+      tr.after(panel);
+      const x = byId[parseInt(b.dataset.fix, 10)];
+      renderAlbumResolve(panel.querySelector("div"), { ...x, artistName: fixId.artistName, artistMbid: fixId.artistMbid },
+        { reason: "corrected in Discography", onDone: () => { panel.remove(); fixId.onDone?.(); } });
+    }));
     wrap.querySelector("[data-role='merge']")?.addEventListener("click", () => doMerge(included.map((x) => x.albumId)));
     // Enter in the title/year fields merges too (keys like "m" would just type there).
     wrap.querySelectorAll("[data-role='title'], [data-role='year']").forEach((inp) => inp.addEventListener("keydown", (e) => {

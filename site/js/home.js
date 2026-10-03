@@ -163,7 +163,7 @@ function hpTilesHtml(o) {
   const peakYear = live.years.reduce((a, b) => (b[1] > (a?.[1] || 0) ? b : a), null);
   const g = artists.genres;
   const gTotal = g.reduce((n, r) => n + r.c, 0);
-  const gParts = g.slice(0, 4).map((r) => [r.name, r.c]).concat(g.length > 4 ? [["other", g.slice(4).reduce((n, r) => n + r.c, 0)]] : []);
+  const gParts = g.slice(0, 4).map((r) => [genreName(r.name), r.c]).concat(g.length > 4 ? [["Other", g.slice(4).reduce((n, r) => n + r.c, 0)]] : []);
   const lastShow = live.last ? new Date(live.last.event_date) : null;
   const tile = (cls, href, icon, num, name, mini, stats) => `
     <a class="hp-tile ${cls}" href="${href}">
@@ -181,7 +181,7 @@ function hpTilesHtml(o) {
       hpStat(hpFmt(vinyl.originals), "originals")
       + hpStat(hpFmt(vinyl.reissues), "reissues")
       + hpStat(esc(vinyl.topArtist?.[0] || "—"), vinyl.topArtist ? `most owned · ${vinyl.topArtist[1]}×` : "most owned", { wide: true })
-      + hpStat(esc(vinyl.topGenre?.[0] || "—"), "top genre", { wide: true, extra: true, title: vinyl.topGenre ? `${vinyl.topGenre[1]} records` : "" })
+      + hpStat(esc(genreName(vinyl.topGenre?.[0] || "—")), "top genre", { wide: true, extra: true, title: vinyl.topGenre ? `${vinyl.topGenre[1]} records` : "" })
       + hpStat(esc(vinyl.topLabel?.[0] || "—"), vinyl.topLabel ? `top label · ${vinyl.topLabel[1]}×` : "top label", { wide: true, desk: true }))}
     ${tile("hp-live", "#/shows", "bolt", hpFmt(s.shows), "Live shows",
       hpMiniBars(live.years.map(([y, c]) => [String(y), c]), { caption: peakYear ? `${peakYear[1]} in ${peakYear[0]}` : "", unit: "show" }),

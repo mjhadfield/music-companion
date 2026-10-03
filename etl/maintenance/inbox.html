@@ -33,6 +33,7 @@
     <button data-tab="artists">Artists</button>
     <button data-tab="albums">Albums</button>
     <button data-tab="songs">Songs</button>
+    <button data-tab="vinyl">Vinyl</button>
     <button data-tab="other">Other</button>
     <button data-tab="runs">Runs</button>
   </div>
@@ -40,6 +41,7 @@
   <section data-panel="artists" hidden><div class="card flush" data-list="artists"></div></section>
   <section data-panel="albums" hidden><div class="card flush" data-list="albums"></div></section>
   <section data-panel="songs" hidden><div class="card flush" data-list="songs"></div></section>
+  <section data-panel="vinyl" hidden><div class="card flush" data-list="vinyl"></div></section>
   <section data-panel="other" hidden><div class="card flush" data-list="other"></div></section>
   <section data-panel="runs" hidden><div class="card flush" id="runs"></div></section>
 </main>
@@ -48,14 +50,21 @@
 <script>
 mountNav("Inbox");
 
-const LIST_TABS = ["artists", "albums", "songs", "other"];
+const LIST_TABS = ["artists", "albums", "songs", "vinyl", "other"];
 const state = Object.fromEntries(LIST_TABS.map((t) => [t, { reviewed: false, keys: null, items: [] }]));
 
 const KIND = {
   new_artist: ["New artist", "accent"], new_album: ["New album", "accent"], new_song: ["New song", "accent"],
   edition_linked: ["Edition matched by name", "warn"], unresolved_release: ["Edition not identified", "warn"],
   mbid_clash: ["Same MBID as another", "bad"], suspect: ["Check", "bad"],
+  new_holding: ["New record", "accent"], holding_changed: ["Changed on Discogs", "warn"], holding_missing: ["Not in the export", "bad"],
 };
+// a Discogs export's fields, as the Inbox names them
+const HOLDING_FIELD = { media_condition: "Record grade", sleeve_condition: "Sleeve grade", rating: "Rating", notes: "Notes",
+  catalog_number: "Catalog #", label: "Label", format: "Format", date_added: "Date added" };
+const recordLink = (it) => `<a href="/vinyl.html#record/${it.entityId}">${esc(it.detail.artist || "")} — ${esc(it.detail.title || "")}</a>`
+  + (it.detail.releaseId ? ` ${discogsLink(it.detail.releaseId, "discogs")}` : "");
+const fieldValue = (f, v) => (v == null || v === "" ? `<span class="meta">(empty)</span>` : f === "rating" ? "★".repeat(+v) : esc(String(v)).replace(/\n/g, "<br>"));
 const REASON = {
   "artist-mbid-differs": "Last.fm tagged these scrobbles with a different MusicBrainz artist than yours — a different band with the same name, or a wrong id on either side.",
   "release-credited-elsewhere": "MusicBrainz credits this edition to a different artist, so it wasn't used to identify the album.",
@@ -87,7 +96,7 @@ const creditFix = (it) => it.kind === "suspect" && it.detail.reason === "release
 const hintId = (type, h) => h[{ artist: "artistId", album: "albumId", song: "songId" }[type]];
 
 function body(it) {
-  const d = it.detail, e = it.entity, src = it.source === "setlistfm" ? "setlist.fm" : "Last.fm";
+  const d = it.detail, e = it.entity, src = { setlistfm: "setlist.fm", discogs: "Discogs" }[it.source] || "Last.fm";
   const gone = `<span class="meta">(since merged or removed)</span>`;
   switch (it.kind) {
     case "new_artist":
@@ -98,6 +107,16 @@ function body(it) {
                sub: d.release ? `First seen as ${releaseLink(d.release)} on ${src}` + (d.mbid ? " — identified exactly" : "") : `from ${src}` };
     case "new_song":
       return { title: e ? songLine(e) : esc(d.title) + " " + gone, sub: `from ${src}` };
+    case "new_holding":
+      return { title: recordLink(it),
+               sub: d.newAlbum ? `Filed under a <b>new album</b> “${esc(d.albumTitle)}” — see the Albums tab` : `Filed under your album <a href="/albums.html#discography/${it.artist?.artistId || ""}">“${esc(d.albumTitle)}”</a>`,
+               note: "Identify it, fetch its pressing details and cover on the Vinyl page." };
+    case "holding_changed":
+      return { title: recordLink(it), sub: "The Discogs export differs from your copy here — apply it, or keep yours:",
+               table: `<table class="data compact"><thead><tr><th></th><th>Yours</th><th>Discogs</th></tr></thead><tbody>${Object.entries(d.changes || {}).map(([f, [mine, theirs]]) =>
+                 `<tr><td class="meta">${esc(HOLDING_FIELD[f] || f)}</td><td>${fieldValue(f, mine)}</td><td><b>${fieldValue(f, theirs)}</b></td></tr>`).join("")}</tbody></table>` };
+    case "holding_missing":
+      return { title: recordLink(it), why: "This record isn't in the latest Discogs export — sold, given away, or in a folder that wasn't exported? Nothing was removed; OK just files this away." };
     case "edition_linked":
       return { title: `“${esc(d.title)}” ${releaseLink(d.release)} → ${e ? albumLine(e) : gone}`,
                sub: d.releaseGroup ? `MusicBrainz puts this edition in ${mbLink("release-group", d.releaseGroup)}`
@@ -129,7 +148,7 @@ function body(it) {
 }
 
 // "Possibly the same as" for a new song can also be a near-match (dupes.near_titles), not just the same base title.
-const HINT_WHY = { spacing: "spaced differently", article: "differs only by “the” / “a”", suffix: "adds a number or year", spelling: "a near spelling" };
+const HINT_WHY = { spacing: "spaced differently", article: "differs only by “the” / “a”", suffix: "adds a number or year", spelling: "a near spelling", contains: "one title contains the other" };
 // Everything else outstanding for that artist, on one page.
 function benchLink(it) {
   const artistId = it.entityType === "artist" ? it.entityId : it.entity?.artistId;
@@ -153,12 +172,14 @@ function itemHtml(it, i) {
           ${b.why ? `<div class="ev-why">${b.why}</div>` : ""}
           ${it.warning ? `<div class="ev-why">⚠ ${esc(it.warning)}</div>` : ""}
           ${b.note ? `<div class="ev-note">${b.note}</div>` : ""}
+          ${b.table ? `<div class="table-scroll" style="margin-top:6px">${b.table}</div>` : ""}
         </div>
         <div class="actions">
           ${it.reviewedAt ? `<span class="meta">reviewed ${fmtDate(it.reviewedAt)}</span>` : `
             ${it.kind === "suspect" && it.detail.reason === "artist-mbid-differs" && it.entity ? `<button class="small" data-role="alias" title="The same artist for this library's purposes: count that MusicBrainz artist as ${esc(it.entity.name)} everywhere">Same artist</button>` : ""}
             ${creditFix(it) ? `<button class="small" data-role="credit-fix" title="Last.fm's artist MBID was wrong: give ${esc(it.artist.name)} the MBID MusicBrainz credits this edition to (undoable)">Use as ${esc(it.artist.name)}’s MBID</button>` : ""}
-            ${keyBtn("a", it.kind.startsWith("new_") ? "Looks right" : "OK", "good", 'data-role="accept"')}
+            ${it.kind === "holding_changed" ? keyBtn("u", "Apply update", "good", 'data-role="apply"') : ""}
+            ${keyBtn("a", it.kind === "holding_changed" ? "Keep mine" : it.kind.startsWith("new_") ? "Looks right" : "OK", it.kind === "holding_changed" ? "" : "good", 'data-role="accept"')}
             ${keyBtn("s", "Skip", "", 'data-role="skip"')}`}
           <span class="meta">${fmtDate(it.at)}</span>
         </div>
@@ -226,6 +247,14 @@ function wireItem(tab, el) {
     done();
   });
   el.querySelector("[data-role='skip']")?.addEventListener("click", () => state[tab].keys.skip(el));
+  el.querySelector("[data-role='apply']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    const { ok, data } = await api("/api/imports/apply-holding", { eventId: it.id });
+    if (!ok) { toast(esc(data.message), { error: true, timeout: 9000 }); e.target.disabled = false; return; }
+    toast(`Updated ${esc(it.detail.artist)} — ${esc(it.detail.title)}: ${data.applied.map((f) => HOLDING_FIELD[f] || f).join(", ")}`, { undo: data.undo });
+    notifyChanged();
+    done();
+  });
   el.querySelector("[data-role='alias']")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     if (await addMbAlias(it.entity.artistId, it.detail.mbid)) {
@@ -276,7 +305,7 @@ async function loadRuns() {
   if (!ok) return;
   setCounts(data.pending);
   const root = document.getElementById("runs");
-  const SRC = { lastfm: "Last.fm", setlistfm: "setlist.fm" };
+  const SRC = { lastfm: "Last.fm", setlistfm: "setlist.fm", discogs: "Discogs" };
   root.innerHTML = data.runs.length ? `<table class="runs"><thead><tr><th>Source</th><th>Started</th><th>Imported</th><th>Skipped</th><th>Editions looked up</th><th>Recorded</th><th>To review</th></tr></thead><tbody>
     ${data.runs.map((r) => {
       const s = r.summary || {};

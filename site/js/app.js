@@ -30,6 +30,19 @@ function esc(value) {
   ));
 }
 
+// Genre names are stored lower case ("heavy metal") and shown with capitals ("Heavy Metal") wherever
+// the page doesn't already set them in capitals. Display only: filters and links keep the stored name.
+const GENRE_SMALL_WORDS = new Set(["and", "of", "the", "n", "&"]);
+const GENRE_ACRONYMS = { "r&b": "R&B", edm: "EDM", idm: "IDM", ebm: "EBM", aor: "AOR", nwobhm: "NWOBHM", uk: "UK", us: "US", dj: "DJ" };
+function genreName(name) {
+  return String(name ?? "").split(" ").map((w, i) => {
+    const lw = w.toLowerCase();
+    if (GENRE_ACRONYMS[lw]) return GENRE_ACRONYMS[lw];
+    if (i > 0 && GENRE_SMALL_WORDS.has(lw)) return lw;
+    return w.replace(/(^|[-/])(\p{L})/gu, (m, sep, c) => sep + c.toUpperCase()); // post-punk → Post-Punk
+  }).join(" ");
+}
+
 // scrobbles.played_at is stored as a UTC ISO8601 string (correctly, by
 // etl/lastfm_pull.py). Displaying it required converting to the viewer's
 // own local time -- naively slicing the raw string just showed UTC
@@ -849,7 +862,7 @@ function renderArtist(id) {
         ${info.thumbnail ? `<img class="about-thumb" src="${esc(info.thumbnail)}" alt="" />` : ""}
         <div>
           ${info.extract ? `<div class="about-text">${esc(info.extract)}</div>` : ""}
-          ${info.tags.length ? `<div class="genre-pills">${info.tags.map((t) => `<span class="genre-pill">${esc(t)}</span>`).join("")}</div>` : ""}
+          ${info.tags.length ? `<div class="genre-pills">${info.tags.map((t) => `<span class="genre-pill">${esc(genreName(t))}</span>`).join("")}</div>` : ""}
           ${info.pageUrl ? `<div class="about-source"><a href="${esc(info.pageUrl)}" target="_blank" rel="noopener">Wikipedia ↗</a></div>` : ""}
         </div>
       </div>

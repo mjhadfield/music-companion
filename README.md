@@ -66,6 +66,13 @@ site/                    -- static frontend: plain HTML/CSS/JS, no build step
 - [x] Discogs CSV import (naive artist/album matching — good enough to get
       data in the door; MusicBrainz-based entity resolution across all
       three sources is a later pass)
+      Re-importing a newer export (maintenance › Refresh, or `refresh.py --discogs`)
+      adds the new records and compares the ones you have: grades, rating, notes,
+      catalog #, label, format and date added are owned by Discogs, so any
+      difference becomes a "Changed on Discogs" item in Inbox › Vinyl to apply
+      (journaled, undoable) or keep — nothing is overwritten, and a kept change
+      isn't raised again. Records missing from the export are flagged, never
+      deleted. New records, and the album each was filed under, are Inbox items too.
 - [x] Last.fm scrobble pull (`etl/lastfm_pull.py` — incremental by default,
       `--full` for a from-scratch history pull; 97,500 scrobbles imported)
 - [x] Setlist.fm setlist pull (`etl/setlistfm_pull.py` — always does a full
@@ -164,7 +171,11 @@ merging happens. Nothing in it changes data without a click:
   page: album versions to merge, albums with no MusicBrainz id (with the
   album-id sweep's suggestions), MusicBrainz flags, song duplicates, songs filed
   under the wrong album. A queue of artists, most played first; "Mark reviewed"
-  takes an artist off it until something new turns up.
+  takes an artist off it until something new turns up. Its **Reviewed** tab lists
+  the artists with nothing left, for a second look by eye (every album's cover,
+  id, genres and year, the most played songs, the shows); "Looks right" records
+  the check against the albums as they were, so a later change shows as
+  "changed since".
 - **Songs › Duplicates › Whole library** — every duplicate group across the
   library, one kind at a time: *same recording* (remaster / mono / feat. tags —
   pre-ticked only when on the same album), *possible* (near-identical titles:
@@ -181,6 +192,14 @@ merging happens. Nothing in it changes data without a click:
   against the artist's MusicBrainz discography and the songs you've played from
   them. Only *high* (same title, no live/studio or remix mix-up, at least half
   your played songs on the tracklist) arrives selected.
+- **Albums › Covers** — at least one picture per artist: the site shows an artist as
+  the cover of their most played album that has one, so this lists artists with no
+  covered album (most played first) and proposes each one's most played album with a
+  MusicBrainz id. Covers are previewed straight from the Cover Art Archive and saved
+  only on *Save* (Use / Wrong / Skip / Later per card, or another album, or a pasted
+  image link); Undo moves the saved files aside to `data/covers/.removed/`. Two more
+  views: *Most played albums* (artists that already have a picture: their other albums,
+  most played first) and *By artist* (one band's whole discography at once).
 
 Every change goes into a **basket**. *Review & apply* runs the exact changes as a
 dry run (rolled back) and shows what each would move or why it would be refused;

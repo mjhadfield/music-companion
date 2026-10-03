@@ -22,6 +22,21 @@
   .done-note { margin: 10px 0; }
   .batches li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--edge); font-size: 0.86rem; }
   .batches li .spacer { flex: 1; }
+
+  /* Reviewed + the double-check view */
+  .rv-frac.full { color: var(--ok); }
+  .rv-frac.part { color: var(--warn); }
+  .ck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .ck-card { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius-sm); min-width: 0; font-size: .85rem; }
+  .ck-art { aspect-ratio: 1; background: var(--surface-2); border: 1px dashed var(--edge); display: grid; place-items: center; overflow: hidden; color: var(--text-dim); font-size: .78rem; margin-bottom: 4px; }
+  .ck-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ck-card .t { font-weight: 600; font-size: .92rem; line-height: 1.25; }
+  .ck-card .g { display: flex; flex-wrap: wrap; gap: 3px; }
+  .ck-card .g span { font-size: .7rem; padding: 0 6px; border: 1px solid var(--edge); border-radius: 999px; color: var(--text-dim); }
+  .ck-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 4px 0 14px; font-size: .9rem; }
+  .ck-facts b { font-family: var(--font-mono); }
+  .ck-songs { columns: 2 320px; font-size: .86rem; margin: 0; padding-left: 22px; }
+  .ck-songs li { break-inside: avoid; padding: 2px 0; }
 </style>
 </head>
 <body>
@@ -33,6 +48,11 @@
     <h1>Workbench</h1>
     <p class="subtitle">Everything outstanding for one artist on one page — albums to merge or identify, song duplicates, songs filed under the wrong album. Changes queue up in a basket, get a dry run, then apply as one undoable batch.</p>
   </div>
+  <div class="tabs" id="wb-tabs">
+    <button data-tab="todo">To review</button>
+    <button data-tab="reviewed">Reviewed</button>
+  </div>
+  <div data-panel="todo">
   <div class="toolbar">
     <div class="chips" id="q-filters">
       <button class="chip filter-chip" data-f="all" aria-pressed="true">Everything</button>
@@ -47,6 +67,33 @@
   </div>
   <div class="status-line" id="q-status">Loading…</div>
   <div class="table-scroll"><table class="data"><thead><tr><th>Artist</th><th class="num">Plays</th><th>Outstanding</th></tr></thead><tbody id="wb-rows"></tbody></table></div>
+  </div>
+  <div data-panel="reviewed" hidden>
+    <p class="meta" style="margin:0 0 10px">Artists with nothing left to do — never had anything, sorted out, or marked reviewed as they are — for a second look by eye. Open one to see every album (cover, MusicBrainz id, genres, vinyl), their most played songs and their shows; <b>Looks right</b> records the check. If an artist's albums change afterwards (a title, an id, a cover, a year) it shows as <b>changed since</b>, and anything new to sort out sends them back to To review.</p>
+    <div class="toolbar">
+      <div class="chips" id="rv-filters"></div>
+      <input type="search" id="rv-find" placeholder="Filter artists…" />
+    </div>
+    <div class="status-line" id="rv-status">Loading…</div>
+    <div class="table-scroll"><table class="data"><thead><tr><th>Artist</th><th class="num">Plays</th><th class="num">Albums</th><th class="num">Covers</th><th class="num">Ids</th><th class="num">Genres</th><th class="num">Vinyl</th><th class="num">Shows</th><th>Double-checked</th></tr></thead><tbody id="rv-rows"></tbody></table></div>
+  </div>
+</section>
+
+<section id="check" hidden>
+  <div class="bench-head">
+    <a class="back-link" href="/artist.html#reviewed">← Reviewed artists</a>
+    <h1 id="ck-name"></h1><span id="ck-status"></span>
+    <span class="spacer"></span>
+    <button class="small" id="ck-open">Open in the workbench</button>
+    <button class="small good" id="ck-ok">✓ Looks right</button>
+    <button class="small" id="ck-next">Next →</button>
+  </div>
+  <div class="ck-facts" id="ck-facts"></div>
+  <div id="ck-warn"></div>
+  <div class="sec"><h2>Albums</h2><span class="meta" id="ck-album-meta"></span><a class="meta" id="ck-disco">fix ids in Albums › Discography →</a></div>
+  <div class="ck-grid" id="ck-albums"></div>
+  <div class="sec"><h2>Most played songs</h2><span class="meta" id="ck-song-meta"></span></div>
+  <ol class="ck-songs" id="ck-songs"></ol>
 </section>
 
 <section id="bench" hidden>
@@ -86,7 +133,6 @@ function countBadges(counts) {
 }
 
 async function loadQueue() {
-  document.getElementById("queue").hidden = false;
   const { ok, data } = await api("/api/workbench/queue");
   const status = document.getElementById("q-status");
   if (!ok) { status.textContent = data.message; status.classList.add("error"); return; }
@@ -283,10 +329,108 @@ document.getElementById("b-reviewed").addEventListener("click", async () => {
   toast(`<b>${esc(wb.artist.name)}</b> marked reviewed`, { undo: { kind: "batchv2", id: res.data.batchId } });
   loadBench();
 });
-document.addEventListener("mc:undone", () => { if (artistId) loadBench(); });
+document.addEventListener("mc:undone", () => { if (params.get("check") === "1" || !document.getElementById("check").hidden) loadCheck(ckId); else if (artistId) loadBench(); });
 window.addEventListener("beforeunload", (e) => { if (basket.size) { e.preventDefault(); e.returnValue = ""; } });
 
-if (artistId) loadBench(); else loadQueue();
+// ---- Reviewed: artists with nothing left, for a double-check ---------------------------------------
+const CHECK_KEY = "workbench-check-list";
+const CHECK_TEXT = { unchecked: ["Not double-checked", ""], changed: ["Changed since", "warn"], checked: ["Double-checked", "ok"] };
+const frac = (n, d) => `<span class="rv-frac ${d && n === d ? "full" : n ? "part" : ""}">${fmtNum(n)}/${fmtNum(d)}</span>`;
+async function loadReviewed() {
+  const status = document.getElementById("rv-status");
+  const { ok, data } = await api("/api/workbench/reviewed");
+  if (!ok) { status.textContent = data.message; status.classList.add("error"); return; }
+  let filter = data.statuses.unchecked ? "unchecked" : "all", find = "";
+  const chips = document.getElementById("rv-filters");
+  function paint() {
+    chips.innerHTML = [["unchecked", "Not double-checked"], ["changed", "Changed since"], ["checked", "Double-checked"], ["all", "All"]].map(([k, label]) =>
+      `<button class="chip filter-chip" data-f="${k}" aria-pressed="${k === filter}">${label} <span class="meta">${fmtNum(k === "all" ? data.count : data.statuses[k])}</span></button>`).join("");
+    const rows = data.items.filter((r) => (filter === "all" || r.check === filter) && (!find || (r.name || "").toLowerCase().includes(find)));
+    try { sessionStorage.setItem(CHECK_KEY, JSON.stringify(rows.map((r) => r.artistId))); } catch { /* fine */ }
+    status.textContent = `${plural(rows.length, "artist")}, most played first`;
+    document.getElementById("rv-rows").innerHTML = rows.slice(0, 400).map((r) => {
+      const [label, cls] = CHECK_TEXT[r.check];
+      return `<tr class="wb-row" data-id="${r.artistId}"><td><a href="/artist.html?id=${r.artistId}&check=1">${esc(r.name)}</a>${r.leftAsIs ? ` <span class="meta" title="Marked reviewed with ${plural(r.leftAsIs, "thing")} left as it is">· ${fmtNum(r.leftAsIs)} left as is</span>` : ""}</td>
+        <td class="num">${fmtNum(r.plays)}</td><td class="num">${fmtNum(r.albums)}</td><td class="num">${frac(r.covers, r.albums)}</td><td class="num">${frac(r.ids, r.albums)}</td>
+        <td class="num">${frac(r.genres, r.albums)}</td><td class="num">${r.vinyl || ""}</td><td class="num">${r.shows || ""}</td>
+        <td>${cls ? `<span class="badge ${cls}">${label}</span>` : `<span class="meta">${label}</span>`}${r.checkedAt ? ` <span class="meta">${esc(r.checkedAt.slice(0, 10))}</span>` : ""}</td></tr>`;
+    }).join("");
+  }
+  chips.addEventListener("click", (e) => { const b = e.target.closest("[data-f]"); if (b) { filter = b.dataset.f; paint(); } });
+  document.getElementById("rv-find").addEventListener("input", (e) => { find = e.target.value.trim().toLowerCase(); paint(); });
+  document.getElementById("rv-rows").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-id]");
+    if (tr && !e.target.closest("a")) location.href = `/artist.html?id=${tr.dataset.id}&check=1`;
+  });
+  paint();
+}
+
+// ---- The double-check view: one artist laid out to look over -------------------------------------
+let ck = null, ckId = artistId;
+function nextToCheck() {
+  let list = [];
+  try { list = JSON.parse(sessionStorage.getItem(CHECK_KEY) || "[]"); } catch { /* fine */ }
+  const i = list.indexOf(ckId);
+  return i >= 0 && i + 1 < list.length ? list[i + 1] : null;
+}
+async function loadCheck(id) {
+  ckId = id;
+  history.replaceState(null, "", `/artist.html?id=${id}&check=1`);
+  document.getElementById("check").hidden = false;
+  const { ok, data } = await api(`/api/workbench/check?artistId=${id}`);
+  if (!ok) { document.getElementById("ck-albums").innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  if (id !== ckId) return;
+  ck = data;
+  const a = data.artist, al = data.albums;
+  document.title = `Double-check — ${a.name}`;
+  document.getElementById("ck-name").innerHTML = `${esc(a.name)} ${a.mbid ? mbLink("artist", a.mbid) : `<span class="badge warn">no MusicBrainz id</span>`}`;
+  const [label, cls] = CHECK_TEXT[data.check];
+  document.getElementById("ck-status").innerHTML = `<span class="badge ${cls}">${label}</span>${data.checkedAt ? ` <span class="meta">${esc(data.checkedAt.slice(0, 10))}</span>` : ""}`;
+  document.getElementById("ck-open").onclick = () => { location.href = `/artist.html?id=${id}`; };
+  document.getElementById("ck-disco").href = `/albums.html#discography/${id}`;
+  document.getElementById("ck-ok").disabled = data.check === "checked";
+  document.getElementById("ck-next").disabled = !nextToCheck();
+  const L = data.live;
+  document.getElementById("ck-facts").innerHTML = [
+    `<span><b>${fmtNum(a.plays)}</b> plays</span>`, `<span><b>${fmtNum(a.songs)}</b> songs</span>`, `<span><b>${fmtNum(al.length)}</b> albums</span>`,
+    `<span><b>${fmtNum(al.reduce((n, x) => n + x.vinyl, 0))}</b> on vinyl</span>`,
+    L.shows ? `<span><b>${fmtNum(L.shows)}</b> show${L.shows === 1 ? "" : "s"} at ${plural(L.venues, "venue")}, ${esc(L.first.slice(0, 4))}${L.last.slice(0, 4) !== L.first.slice(0, 4) ? `–${esc(L.last.slice(0, 4))}` : ""} · last at ${esc(L.lastVenue || "?")} <a href="/songs.html#live/${id}">Live sets →</a></span>` : `<span class="meta">no shows</span>`,
+    data.links.length ? `<span>linked: ${data.links.map((x) => `<a href="/artist.html?id=${x.artistId}&check=1">${esc(x.name)}</a>`).join(", ")}</span>` : "",
+  ].join("");
+  document.getElementById("ck-warn").innerHTML = data.outstanding && !data.markedReviewed
+    ? `<div class="notice warn">${plural(data.outstanding, "thing")} to sort out turned up since — <a href="/artist.html?id=${id}">open in the workbench</a>.</div>`
+    : data.outstanding ? `<p class="meta">Marked reviewed with ${plural(data.outstanding, "thing")} left as it is.</p>` : "";
+  const missing = (n, what) => (n ? `<span class="badge warn">${n} without ${what}</span>` : "");
+  document.getElementById("ck-album-meta").innerHTML = `${missing(al.filter((x) => x.coverStatus !== "ok").length, "a cover")} ${missing(al.filter((x) => !x.mbid).length, "an id")} ${missing(al.filter((x) => !x.genres.length).length, "genres")} ${missing(al.filter((x) => !x.year).length, "a year")}`;
+  document.getElementById("ck-albums").innerHTML = al.length ? al.map((x) => `
+    <div class="ck-card">
+      <div class="ck-art">${x.coverStatus === "ok" ? `<img src="/covers/${x.albumId}.jpg" alt="" loading="lazy" />` : "no cover"}</div>
+      <div class="t">${esc(x.title)}</div>
+      <div class="meta">${x.year || "no year"} · ${plural(x.plays, "play")}${x.vinyl ? ` · <span class="badge vinyl">vinyl${x.vinyl > 1 ? ` ×${x.vinyl}` : ""}</span>` : ""}</div>
+      <div>${x.mbid ? mbLink("album", x.mbid) : `<span class="badge warn">no id</span>`}</div>
+      <div class="g">${x.genres.length ? x.genres.slice(0, 5).map((g) => `<span>${esc(g)}</span>`).join("") : `<span class="meta">no genres</span>`}</div>
+    </div>`).join("") : `<div class="empty">No albums credited to ${esc(a.name)}.</div>`;
+  document.getElementById("ck-song-meta").textContent = data.songs.length ? `of ${plural(a.songs, "song")}` : "";
+  document.getElementById("ck-songs").innerHTML = data.songs.map((x) => `<li>${esc(x.title)} <span class="meta">— ${x.album ? esc(x.album) : "no album"} · ${fmtNum(x.plays)}</span></li>`).join("") || `<li class="meta">No plays.</li>`;
+  window.scrollTo(0, 0);
+}
+document.getElementById("ck-ok").addEventListener("click", async () => {
+  if (!ck) return;
+  const res = await api("/api/batch/apply", { actions: [{ type: "mark", entityType: "artist", entityId: ck.artist.artistId, mark: ck.checkMark }], label: `Double-checked ${ck.artist.name}`, artistId: ck.artist.artistId });
+  if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+  const name = ck.artist.name, next = nextToCheck();
+  toast(`<b>${esc(name)}</b> double-checked`, { undo: { kind: "batchv2", id: res.data.batchId } });
+  if (next) loadCheck(next); else loadCheck(ckId);
+});
+document.getElementById("ck-next").addEventListener("click", () => { const n = nextToCheck(); if (n) loadCheck(n); });
+
+const wantsCheck = params.get("check") === "1";
+if (artistId && wantsCheck) loadCheck(artistId);
+else if (artistId) loadBench();
+else {
+  document.getElementById("queue").hidden = false;
+  mountTabs(document.getElementById("wb-tabs"), { todo: loadQueue, reviewed: loadReviewed });
+}
 </script>
 </body>
 </html>
