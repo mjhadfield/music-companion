@@ -1,0 +1,77 @@
+/* =====================================================================
+   The artist page (#/artist/<id>) -- see
+   js/artist-page.js. Built on the album page's ap- parts; its own are ar-.
+   ===================================================================== */
+
+/* hero: a 2x2 mosaic of their most played covers (or one cover) */
+.ar-mosaic { width: 260px; height: 260px; box-shadow: var(--shadow); overflow: hidden; }
+.ar-mosaic.ar-n4 { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2px; background: var(--edge); }
+.ar-mosaic img, .ar-mosaic .ap-noart { width: 100%; height: 100%; object-fit: cover; display: block; min-width: 0; min-height: 0; }
+.ar-mosaic .ap-noart { font-size: 5rem; }
+.ar-mosaic.ar-n4 .ap-noart { font-size: 2rem; }
+.ap-chip.live { color: var(--accent-live); border-color: color-mix(in srgb, var(--accent-live) 50%, transparent); }
+
+/* top songs: the album page's tracklist rows, without the length column */
+.ar-songs li { grid-template-columns: 34px minmax(0, 1fr) auto; }
+.ar-st { display: flex; flex-direction: column; min-width: 0; }
+.ar-st b { font-weight: 600; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-st > span { font-size: .8rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-st .livedot { font-size: .7rem; vertical-align: 2px; margin-left: 2px; }
+.ar-more { display: block; margin: 12px auto 0; background: none; border: 1px solid var(--edge); padding: 6px 16px; border-radius: 999px; font-family: var(--font-mono);
+  font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--silver); cursor: pointer; }
+.ar-more:hover { border-color: var(--accent); color: var(--text); }
+
+/* discography: a cover wall, sortable */
+.ar-sort { display: inline-flex; border: 1px solid var(--edge); border-radius: var(--radius-sm); overflow: hidden; }
+.ar-sort button { background: var(--surface); border: 0; padding: 5px 12px; font-family: var(--font-mono); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); cursor: pointer; }
+.ar-sort button + button { border-left: 1px solid var(--edge); }
+.ar-sort button[aria-pressed="true"] { color: var(--accent-soft); background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); }
+.ar-disco { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 18px 14px; }
+.ar-disco a { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ar-disco b { font-size: .88rem; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; margin-top: 4px; }
+.ar-disco .subtle { font-size: .76rem; font-family: var(--font-mono); }
+.ar-disco a:hover b { color: var(--accent-soft); }
+
+/* seen live: date block, venue, songs */
+.ar-shows { list-style: none; margin: 0; padding: 0; }
+.ar-shows a { display: grid; grid-template-columns: 62px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 9px 4px; border-bottom: 1px solid var(--edge); }
+.ar-shows li:last-child a { border-bottom: 0; }
+.ar-shows a:hover { background: var(--accent-wash); }
+.ar-date { display: flex; flex-direction: column; align-items: center; padding: 4px 0; border: 1px solid color-mix(in srgb, var(--accent-live) 45%, transparent);
+  font-family: var(--font-mono); font-size: .7rem; color: var(--text-dim); line-height: 1.2; }
+.ar-date b { font-size: .8rem; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; color: var(--accent-live); }
+.ar-venue { display: flex; flex-direction: column; min-width: 0; }
+.ar-venue b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-venue span { font-size: .82rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-shows .subtle { font-family: var(--font-mono); font-size: .74rem; }
+
+/* about: Wikipedia, clamped until "Read more" */
+.ar-about-body { overflow: hidden; }
+.ar-about-body img { float: right; width: 96px; height: 96px; object-fit: cover; margin: 0 0 8px 14px; border: 1px solid var(--edge); }
+.ar-about-body p { margin: 0; font-size: .92rem; line-height: 1.6; color: var(--text); display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.ar-about.open .ar-about-body p { display: block; -webkit-line-clamp: unset; }
+.ar-about .ar-more { margin-top: 10px; }
+
+/* on your shelf: compact record rows */
+.ar-records { list-style: none; margin: 0; padding: 0; }
+.ar-records a { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 6px 8px 8px; border-bottom: 1px solid var(--edge);
+  border-left: 3px solid transparent; }
+.ar-records li:last-child a { border-bottom: 0; }
+.ar-records a:hover { border-left-color: var(--accent-vinyl); background: var(--surface-2); }
+.ar-rec-art { width: 48px; height: 48px; object-fit: cover; display: block; }
+.ar-rec-art.noart { display: grid; place-items: center; background: var(--surface-3); color: var(--accent-soft); }
+.ar-records a > span:not(.stars) { display: flex; flex-direction: column; min-width: 0; }
+.ar-records b { font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-records .subtle { font-size: .76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 640px) {
+  .ar-mosaic { width: min(62vw, 240px); height: min(62vw, 240px); }
+  .ar-songs li { grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .ar-st b { font-size: .92rem; }
+  .ar-disco { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 10px; }
+  .ar-shows a { grid-template-columns: 58px minmax(0, 1fr); }
+  .ar-shows .subtle { display: none; }
+}
+.ar-date { white-space: nowrap; }
+.ar-records .stars { white-space: nowrap; }
+.ar-disco .subtle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -20,7 +20,7 @@ const hpCache = { db: null, map: new Map() };
 
 // scrobbles are stored in UTC; hours, days and dates are shown in the viewer's own time
 const hpTz = () => `${-new Date().getTimezoneOffset()} minutes`;
-const hpWhere = (key, col = "s.played_at") => (HP_WINDOWS[key].mod ? `WHERE ${col} >= datetime('now', '${HP_WINDOWS[key].mod}')` : "");
+const hpWhere = (key, col = "s.played_at") => (HP_WINDOWS[key].mod ? `WHERE ${col} >= strftime('%Y-%m-%dT%H:%M:%S', 'now', '${HP_WINDOWS[key].mod}')` : "");
 const hpFmt = (n) => Number(n || 0).toLocaleString();
 const hpReduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -53,7 +53,7 @@ function hpOverview() {
     const s = query(`
       SELECT (SELECT count(*) FROM scrobbles) AS plays,
         (SELECT min(played_at) FROM scrobbles) AS first_play,
-        (SELECT count(*) FROM scrobbles WHERE played_at >= datetime('now', '-30 days')) AS plays30,
+        (SELECT count(*) FROM scrobbles WHERE played_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', '-30 days')) AS plays30,
         (SELECT count(*) FROM artists) AS artists,
         (SELECT count(*) FROM songs) AS songs,
         (SELECT count(*) FROM setlists) AS shows,
@@ -90,7 +90,7 @@ function hpOverview() {
     };
 
     const firsts = (col) => `SELECT ${col}, min(played_at) AS f FROM scrobbles GROUP BY ${col}`;
-    const recent = "datetime('now', '-30 days')";
+    const recent = "strftime('%Y-%m-%dT%H:%M:%S', 'now', '-30 days')";
     const artists = query(`
       SELECT (SELECT count(*) FROM (${firsts("artist_id")}) WHERE f >= ${recent}) AS new30,
         (SELECT count(DISTINCT artist_id) FROM scrobbles WHERE played_at >= ${recent}) AS played30`)[0];
@@ -315,7 +315,7 @@ function hpActivity(win) {
 
     const k = query(`SELECT count(*) AS plays, count(DISTINCT s.artist_id) AS artists, count(DISTINCT s.song_id) AS songs, min(s.played_at) AS first FROM scrobbles s ${w}`)[0];
     const mod = HP_WINDOWS[win].mod;
-    k.newArtists = mod ? query(`SELECT count(*) AS c FROM (SELECT artist_id, min(played_at) AS f FROM scrobbles GROUP BY artist_id) WHERE f >= datetime('now', ?)`, [mod])[0].c : null;
+    k.newArtists = mod ? query(`SELECT count(*) AS c FROM (SELECT artist_id, min(played_at) AS f FROM scrobbles GROUP BY artist_id) WHERE f >= strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)`, [mod])[0].c : null;
     const days = { day: 1, week: 7, month: 30, year: 365 }[win] || Math.max(1, (now - new Date(k.first)) / 86400000);
     k.perDay = win === "day" ? k.plays / 24 : k.plays / days;
 
@@ -353,13 +353,16 @@ function hpActivityHtml(win) {
   const stagger = Math.min(40, 420 / series.length);
   const hourPeak = a.hours.reduce((m, h) => (h[1] > m[1] ? h : m), a.hours[0]);
   const dayPeak = a.weekdays.reduce((m, d) => (d[1] > m[1] ? d : m), a.weekdays[0]);
-  const kpi = (n, label, i, dec = false) => `<div class="hp-kpi" style="--i:${i}"><b ${dec ? "" : `data-count="${Math.round(n)}" data-delay="${i * 60}"`}>${dec ? n : hpFmt(Math.round(n))}</b><span>${esc(label)}</span></div>`;
+  // each stat opens the list behind it, for this period (shown there as a removable "From Home" filter)
+  const kpi = (n, label, i, href, title, dec = false) => `<a class="hp-kpi" href="${href}" title="${esc(title)}" style="--i:${i}"><b ${dec ? "" : `data-count="${Math.round(n)}" data-delay="${i * 60}"`}>${dec ? n : hpFmt(Math.round(n))}</b><span>${esc(label)}</span></a>`;
+  const since = HP_WINDOWS[win].since;
   return `
     <div class="hp-kpis">
-      ${kpi(k.plays, "plays", 0)}
-      ${kpi(k.perDay < 10 ? k.perDay.toFixed(1) : Math.round(k.perDay), win === "day" ? "an hour, on average" : "a day, on average", 1, k.perDay < 10)}
-      ${kpi(k.artists, "artists", 2)}
-      ${k.newArtists != null ? kpi(k.newArtists, "new artists", 3) : kpi(k.songs, "different tracks", 3)}
+      ${kpi(k.plays, "plays", 0, `#/songs?range=${win}`, `The songs you played in the ${since}`)}
+      ${kpi(k.perDay < 10 ? k.perDay.toFixed(1) : Math.round(k.perDay), win === "day" ? "average per hour" : "average per day", 1, `#/scrobbles?range=${win}`, `Every play in the ${since}, ${win === "day" ? "hour" : "day"} by ${win === "day" ? "hour" : "day"}`, k.perDay < 10)}
+      ${kpi(k.artists, "artists", 2, `#/artists?range=${win}`, `The artists you played in the ${since}`)}
+      ${k.newArtists != null ? kpi(k.newArtists, "new artists", 3, `#/artists?range=${win}&new=1`, `Artists you played for the first time in the ${since}`)
+        : kpi(k.songs, "different tracks", 3, `#/songs?range=${win}`, "Every song you've played")}
     </div>
     <div class="hp-chart-wrap">
       <div class="hp-chart">
@@ -405,7 +408,11 @@ function hpMost(kind, win) {
         // an artist's picture: the cover of the album of theirs you play most
         const c = query(`SELECT al.id, al.cover_updated_at FROM scrobbles s JOIN albums al ON al.id = s.album_id
                          WHERE s.artist_id = ? AND al.cover_status = 'ok' GROUP BY al.id ORDER BY count(*) DESC LIMIT 1`, [r.id])[0];
-        Object.assign(r, { href: `#/artist/${r.id}`, sub: "", cover: c?.id, ver: c?.cover_updated_at });
+        // and the song of theirs you played most in this period: every view's rows have the same two lines
+        const mod = HP_WINDOWS[win].mod;
+        const top = query(`SELECT so.title FROM scrobbles s JOIN songs so ON so.id = s.song_id WHERE s.artist_id = ?
+                           ${mod ? `AND s.played_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', '${mod}')` : ""} GROUP BY so.id ORDER BY count(*) DESC LIMIT 1`, [r.id])[0];
+        Object.assign(r, { href: `#/artist/${r.id}`, sub: top ? `top: ${top.title}` : "", cover: c?.id, ver: c?.cover_updated_at });
       });
     } else if (kind === "albums") {
       rows = query(`SELECT al.id, al.title, ar.name AS sub, al.cover_status, al.cover_updated_at, count(*) AS plays
@@ -433,8 +440,8 @@ function hpMostHtml(kind, win) {
       ${hpArt(first.cover, first.ver, first.title, "hp-art-xl")}
       <div class="hp-hero-txt">
         <span class="hp-hero-rank">#1 · ${esc(HP_WINDOWS[win].since)}</span>
-        <b class="hp-hero-title">${esc(first.title)}</b>
-        ${first.sub ? `<span class="hp-hero-sub">${esc(first.sub)}</span>` : ""}
+        <b class="hp-hero-title" title="${esc(first.title)}">${esc(first.title)}</b>
+        <span class="hp-hero-sub">${esc(first.sub || "")}</span>
         <span class="hp-hero-num"><b data-count="${first.plays}">${hpFmt(first.plays)}</b> plays</span>
         <span class="hp-hero-share">${share}% of everything you played</span>
       </div>
@@ -444,10 +451,11 @@ function hpMostHtml(kind, win) {
         <li style="--i:${i + 1}"><a href="${r.href}">
           <span class="hp-rk">${i + 2}</span>
           ${hpArt(r.cover, r.ver, r.title)}
-          <span class="hp-rt"><b>${esc(r.title)}</b>${r.sub ? `<span>${esc(r.sub)}</span>` : ""}</span>
+          <span class="hp-rt"><b>${esc(r.title)}</b><span>${esc(r.sub || "")}</span></span>
           <span class="hp-rc" data-count="${r.plays}" data-delay="${(i + 1) * 40}">${hpFmt(r.plays)}</span>
           <i class="hp-rbar" style="--w:${((r.plays / max) * 100).toFixed(1)}%"></i>
         </a></li>`).join("")}
+      ${Array.from({ length: Math.max(0, 9 - rest.length) }, () => `<li class="hp-pad" aria-hidden="true"><a><span class="hp-rk"></span><span class="hp-art"></span><span class="hp-rt"><b>&nbsp;</b><span></span></span></a></li>`).join("")}
     </ol>`;
 }
 

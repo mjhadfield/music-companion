@@ -113,6 +113,14 @@ h1, h2 {
 .topbar-right { justify-self: start; }
 /* phone-only: the back chevron + the page's title (see setTopbarTitle) */
 .topbar .topbar-back, .topbar .topbar-title, .topbar .topbar-reload { display: none; }
+/* desktop: back sits beside Home and says where it goes ("‹ Gojira"); a phone shows just the chevron */
+.tb-label { display: none; }
+@media (min-width: 641px) {
+  body:not([data-route="home"]) .topbar .topbar-back { display: flex; width: auto; max-width: 220px; gap: 6px; padding: 0 10px 0 6px; }
+  .topbar-back .tb-label { display: inline; font-family: var(--font-mono); font-size: .7rem; letter-spacing: .08em; text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar-back:hover { color: var(--text); border-color: var(--accent); }
+}
 
 .icon-btn {
   width: 30px;
@@ -359,22 +367,6 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
 }
 .set-name-label::before { content: "// "; color: var(--accent); }
 
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  margin-bottom: 18px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-elevated);
-  color: var(--text-dim);
-  font: inherit;
-  font-size: 1rem;
-  cursor: pointer;
-}
-.back-link:hover { color: var(--text); border-color: var(--accent); }
 
 /* Inline clickable entity name (artist/venue) inside otherwise-plain
    text -- e.g. the setlist page's heading and subline. */
@@ -709,10 +701,9 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   .topbar-title .hud { font-size: 10px; }
   .topbar-title .tt-name { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; text-transform: uppercase; letter-spacing: .03em;
     overflow: hidden; text-overflow: ellipsis; }
-  body.has-topbar-title:not(.search-open) .topbar-title { display: flex; }
+  body.has-topbar-title:not(.search-open) .topbar-title { display: flex; cursor: pointer; }
+  .topbar-title .tt-search { width: 15px; height: 15px; align-self: center; color: var(--text-dim); margin-left: 2px; }
   body.has-topbar-title:not(.search-open) .search-wrap { display: none; }
-  /* the in-page back button gives way to the chevron up top */
-  .back-link { display: none; }
   /* a long album title wraps beside a smaller cover instead of running off the screen */
   .album-header { gap: 14px; margin-top: 0; }
   .album-header > div { min-width: 0; }

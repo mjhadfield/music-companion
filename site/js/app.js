@@ -90,7 +90,7 @@ function initTheme() {
   } catch {
     /* ignore */
   }
-  applyTheme(stored);
+  applyTheme(stored || "light"); // light until you choose otherwise
 
   document.getElementById("theme-toggle").addEventListener("click", () => {
     // No system-preference fallback -- matches the token restructure (harmonised with Citadel):
@@ -146,10 +146,8 @@ function wirePagination(state, totalPages, rerender, scope = app) {
   if (next) next.addEventListener("click", () => turn(1));
 }
 
-// Selector is any [data-sort] element, not just table th's -- the bar-list
-// panels (renderArtistSongsPanel, renderArtistAlbumsPanel) use the same
-// data-sort attribute on plain buttons to keep a sort control without
-// pulling in a table. See wirePagination above for why `scope` matters.
+// Selector is any [data-sort] element, not just table th's, so a plain
+// button can carry a sort too. See wirePagination above for why `scope` matters.
 function wireSortableHeaders(state, rerender, ascByDefault = [], scope = app) {
   scope.querySelectorAll("[data-sort]").forEach((th) => {
     th.addEventListener("click", () => {
@@ -217,204 +215,26 @@ function sortToggle(options, state) {
   `;
 }
 
-// Renders rows in the same bar-chart shape used by the artist page's
-// top-10 preview (renderArtist) -- shared so the "Show more" expansion
-// below is visually identical to the preview it replaces, not a
-// differently-styled table.
-function barRowsHtml(rows, maxValue, routePrefix) {
-  return rows.map((r) => `
-    <div class="bar-row" onclick="location.hash='${routePrefix}${r.id}'">
-      <div>
-        <div class="bar-label">${esc(r.title)}</div>
-        <div class="bar-track"><div class="bar-fill" style="width:${((r.plays / maxValue) * 100).toFixed(0)}%"></div></div>
-      </div>
-      <div class="bar-count">${r.plays.toLocaleString()}</div>
-    </div>
-  `).join("");
-}
-
 // ---------------------------------------------------------------------
 // Home (#/): renderHome lives in js/home.js
 // ---------------------------------------------------------------------
 
 // ---------------------------------------------------------------------
-// Browse: Artists (#/artists) -- searchable, sortable, paginated
-// ---------------------------------------------------------------------
-const artistsState = { q: "", sort: "scrobbles", dir: "desc", page: 1 };
-
-function renderArtistsBrowse() {
-  const st = artistsState;
-  const params = [];
-  let where = "";
-  if (st.q) {
-    where = "WHERE ar.name LIKE ? COLLATE NOCASE";
-    params.push(`%${st.q}%`);
-  }
-
-  const total = query(`SELECT count(*) AS c FROM artists ar ${where}`, params)[0].c;
-  const pageSize = 50;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  st.page = Math.min(Math.max(1, st.page), totalPages);
-
-  const sortCol = { name: "ar.name", scrobbles: "scrobbles", vinyl: "vinyl_count", shows: "shows" }[st.sort] || "scrobbles";
-  const dir = st.dir === "asc" ? "ASC" : "DESC";
-
-  const rows = query(`
-    SELECT ar.id, ar.name, ar.mbid,
-      (SELECT count(*) FROM scrobbles WHERE artist_id = ar.id) AS scrobbles,
-      (SELECT count(DISTINCT v.id) FROM vinyl_holdings v JOIN album_artists aa ON aa.album_id = v.album_id WHERE aa.artist_id = ar.id) AS vinyl_count,
-      (SELECT count(*) FROM setlists WHERE artist_id = ar.id) AS shows
-    FROM artists ar
-    ${where}
-    ORDER BY ${sortCol} ${dir}
-    LIMIT ${pageSize} OFFSET ${(st.page - 1) * pageSize}
-  `, params);
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <div class="page-header"><h1>Artists</h1><div class="subtle">${total.toLocaleString()} artists</div></div>
-    <div class="filter-bar">
-      <input type="text" id="browse-search" placeholder="Search artists…" value="${esc(st.q)}" />
-    </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr>
-          ${sortHeader("name", "Artist", st)}
-          ${sortHeader("scrobbles", "Scrobbles", st, true)}
-          ${sortHeader("vinyl", "Vinyl", st, true)}
-          ${sortHeader("shows", "Shows", st, true)}
-        </tr></thead>
-        <tbody>
-          ${rows.map((r) => `
-            <tr data-id="${r.id}">
-              <td class="row-title">${esc(r.name)}</td>
-              <td class="num">${r.scrobbles.toLocaleString()}</td>
-              <td class="num">${r.vinyl_count}</td>
-              <td class="num">${r.shows}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-    ${paginationHtml(st.page, totalPages)}
-  `;
-
-  app.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => { location.hash = `#/artist/${tr.dataset.id}`; }));
-  wireSortableHeaders(st, renderArtistsBrowse, ["name"]);
-  wirePagination(st, totalPages, renderArtistsBrowse);
-  wireSearchInput("browse-search", st, renderArtistsBrowse);
-}
-
-// ---------------------------------------------------------------------
-// Browse: Shows attended (#/shows)
-// ---------------------------------------------------------------------
-const showsState = { q: "", sort: "event_date", dir: "desc", granularity: "all", periodFilter: null };
-
-function renderShowsBrowse() {
-  const st = showsState;
-  const g = GRANULARITIES[st.granularity];
-
-  const searchParams = [];
-  let searchWhere = "";
-  if (st.q) {
-    searchWhere = "(ar.name LIKE ? COLLATE NOCASE OR ven.name LIKE ? COLLATE NOCASE OR ven.city LIKE ? COLLATE NOCASE)";
-    searchParams.push(`%${st.q}%`, `%${st.q}%`, `%${st.q}%`);
-  }
-
-  const listWhereParts = searchWhere ? [searchWhere] : [];
-  const listParams = [...searchParams];
-  if (st.periodFilter) {
-    listWhereParts.push(`strftime('${g.fmt}', sl.event_date) = ?`);
-    listParams.push(st.periodFilter.key);
-  }
-  const where = listWhereParts.length ? `WHERE ${listWhereParts.join(" AND ")}` : "";
-  const sortCol = { event_date: "sl.event_date", artist: "ar.name", venue: "ven.name" }[st.sort] || "sl.event_date";
-  const dir = st.dir === "asc" ? "ASC" : "DESC";
-
-  const rows = query(`
-    SELECT sl.id, sl.event_date, ar.id AS artist_id, ar.name AS artist_name,
-           ven.name AS venue_name, ven.city, sl.tour_name
-    FROM setlists sl
-    JOIN artists ar ON ar.id = sl.artist_id
-    LEFT JOIN venues ven ON ven.id = sl.venue_id
-    ${where}
-    ORDER BY ${sortCol} ${dir}
-  `, listParams);
-
-  const chartWhereParts = [];
-  if (searchWhere) chartWhereParts.push(searchWhere);
-  if (g.rangeModifier) chartWhereParts.push(`sl.event_date >= date('now', '${g.rangeModifier}')`);
-  const chartWhere = chartWhereParts.length ? `WHERE ${chartWhereParts.join(" AND ")}` : "";
-  const chartRows = query(`
-    SELECT strftime('${g.fmt}', sl.event_date) AS bucket, count(*) AS c
-    FROM setlists sl
-    JOIN artists ar ON ar.id = sl.artist_id
-    LEFT JOIN venues ven ON ven.id = sl.venue_id
-    ${chartWhere}
-    GROUP BY bucket ORDER BY bucket
-  `, searchParams);
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <div class="page-header"><h1>Shows attended</h1><div class="subtle">${rows.length.toLocaleString()} shows</div></div>
-    <div class="section">
-      <h2>Shows</h2>
-      <div id="shows-chart-toolbar"></div>
-      <div id="shows-chart"></div>
-    </div>
-    <div class="filter-bar">
-      <input type="text" id="browse-search" placeholder="Search artist or venue…" value="${esc(st.q)}" />
-    </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr>
-          ${sortHeader("event_date", "Date", st)}
-          ${sortHeader("artist", "Artist", st)}
-          ${sortHeader("venue", "Venue", st)}
-          <th>Tour</th>
-        </tr></thead>
-        <tbody>
-          ${rows.map((r) => `
-            <tr data-id="${r.id}">
-              <td class="nowrap">${esc(r.event_date)}</td>
-              <td class="row-title">${esc(r.artist_name)}</td>
-              <td>${esc(r.venue_name || "")}${r.city ? `<div class="row-sub">${esc(r.city)}</div>` : ""}</td>
-              <td>${esc(r.tour_name || "")}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  app.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => { location.hash = `#/setlist/${tr.dataset.id}`; }));
-  wireSortableHeaders(st, renderShowsBrowse, ["artist", "venue"]);
-  wireSearchInput("browse-search", st, renderShowsBrowse);
-
-  renderChartToolbar(document.getElementById("shows-chart-toolbar"), st, renderShowsBrowse);
-  renderBarChart(
-    document.getElementById("shows-chart"),
-    chartRows.map((r) => ({
-      label: bucketTickLabel(st.granularity, r.bucket),
-      tooltipLabel: humanBucketLabel(st.granularity, r.bucket),
-      value: r.c,
-      key: r.bucket,
-    })),
-    {
-      color: "var(--accent-live)",
-      selectedKey: st.periodFilter?.key,
-      onClick: (d) => { toggleBucketFilter(st, st.granularity, d.key); renderShowsBrowse(); },
-    }
-  );
-}
-
-// ---------------------------------------------------------------------
 // Browse: Scrobbles (#/scrobbles) -- the big one, paginated
 // ---------------------------------------------------------------------
-const scrobblesState = { q: "", sort: "played_at", dir: "desc", page: 1, granularity: "all", periodFilter: null };
+const scrobblesState = { q: "", sort: "played_at", dir: "desc", page: 1, granularity: "all", periodFilter: null, range: null };
 
 function renderScrobblesBrowse() {
   const st = scrobblesState;
+  // from Home's "average per day": #/scrobbles?range=month -- every play behind it, the chart by day
+  const hp = new URLSearchParams(location.hash.split("?")[1] || "").get("range");
+  if (hp && HP_WINDOWS[hp]) {
+    const mod = HP_WINDOWS[hp].mod;
+    st.range = { win: hp, since: mod ? query(`SELECT strftime('%Y-%m-%dT%H:%M:%S', 'now', ?) AS d`, [mod])[0].d : null };
+    st.granularity = { day: "day", week: "month", month: "month", year: "year", all: "all" }[hp];
+    Object.assign(st, { periodFilter: null, q: "", page: 1, sort: "played_at", dir: "desc" });
+    history.replaceState(history.state, "", "#/scrobbles");
+  }
   const g = GRANULARITIES[st.granularity];
 
   // The search term scopes both the list AND the chart (so searching
@@ -430,6 +250,10 @@ function renderScrobblesBrowse() {
 
   const listWhereParts = searchWhere ? [searchWhere] : [];
   const listParams = [...searchParams];
+  if (st.range?.since) {
+    listWhereParts.push("s.played_at >= ?");
+    listParams.push(st.range.since);
+  }
   if (st.periodFilter) {
     // a bucket picked on the home chart is in local time (tz: its UTC offset modifier); this page's own are UTC
     listWhereParts.push(`strftime('${g.fmt}', s.played_at${st.periodFilter.tz ? `, '${st.periodFilter.tz}'` : ""}) = ?`);
@@ -462,7 +286,7 @@ function renderScrobblesBrowse() {
 
   const chartWhereParts = [];
   if (searchWhere) chartWhereParts.push(searchWhere);
-  if (g.rangeModifier) chartWhereParts.push(`s.played_at >= datetime('now', '${g.rangeModifier}')`);
+  if (g.rangeModifier) chartWhereParts.push(`s.played_at >= strftime('%Y-%m-%dT%H:%M:%S', 'now', '${g.rangeModifier}')`);
   const chartWhere = chartWhereParts.length ? `WHERE ${chartWhereParts.join(" AND ")}` : "";
 
   const chartRows = query(`
@@ -475,8 +299,14 @@ function renderScrobblesBrowse() {
   `, searchParams);
 
   app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <div class="page-header"><h1>Scrobbles</h1><div class="subtle">${total.toLocaleString()} plays</div></div>
+    <div class="page-header"><h1>Scrobbles</h1><div class="subtle">${total.toLocaleString()} plays${st.range && !st.periodFilter && !st.q ? (() => {
+      // divided as Home divides it, so the two figures agree
+      const days = { week: 7, month: 30, year: 365 }[st.range.win] || Math.max(1, (Date.now() - new Date(query("SELECT min(played_at) AS d FROM scrobbles")[0].d)) / 86400000);
+      const per = st.range.win === "day" ? total / 24 : total / days;
+      return ` · ${per < 10 ? per.toFixed(1) : Math.round(per).toLocaleString()} ${st.range.win === "day" ? "an hour" : "a day"} on average`;
+    })() : ""}</div>
+      ${st.range ? `<div class="ab-range" title="From Home's listening activity"><span><i>From Home</i> <b>${esc(HP_WINDOWS[st.range.win].since)}</b></span>
+        <button type="button" data-act="clear-range" aria-label="Remove this filter" title="Remove this filter">✕</button></div>` : ""}</div>
     <div class="section">
       <h2>Activity</h2>
       <div id="scrobbles-chart-toolbar"></div>
@@ -508,6 +338,7 @@ function renderScrobblesBrowse() {
   `;
 
   app.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => { location.hash = `#/song/${tr.dataset.songId}`; }));
+  app.querySelector("[data-act='clear-range']")?.addEventListener("click", () => { st.range = null; st.page = 1; renderScrobblesBrowse(); });
   wireSortableHeaders(st, renderScrobblesBrowse, ["artist", "track"]);
   wirePagination(st, totalPages, renderScrobblesBrowse);
   wireSearchInput("browse-search", st, renderScrobblesBrowse);
@@ -530,728 +361,13 @@ function renderScrobblesBrowse() {
 }
 
 // ---------------------------------------------------------------------
-// Artist page's expandable "most played songs" panel: starts as just a
-// "Show more" button under the top-10 bars; expanded, it's a searchable,
-// paginated (20/page) table over every song scrobbled from this artist.
-// ---------------------------------------------------------------------
-const artistSongsState = { artistId: null, expanded: false, q: "", sort: "plays", dir: "desc", page: 1 };
-
-function renderArtistSongsPanel() {
-  const container = document.getElementById("artist-songs-panel");
-  if (!container) return; // navigated away before this ran
-  const st = artistSongsState;
-
-  // The top-10 bars and the expanded searchable table show the same
-  // information two different ways -- only one should be visible at once.
-  const topBars = document.getElementById("artist-top-songs");
-  if (topBars) topBars.hidden = st.expanded;
-
-  if (!st.expanded) {
-    container.innerHTML = `<button class="show-more-btn" id="show-more-songs">Show more ↓</button>`;
-    document.getElementById("show-more-songs").addEventListener("click", () => {
-      st.expanded = true;
-      st.page = 1;
-      renderArtistSongsPanel();
-    });
-    return;
-  }
-
-  const pageSize = 20;
-  const params = [st.artistId];
-  let where = "s.artist_id = ?";
-  if (st.q) {
-    where += " AND so.title LIKE ? COLLATE NOCASE";
-    params.push(`%${st.q}%`);
-  }
-
-  const countRows = query(`
-    SELECT so.id FROM scrobbles s JOIN songs so ON so.id = s.song_id
-    WHERE ${where} GROUP BY so.id
-  `, params);
-  const total = countRows.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  st.page = Math.min(Math.max(1, st.page), totalPages);
-
-  const sortCol = { title: "so.title", plays: "plays" }[st.sort] || "plays";
-  const dir = st.dir === "asc" ? "ASC" : "DESC";
-
-  const rows = query(`
-    SELECT so.id, so.title, count(*) AS plays
-    FROM scrobbles s JOIN songs so ON so.id = s.song_id
-    WHERE ${where}
-    GROUP BY so.id
-    ORDER BY ${sortCol} ${dir}
-    LIMIT ${pageSize} OFFSET ${(st.page - 1) * pageSize}
-  `, params);
-
-  container.innerHTML = `
-    <div class="filter-bar">
-      <input type="text" id="artist-songs-search" placeholder="Search songs…" value="${esc(st.q)}" />
-      ${sortToggle([["plays", "Plays"], ["title", "Title"]], st)}
-      <div class="filter-count">${total.toLocaleString()} songs</div>
-    </div>
-    <div class="bar-list">${barRowsHtml(rows, st.maxPlays, "#/song/")}</div>
-    ${paginationHtml(st.page, totalPages)}
-    <button class="show-less-btn" id="show-less-songs">Show less ↑</button>
-  `;
-
-  wireSortableHeaders(st, renderArtistSongsPanel, ["title"], container);
-  wirePagination(st, totalPages, renderArtistSongsPanel, container);
-  wireSearchInput("artist-songs-search", st, renderArtistSongsPanel);
-  document.getElementById("show-less-songs").addEventListener("click", () => {
-    st.expanded = false;
-    renderArtistSongsPanel();
-  });
-}
-
-// Artist page's expandable "digital listening" panel -- same shape as
-// renderArtistSongsPanel above, grouped by album instead of song. Existing
-// as its own list (not just the top-10 bars) matters here specifically:
-// a "Deluxe Edition" duplicate splitting off a handful of scrobbles would
-// otherwise fall below the top 10 and stay invisible.
-const artistAlbumsState = { artistId: null, expanded: false, q: "", sort: "plays", dir: "desc", page: 1 };
-
-function renderArtistAlbumsPanel() {
-  const container = document.getElementById("artist-albums-panel");
-  if (!container) return; // navigated away before this ran
-  const st = artistAlbumsState;
-
-  const topBars = document.getElementById("artist-top-albums");
-  if (topBars) topBars.hidden = st.expanded;
-
-  if (!st.expanded) {
-    container.innerHTML = `<button class="show-more-btn" id="show-more-albums">Show more ↓</button>`;
-    document.getElementById("show-more-albums").addEventListener("click", () => {
-      st.expanded = true;
-      st.page = 1;
-      renderArtistAlbumsPanel();
-    });
-    return;
-  }
-
-  const pageSize = 20;
-  const params = [st.artistId];
-  let where = "s.artist_id = ?";
-  if (st.q) {
-    where += " AND al.title LIKE ? COLLATE NOCASE";
-    params.push(`%${st.q}%`);
-  }
-
-  const countRows = query(`
-    SELECT al.id FROM scrobbles s JOIN albums al ON al.id = s.album_id
-    WHERE ${where} GROUP BY al.id
-  `, params);
-  const total = countRows.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  st.page = Math.min(Math.max(1, st.page), totalPages);
-
-  const sortCol = { title: "al.title", plays: "plays" }[st.sort] || "plays";
-  const dir = st.dir === "asc" ? "ASC" : "DESC";
-
-  const rows = query(`
-    SELECT al.id, al.title, count(*) AS plays
-    FROM scrobbles s JOIN albums al ON al.id = s.album_id
-    WHERE ${where}
-    GROUP BY al.id
-    ORDER BY ${sortCol} ${dir}
-    LIMIT ${pageSize} OFFSET ${(st.page - 1) * pageSize}
-  `, params);
-
-  container.innerHTML = `
-    <div class="filter-bar">
-      <input type="text" id="artist-albums-search" placeholder="Search albums…" value="${esc(st.q)}" />
-      ${sortToggle([["plays", "Plays"], ["title", "Title"]], st)}
-      <div class="filter-count">${total.toLocaleString()} albums</div>
-    </div>
-    <div class="bar-list">${barRowsHtml(rows, st.maxPlays, "#/album/")}</div>
-    ${paginationHtml(st.page, totalPages)}
-    <button class="show-less-btn" id="show-less-albums">Show less ↑</button>
-  `;
-
-  wireSortableHeaders(st, renderArtistAlbumsPanel, ["title"], container);
-  wirePagination(st, totalPages, renderArtistAlbumsPanel, container);
-  wireSearchInput("artist-albums-search", st, renderArtistAlbumsPanel);
-  document.getElementById("show-less-albums").addEventListener("click", () => {
-    st.expanded = false;
-    renderArtistAlbumsPanel();
-  });
-}
-
-// ---------------------------------------------------------------------
-// Artist: the hub page -- shows attended, vinyl owned, top songs, top
-// albums (the last two "all media": scrobbles regardless of format)
-// ---------------------------------------------------------------------
-function renderArtist(id) {
-  const artist = query(`SELECT * FROM artists WHERE id = ?`, [id])[0];
-  if (!artist) return renderNotFound("Artist");
-
-  // Kick off the slowest thing on this page -- the Wikipedia/MusicBrainz
-  // bio lookup -- before anything else, not after. Everything below this
-  // (vinyl/scrobble/song/setlist counts) is a synchronous, local,
-  // sub-millisecond sql.js query; the enrichment fetch is a real network
-  // round trip, and it's also the first thing shown on the page, so it
-  // should be the first thing requested, not the last.
-  const token = renderToken;
-  const enrichmentPromise = getArtistEnrichment(artist);
-
-  const vinylCount = query(`
-    SELECT count(*) AS c FROM vinyl_holdings v
-    JOIN album_artists aa ON aa.album_id = v.album_id
-    WHERE aa.artist_id = ?
-  `, [id])[0].c;
-
-  const scrobbleCount = query(`SELECT count(*) AS c FROM scrobbles WHERE artist_id = ?`, [id])[0].c;
-  const liveCount = query(`SELECT count(*) AS c FROM setlists WHERE artist_id = ?`, [id])[0].c;
-
-  const topSongs = query(`
-    SELECT so.id, so.title, count(*) AS plays
-    FROM scrobbles s JOIN songs so ON so.id = s.song_id
-    WHERE s.artist_id = ?
-    GROUP BY so.id ORDER BY plays DESC LIMIT 10
-  `, [id]);
-  const maxPlays = topSongs.length ? topSongs[0].plays : 1;
-
-  const topAlbums = query(`
-    SELECT al.id, al.title, count(*) AS plays
-    FROM scrobbles s JOIN albums al ON al.id = s.album_id
-    WHERE s.artist_id = ?
-    GROUP BY al.id ORDER BY plays DESC LIMIT 5
-  `, [id]);
-  const maxAlbumPlays = topAlbums.length ? topAlbums[0].plays : 1;
-
-  const ownLook = hasColumn("vinyl_holdings", "cover_file"); // a copy's own cover / title / year (e.g. Part 1, Part 2)
-  const vinylRows = query(`
-    SELECT DISTINCT al.id AS album_id, al.cover_status, al.cover_updated_at, al.title, al.year, v.format, v.media_condition
-      ${ownLook ? ", v.id AS holding_id, v.cover_file, v.display_title, v.release_year" : ""}
-    FROM vinyl_holdings v
-    JOIN album_artists aa ON aa.album_id = v.album_id
-    JOIN albums al ON al.id = v.album_id
-    WHERE aa.artist_id = ?
-    ORDER BY ${ownLook ? "coalesce(v.release_year, al.year)" : "al.year"}
-  `, [id]);
-
-  const setlistRows = query(`
-    SELECT sl.id, sl.event_date, ven.name AS venue_name, ven.city, sl.tour_name
-    FROM setlists sl LEFT JOIN venues ven ON ven.id = sl.venue_id
-    WHERE sl.artist_id = ?
-    ORDER BY sl.event_date DESC
-  `, [id]);
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <div class="artist-header">
-      <h1>${esc(artist.name)}${artist.mbid ? '<span class="artist-mbid-badge" title="Matched via MusicBrainz">MBID</span>' : ""}</h1>
-    </div>
-    <div class="badge-row">
-      <div class="badge vinyl${vinylCount ? "" : " disabled"}" id="badge-vinyl">${vinylCount} on vinyl</div>
-      <div class="badge scrobble${scrobbleCount ? "" : " disabled"}" id="badge-scrobble">${scrobbleCount.toLocaleString()} scrobbles</div>
-      <div class="badge live${liveCount ? "" : " disabled"}" id="badge-live">Seen live ${liveCount}×</div>
-    </div>
-    ${genreTagsHtml(artistGenreNames(id), "From their albums")}
-
-    <div id="about-panel"></div>
-
-    <div class="section">
-      <h2>Shows attended</h2>
-      ${setlistRows.length ? setlistRows.map((sl) => `
-        <div class="list-item" onclick="location.hash='#/setlist/${sl.id}'">
-          <div>
-            <div class="list-title">${esc(sl.venue_name || "Unknown venue")}</div>
-            <div class="list-sub">${esc(sl.city || "")}${sl.tour_name ? " · " + esc(sl.tour_name) : ""}</div>
-          </div>
-          <div class="list-right">${esc(sl.event_date)}</div>
-        </div>
-      `).join("") : `<p class="subtle">Not yet seen</p>`}
-    </div>
-
-    <div class="section">
-      <h2>On the shelf</h2>
-      ${vinylRows.length ? vinylRows.map((v) => `
-        <div class="vinyl-card" data-album-id="${v.album_id}" style="cursor:pointer">
-          ${v.cover_file ? `<img class="cover-own" src="public/covers/${encodeURIComponent(v.cover_file)}" alt="" loading="lazy" />`
-            : `<img class="cover-thumb" data-album-id="${v.album_id}" data-cover-status="${v.cover_status || ""}" data-cover-version="${esc(v.cover_updated_at || "")}" alt="" loading="lazy" />`}
-          <div class="vinyl-body">
-            <div class="title">${esc(v.display_title || v.title)}${v.release_year || v.year ? ` <span class="subtle">(${v.release_year || v.year})</span>` : ""}</div>
-            <div class="meta">${esc(v.format || "")}${v.media_condition ? " · " + esc(v.media_condition) : ""}</div>
-          </div>
-        </div>
-      `).join("") : `<p class="subtle">No records owned yet</p>`}
-    </div>
-
-    ${topSongs.length ? `
-      <div class="section">
-        <h2>Top songs (all media)</h2>
-        <div id="artist-top-songs">${barRowsHtml(topSongs, maxPlays, "#/song/")}</div>
-        <div id="artist-songs-panel"></div>
-      </div>
-    ` : ""}
-
-    ${topAlbums.length ? `
-      <div class="section">
-        <h2>Top albums (all media)</h2>
-        <div id="artist-top-albums">${barRowsHtml(topAlbums, maxAlbumPlays, "#/album/")}</div>
-        <div id="artist-albums-panel"></div>
-      </div>
-    ` : ""}
-  `;
-
-  app.querySelectorAll("img.cover-thumb").forEach((img) => attachCoverArt(img, img.dataset.albumId, img.dataset.coverStatus, img.dataset.coverVersion));
-  app.querySelectorAll(".vinyl-card[data-album-id]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/album/${el.dataset.albumId}`; }));
-
-  // Badges jump to the matching browse page, pre-filtered to this artist
-  // (a badge for a count of zero is inert -- nothing to filter down to).
-  if (vinylCount) {
-    document.getElementById("badge-vinyl").addEventListener("click", () => {
-      location.hash = `#/vinyl?q=${encodeURIComponent(artist.name)}`;
-    });
-  }
-  if (scrobbleCount) {
-    document.getElementById("badge-scrobble").addEventListener("click", () => {
-      scrobblesState.q = artist.name; scrobblesState.periodFilter = null; scrobblesState.page = 1;
-      location.hash = "#/scrobbles";
-    });
-  }
-  if (liveCount) {
-    document.getElementById("badge-live").addEventListener("click", () => {
-      showsState.q = artist.name; showsState.periodFilter = null;
-      location.hash = "#/shows";
-    });
-  }
-
-  if (topSongs.length) {
-    artistSongsState.artistId = id;
-    artistSongsState.expanded = false;
-    artistSongsState.q = "";
-    artistSongsState.sort = "plays";
-    artistSongsState.dir = "desc";
-    artistSongsState.page = 1;
-    // Bar widths in the expanded list stay relative to this artist's #1
-    // most-played song, same reference the top-10 preview uses -- so a
-    // page 2 entry's bar means the same thing as a top-10 entry's, rather
-    // than rescaling to whatever's biggest on the current page/search.
-    artistSongsState.maxPlays = maxPlays;
-    renderArtistSongsPanel();
-  }
-
-  if (topAlbums.length) {
-    artistAlbumsState.artistId = id;
-    artistAlbumsState.expanded = false;
-    artistAlbumsState.q = "";
-    artistAlbumsState.sort = "plays";
-    artistAlbumsState.dir = "desc";
-    artistAlbumsState.page = 1;
-    artistAlbumsState.maxPlays = maxAlbumPlays;
-    renderArtistAlbumsPanel();
-  }
-
-  // The fetch itself was already kicked off at the top of this function;
-  // this just wires its result up once both it and the DOM below are
-  // ready. `token` (captured up top, before any of the SQL queries) still
-  // guards against writing into a page the user has since navigated away
-  // from.
-  const aboutPanel = document.getElementById("about-panel");
-  aboutPanel.innerHTML = '<div class="about-skeleton">Loading more about this artist…</div>';
-  enrichmentPromise.then((info) => {
-    if (token !== renderToken) return;
-    if (!info.extract && !info.tags.length) {
-      aboutPanel.innerHTML = "";
-      return;
-    }
-    aboutPanel.innerHTML = `
-      <div class="about-panel">
-        ${info.thumbnail ? `<img class="about-thumb" src="${esc(info.thumbnail)}" alt="" />` : ""}
-        <div>
-          ${info.extract ? `<div class="about-text">${esc(info.extract)}</div>` : ""}
-          ${info.tags.length ? `<div class="genre-pills">${info.tags.map((t) => `<span class="genre-pill">${esc(genreName(t))}</span>`).join("")}</div>` : ""}
-          ${info.pageUrl ? `<div class="about-source"><a href="${esc(info.pageUrl)}" target="_blank" rel="noopener">Wikipedia ↗</a></div>` : ""}
-        </div>
-      </div>
-    `;
-  });
-}
-
-// ---------------------------------------------------------------------
-// Song: the "rabbit hole" page -- live count, scrobble count, vinyl status
-// ---------------------------------------------------------------------
-function renderSong(id) {
-  const song = query(`
-    SELECT so.*, ar.name AS artist_name
-    FROM songs so JOIN artists ar ON ar.id = so.artist_id
-    WHERE so.id = ?
-  `, [id])[0];
-  if (!song) return renderNotFound("Song");
-
-  const scrobbleCount = query(`SELECT count(*) AS c FROM scrobbles WHERE song_id = ?`, [id])[0].c;
-
-  const liveRows = query(`
-    SELECT ss.is_cover, ss.cover_of_artist_text, sl.id AS setlist_id, sl.event_date,
-           ven.name AS venue_name, ven.city, perf.name AS performer_name
-    FROM setlist_songs ss
-    JOIN setlists sl ON sl.id = ss.setlist_id
-    JOIN artists perf ON perf.id = sl.artist_id
-    LEFT JOIN venues ven ON ven.id = sl.venue_id
-    WHERE ss.song_id = ?
-    ORDER BY sl.event_date DESC
-  `, [id]);
-
-  const onVinyl = song.album_id
-    ? query(`SELECT 1 FROM vinyl_holdings WHERE album_id = ? LIMIT 1`, [song.album_id]).length > 0
-    : false;
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <h1>${esc(song.title)}</h1>
-    <div class="subtle">${esc(song.artist_name)}</div>
-
-    <div class="badge-row">
-      <div class="badge vinyl${onVinyl ? "" : " disabled"}" id="badge-vinyl">${onVinyl ? "Owned on vinyl" : "Not on vinyl"}</div>
-      <div class="badge scrobble${scrobbleCount ? "" : " disabled"}" id="badge-scrobble">${scrobbleCount.toLocaleString()} scrobbles</div>
-      <div class="badge live${liveRows.length ? "" : " disabled"}" id="badge-live">Heard live ${liveRows.length}×</div>
-    </div>
-
-    ${liveRows.length ? `
-      <div class="section" id="song-live-section">
-        <h2>Live performances</h2>
-        ${liveRows.map((r) => `
-          <div class="list-item" onclick="location.hash='#/setlist/${r.setlist_id}'">
-            <div>
-              <div class="list-title">${esc(r.venue_name || "Unknown venue")}</div>
-              <div class="list-sub">
-                ${esc(r.city || "")}
-                ${r.is_cover ? ` · cover, originally ${esc(r.cover_of_artist_text || "")}` : ""}
-                ${r.performer_name !== song.artist_name ? ` · performed by ${esc(r.performer_name)}` : ""}
-              </div>
-            </div>
-            <div class="list-right">${esc(r.event_date)}</div>
-          </div>
-        `).join("")}
-      </div>
-    ` : '<div class="section subtle">Never heard live (yet).</div>'}
-  `;
-
-  // Vinyl and scrobbles jump to their respective browse page, pre-filtered
-  // to this song; "heard live" scrolls to the performance list already on
-  // this page, since there's no separate per-song page for that. A badge
-  // at zero is inert -- there's nothing to filter down to or scroll to.
-  if (onVinyl) {
-    document.getElementById("badge-vinyl").addEventListener("click", () => { location.hash = `#/album/${song.album_id}`; });
-  }
-  if (scrobbleCount) {
-    document.getElementById("badge-scrobble").addEventListener("click", () => {
-      scrobblesState.q = song.title; scrobblesState.periodFilter = null; scrobblesState.page = 1;
-      location.hash = "#/scrobbles";
-    });
-  }
-  if (liveRows.length) {
-    document.getElementById("badge-live").addEventListener("click", () => {
-      document.getElementById("song-live-section").scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }
-}
-
-// ---------------------------------------------------------------------
-// Setlist: full show detail
-// ---------------------------------------------------------------------
-function renderSetlist(id) {
-  const setlist = query(`
-    SELECT sl.*, ar.name AS artist_name, ven.id AS venue_id, ven.name AS venue_name, ven.city, ven.country
-    FROM setlists sl
-    JOIN artists ar ON ar.id = sl.artist_id
-    LEFT JOIN venues ven ON ven.id = sl.venue_id
-    WHERE sl.id = ?
-  `, [id])[0];
-  if (!setlist) return renderNotFound("Setlist");
-
-  const songs = query(`
-    SELECT ss.*, so.title
-    FROM setlist_songs ss JOIN songs so ON so.id = ss.song_id
-    WHERE ss.setlist_id = ?
-    ORDER BY ss.position
-  `, [id]);
-
-  let lastSetName = Symbol("unset");
-  const songsHtml = songs.map((s) => {
-    let header = "";
-    if (s.set_name !== lastSetName) {
-      header = `<div class="set-name-label">${esc(s.set_name || "Set")}</div>`;
-      lastSetName = s.set_name;
-    }
-    return `
-      ${header}
-      <div class="setlist-song-row" onclick="location.hash='#/song/${s.song_id}'">
-        <div class="pos">${s.position}.</div>
-        <div>${esc(s.title)} ${s.is_cover ? `<span class="cover-tag">cover of ${esc(s.cover_of_artist_text || "")}</span>` : ""}</div>
-      </div>
-    `;
-  }).join("");
-
-  const venueLabel = esc(setlist.venue_name || "Unknown venue");
-  const venueHtml = setlist.venue_id
-    ? `<span class="link-text" onclick="location.hash='#/venue/${setlist.venue_id}'">${venueLabel}</span>`
-    : venueLabel;
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <h1><span class="link-text" onclick="location.hash='#/artist/${setlist.artist_id}'">${esc(setlist.artist_name)}</span></h1>
-    <div class="subtle">
-      ${esc(setlist.event_date)} · ${venueHtml}${setlist.city ? ", " + esc(setlist.city) : ""}
-      ${setlist.tour_name ? " · " + esc(setlist.tour_name) : ""}
-    </div>
-    <div class="setlist-songs">${songsHtml || '<div class="subtle">No songs recorded for this setlist.</div>'}</div>
-  `;
-}
-
-// ---------------------------------------------------------------------
-// Venue: every show attended there
-// ---------------------------------------------------------------------
-function renderVenue(id) {
-  const venue = query(`SELECT * FROM venues WHERE id = ?`, [id])[0];
-  if (!venue) return renderNotFound("Venue");
-
-  const shows = query(`
-    SELECT sl.id, sl.event_date, ar.id AS artist_id, ar.name AS artist_name, sl.tour_name
-    FROM setlists sl JOIN artists ar ON ar.id = sl.artist_id
-    WHERE sl.venue_id = ?
-    ORDER BY sl.event_date DESC
-  `, [id]);
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <h1>${esc(venue.name)}</h1>
-    <div class="subtle">${[venue.city, venue.country].filter(Boolean).map(esc).join(", ")}</div>
-
-    <div class="badge-row">
-      <div class="badge live">${shows.length} show${shows.length === 1 ? "" : "s"} attended</div>
-    </div>
-
-    <div class="section">
-      <h2>Shows</h2>
-      ${shows.map((sl) => `
-        <div class="list-item" onclick="location.hash='#/setlist/${sl.id}'">
-          <div>
-            <div class="list-title">${esc(sl.artist_name)}</div>
-            <div class="list-sub">${esc(sl.tour_name || "")}</div>
-          </div>
-          <div class="list-right">${esc(sl.event_date)}</div>
-        </div>
-      `).join("") || '<div class="subtle">No shows recorded.</div>'}
-    </div>
-  `;
-}
-
-// ---------------------------------------------------------------------
 // Album: the release detail a vinyl entry links to -- every physical
 // copy owned (pressings/variants can differ -- catalog#, color, condition)
 // plus whatever tracks we know from that album, with cover art.
 // ---------------------------------------------------------------------
 // The album page's songs: split into the album's own tracklist and bonus / other tracks when a
 // reference tracklist is known (a pressing you own), else just the songs, most played first.
-function albumTracksHtml(albumId, songs) {
-  const liveDot = (x) => (x?.shows ? ` <i class="livedot" title="Heard live at ${x.shows} show${x.shows === 1 ? "" : "s"}">●</i>` : "");
-  const songRow = (x) => `<div class="list-item" data-song-id="${x.id}"><div class="list-title">${esc(x.title)}${liveDot(x)}</div>
-      <div class="list-right">${x.plays.toLocaleString()} play${x.plays === 1 ? "" : "s"}</div></div>`;
-  const ref = albumReferenceTracklist(albumId);
-  if (!ref) return songs.length ? `<div class="section"><h2>Tracks</h2>${songs.map(songRow).join("")}</div>` : "";
-  const main = matchTracklist(ref.tracks, songs, albumId);
-  // another-language version beside your pressing (Carolus Rex: Swedish LP + English version)
-  const version = ref.pressing ? versionTracklist(albumId) : null;
-  const other = version ? matchTracklist(version.tracks, songs, albumId, version.variant) : null;
-  // a recording on both (an instrumental intro) is counted once, on your pressing's line
-  const onMain = new Set(songs.filter((x) => !main.unlisted.includes(x)).map((x) => x.id));
-  if (other) other.tracks.forEach((t) => { if (t.song && onMain.has(t.song.id)) t.again = true; });
-  const unlisted = other ? main.unlisted.filter((x) => other.unlisted.includes(x)) : main.unlisted;
-  const lines = (list) => list.map((t) => `<div class="list-item tl-line"${t.song ? ` data-song-id="${t.song.id}"` : ""}>
-        <span class="tl-pos">${esc(t.pos || "")}</span>
-        <div class="list-title">${esc(t.title)}${t.again ? "" : liveDot(t.song)}</div>
-        <div class="list-right">${t.song && !t.again ? `${t.song.plays.toLocaleString()} play${t.song.plays === 1 ? "" : "s"}` : t.again ? `<span class="subtle" title="Counted on its first line above">↑</span>` : `<span class="subtle">not played</span>`}${t.dur ? `<span class="subtle tl-dur">${esc(t.dur)}</span>` : ""}</div></div>`).join("");
-  return `<div class="section">
-      <div class="section-head"><h2>Tracklist</h2><span class="subtle">from ${esc(ref.source)}</span></div>
-      ${lines(main.tracks)}
-    </div>
-    ${other ? `<div class="section">
-      <div class="section-head"><h2>${esc(version.label)}</h2><span class="subtle">the same album in another language · MusicBrainz</span></div>
-      ${lines(other.tracks)}</div>` : ""}
-    ${unlisted.length ? `<div class="section">
-      <div class="section-head"><h2>Bonus &amp; other tracks</h2><span class="subtle">played from this album, not on ${ref.pressing ? "that pressing" : "the original release"} — deluxe and digital extras</span></div>
-      ${unlisted.map(songRow).join("")}</div>` : ""}`;
-}
-
-function renderAlbum(id) {
-  const album = query(`
-    SELECT al.*, ar.name AS artist_name, ar.id AS artist_id
-    FROM albums al JOIN artists ar ON ar.id = al.artist_id
-    WHERE al.id = ?
-  `, [id])[0];
-  if (!album) return renderNotFound("Album");
-
-  // your copies: this album's own, plus any set it's part of (a 2-on-1 that contains it)
-  const sets = albumSetsContaining(id);
-  const copies = loadCollection().filter((r) => r.album_id === id || sets.includes(r.album_id));
-  const parts = albumScope(id).slice(1).map((pid) => query("SELECT id, title, year FROM albums WHERE id = ?", [pid])[0]).filter(Boolean);
-
-  const tracks = albumSongGroups(id); // the same per-track counts as the collection's record drawer
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <div class="album-header">
-      <img class="album-cover-large" data-album-id="${album.id}" data-cover-status="${album.cover_status || ""}" alt="" />
-      <div>
-        <h1>${esc(album.title)}</h1>
-        <div class="subtle"><span class="link-text" onclick="location.hash='#/artist/${album.artist_id}'">${esc(album.artist_name)}</span>${album.year ? ` · ${album.year}` : ""}</div>
-        ${parts.length ? `<div class="subtle album-set">A set of ${parts.map((p) => `<span class="link-text" onclick="location.hash='#/album/${p.id}'">${esc(p.title)}</span>${p.year ? ` (${p.year})` : ""}`).join(" + ")}</div>` : ""}
-        ${genreTagsHtml(parts.length && !albumGenreNames(id).length ? [...new Set(parts.flatMap((p) => albumGenreNames(p.id)))] : albumGenreNames(id))}
-      </div>
-    </div>
-
-    ${copies.length ? `<div class="section">
-      <h2>${copies.length > 1 ? "Your copies" : "Your copy"}</h2>
-      ${copies.map((r) => `
-        <button class="pressing-card${r.ownLook ? " own-look" : ""}" data-holding="${r.id}">
-          ${r.album_id !== id ? `<div class="pc-set">Part of the set <b>${esc(r.title)}</b>${r.year ? ` <span class="subtle">· ${r.year}</span>` : ""}</div>` : ""}
-          ${r.ownLook ? `<div class="pc-own">${coverImg(r, "pc-own-art")}<div><b>${esc(r.title)}</b>${r.year ? ` <span class="subtle">· ${r.year}</span>` : ""}</div></div>` : ""}
-          <div class="rd-line"><b>${esc(r.label || "Unknown label")}</b>${r.catalog_number ? ` · <span class="mono">${esc(r.catalog_number)}</span>` : ""}${r.country ? ` · ${esc(r.country)}` : ""}${r.pressing_year ? ` · ${r.pressing_year}` : ""} ${starsHtml(r.rating)}</div>
-          <div class="pbadges">${pressingBadges(r)}</div>
-          ${meter(r.grade, "Record")}${meter(r.sleeveGrade, "Sleeve")}
-          ${r.notes ? `<div class="subtle pc-note">“${esc(r.notes)}”</div>` : ""}
-          <div class="subtle">Added ${esc((r.date_added || "").slice(0, 10))} · open in the collection →</div>
-        </button>
-      `).join("")}
-    </div>` : ""}
-
-    ${albumTracksHtml(id, tracks)}
-  `;
-
-  const img = app.querySelector("img.album-cover-large");
-  if (img) attachCoverArt(img, album.id, album.cover_status, album.cover_updated_at);
-  app.querySelectorAll("[data-holding]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/vinyl/${el.dataset.holding}`; }));
-  app.querySelectorAll("[data-song-id]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/song/${el.dataset.songId}`; }));
-}
-
-// ---------------------------------------------------------------------
-// Browse: Songs (#/songs) -- one row per song, not per play
-// ---------------------------------------------------------------------
-const songsState = { q: "", sort: "plays", dir: "desc", page: 1 };
-
-function renderSongsBrowse() {
-  const st = songsState;
-  const params = [];
-  let where = "";
-  if (st.q) {
-    where = "WHERE (so.title LIKE ? COLLATE NOCASE OR ar.name LIKE ? COLLATE NOCASE)";
-    params.push(`%${st.q}%`, `%${st.q}%`);
-  }
-
-  const total = query(`SELECT count(*) AS c FROM songs so JOIN artists ar ON ar.id = so.artist_id ${where}`, params)[0].c;
-  const pageSize = 50;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  st.page = Math.min(Math.max(1, st.page), totalPages);
-
-  const sortCol = { title: "so.title", artist: "ar.name", plays: "plays" }[st.sort] || "plays";
-  const dir = st.dir === "asc" ? "ASC" : "DESC";
-
-  const rows = query(`
-    SELECT so.id, so.title, ar.name AS artist_name,
-      (SELECT count(*) FROM scrobbles WHERE song_id = so.id) AS plays
-    FROM songs so JOIN artists ar ON ar.id = so.artist_id
-    ${where}
-    ORDER BY ${sortCol} ${dir}
-    LIMIT ${pageSize} OFFSET ${(st.page - 1) * pageSize}
-  `, params);
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <div class="page-header"><h1>Songs</h1><div class="subtle">${total.toLocaleString()} songs</div></div>
-    <div class="filter-bar">
-      <input type="text" id="browse-search" placeholder="Search track or artist…" value="${esc(st.q)}" />
-    </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr>
-          ${sortHeader("artist", "Artist", st)}
-          ${sortHeader("title", "Track", st)}
-          ${sortHeader("plays", "Played", st, true)}
-        </tr></thead>
-        <tbody>
-          ${rows.map((r) => `
-            <tr data-id="${r.id}">
-              <td>${esc(r.artist_name)}</td>
-              <td class="row-title">${esc(r.title)}</td>
-              <td class="num">${r.plays.toLocaleString()}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-    ${paginationHtml(st.page, totalPages)}
-  `;
-
-  app.querySelectorAll("tbody tr").forEach((tr) => tr.addEventListener("click", () => { location.hash = `#/song/${tr.dataset.id}`; }));
-  wireSortableHeaders(st, renderSongsBrowse, ["title", "artist"]);
-  wirePagination(st, totalPages, renderSongsBrowse);
-  wireSearchInput("browse-search", st, renderSongsBrowse);
-}
-
-// ---------------------------------------------------------------------
-// Browse: Venues (#/venues) -- one row per venue
-// ---------------------------------------------------------------------
-const venuesState = { q: "", sort: "visits", dir: "desc" };
-
-function renderVenuesBrowse() {
-  const st = venuesState;
-  const params = [];
-  let where = "";
-  if (st.q) {
-    where = "WHERE (v.name LIKE ? COLLATE NOCASE OR v.city LIKE ? COLLATE NOCASE)";
-    params.push(`%${st.q}%`, `%${st.q}%`);
-  }
-  const sortCol = { name: "v.name", city: "v.city", visits: "visits", last_visited: "last_visited" }[st.sort] || "visits";
-  const dir = st.dir === "asc" ? "ASC" : "DESC";
-
-  const rows = query(`
-    SELECT v.id, v.name, v.city, v.country, count(sl.id) AS visits, max(sl.event_date) AS last_visited
-    FROM venues v LEFT JOIN setlists sl ON sl.venue_id = v.id
-    ${where}
-    GROUP BY v.id
-    ORDER BY ${sortCol} ${dir} NULLS LAST
-  `, params);
-
-  app.innerHTML = `
-    <button class="back-link" onclick="goBack()" title="Back" aria-label="Back">←</button>
-    <div class="page-header"><h1>Venues</h1><div class="subtle">${rows.length.toLocaleString()} venues</div></div>
-    <div class="filter-bar">
-      <input type="text" id="browse-search" placeholder="Search venue or city…" value="${esc(st.q)}" />
-    </div>
-    <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr>
-          ${sortHeader("name", "Venue", st)}
-          ${sortHeader("city", "City", st)}
-          ${sortHeader("visits", "Visits", st, true)}
-          ${sortHeader("last_visited", "Last visited", st)}
-        </tr></thead>
-        <tbody>
-          ${rows.map((r, i) => `
-            <tr data-index="${i}">
-              <td class="row-title">${esc(r.name)}</td>
-              <td>${esc(r.city || "")}${r.country ? `<div class="row-sub">${esc(r.country)}</div>` : ""}</td>
-              <td class="num">${r.visits}</td>
-              <td class="nowrap">${esc(r.last_visited || "")}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  app.querySelectorAll("tbody tr").forEach((tr) => {
-    tr.addEventListener("click", () => {
-      const venue = rows[Number(tr.dataset.index)];
-      location.hash = `#/venue/${venue.id}`;
-    });
-  });
-  wireSortableHeaders(st, renderVenuesBrowse, ["name", "city"]);
-  wireSearchInput("browse-search", st, renderVenuesBrowse);
-}
+// renderAlbum (#/album/<id>) lives in js/album-page.js
 
 // ---------------------------------------------------------------------
 // Router
@@ -1280,6 +396,22 @@ async function hardRefresh() {
   location.reload();
 }
 
+// The top bar's back button names where it goes ("‹ Gojira"): the heading of each page is remembered
+// by its history depth as you leave it. Opened straight onto a page, back goes Home (goBack).
+const backLabels = [];
+function rememberBackLabel() {
+  if (lastRenderedHash === null) return;
+  const h = app.querySelector("h1");
+  backLabels[navDepth] = document.body.dataset.route === "home" ? "Home" : h ? h.innerText.split("\n")[0].replace(/MBID$/, "").trim() : "Back";
+}
+function updateBackButton() {
+  const label = navDepth > 0 ? backLabels[navDepth - 1] || "Back" : "Home";
+  const btn = document.getElementById("topbar-back");
+  btn.querySelector(".tb-label").textContent = label;
+  btn.title = `Back to ${label}`;
+  btn.setAttribute("aria-label", `Back to ${label}`);
+}
+
 function goBack() {
   if (navDepth > 0) history.back();
   else location.hash = "#/";
@@ -1289,7 +421,7 @@ function goBack() {
  * Collection has its own search). Cleared on every render; a page sets it after. */
 function setTopbarTitle(hud, title) {
   const el = document.getElementById("topbar-title");
-  el.innerHTML = hud ? `<span class="hud">${esc(hud)}</span><span class="tt-name">${esc(title)}</span>` : "";
+  el.innerHTML = hud ? `<span class="hud">${esc(hud)}</span><span class="tt-name">${esc(title)}</span><svg class="i tt-search" aria-label="Search"><use href="#i-search"/></svg>` : "";
   document.body.classList.toggle("has-topbar-title", Boolean(hud));
 }
 
@@ -1298,8 +430,10 @@ function render() {
   skipRender = null;
   renderToken += 1;
   const hash = location.hash || "#/";
+  rememberBackLabel();
   if (history.state?.depth == null) history.replaceState({ depth: lastRenderedHash === null ? 0 : navDepth + 1 }, "", location.href);
   navDepth = history.state.depth;
+  updateBackButton();
   document.body.dataset.route = hash === "#/" || hash === "#" ? "home" : hash.split(/[/?]/)[1] || "home";
   document.body.classList.remove("search-open");
   setTopbarTitle(null);
@@ -1311,6 +445,7 @@ function render() {
   const albumMatch = hash.match(/^#\/album\/(\d+)/);
   const venueMatch = hash.match(/^#\/venue\/(\d+)/);
   const recordMatch = hash.match(/^#\/vinyl\/(\d+)/);
+  const eventMatch = hash.match(/^#\/event\/(\d{4}-\d{2}-\d{2})/);
   app.classList.remove("wide");
   if (!recordMatch && typeof closeRecord === "function") closeRecord(false); // leaving the collection: no drawer left behind
   if (artistMatch) return renderArtist(Number(artistMatch[1]));
@@ -1318,13 +453,16 @@ function render() {
   if (setlistMatch) return renderSetlist(Number(setlistMatch[1]));
   if (albumMatch) return renderAlbum(Number(albumMatch[1]));
   if (venueMatch) return renderVenue(Number(venueMatch[1]));
+  if (hash.startsWith("#/albums")) return renderAlbumsBrowse();
   if (hash.startsWith("#/artists")) return renderArtistsBrowse();
   if (recordMatch) return renderCollection(Number(recordMatch[1]));
   if (hash.startsWith("#/vinyl")) return renderCollection();
-  if (hash.startsWith("#/shows")) return renderShowsBrowse();
+  if (eventMatch) return renderEvent(eventMatch[1]);
+  if (hash.startsWith("#/shows/insights")) return renderLiveInsightsPage();
+  if (hash.startsWith("#/shows")) return renderLiveHub();
   if (hash.startsWith("#/scrobbles")) return renderScrobblesBrowse();
   if (hash.startsWith("#/songs")) return renderSongsBrowse();
-  if (hash.startsWith("#/venues")) return renderVenuesBrowse();
+  if (hash.startsWith("#/venues")) { liveState.view = "venues"; history.replaceState(history.state, "", "#/shows"); lastRenderedHash = "#/shows"; return renderLiveHub(); }  // the venues list is the hub's Venues view now
   return renderHome();
 }
 
@@ -1338,15 +476,15 @@ function setupTabbar() {
   const bar = document.querySelector(".tabbar");
   if (!bar) return;
   bar.hidden = false;
-  document.getElementById("tabbar-search").addEventListener("click", (e) => {
-    e.preventDefault();
-    document.body.classList.add("search-open"); // a page showing its title up top swaps it for the search box
+  // a page showing its title up top (Vinyl, Live): tapping the title swaps it for the search box
+  document.getElementById("topbar-title").addEventListener("click", () => {
+    document.body.classList.add("search-open");
     document.getElementById("search-input").focus();
-    document.getElementById("search-input").scrollIntoView({ behavior: "smooth" });
   });
   function reflectRoute() {
     const hash = location.hash || "#/";
-    const route = hash === "#/" ? "home" : hash.startsWith("#/vinyl") ? "vinyl" : hash.startsWith("#/shows") ? "shows" : null;
+    const route = hash === "#/" ? "home" : hash.startsWith("#/vinyl") ? "vinyl" : hash.startsWith("#/shows") ? "shows"
+      : /^#\/(songs|albums|artists|scrobbles)\b/.test(hash) ? "digital" : null;  // Digital: the Songs / Albums / Artists lists
     bar.querySelectorAll("a[data-route]").forEach((a) => {
       if (a.dataset.route === route) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
     });
@@ -1396,7 +534,7 @@ function setupSearch() {
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".search-wrap")) results.hidden = true;
-    if (!e.target.closest(".search-wrap, #tabbar-search") && !input.value.trim()) document.body.classList.remove("search-open");
+    if (!e.target.closest(".search-wrap, #topbar-title") && !input.value.trim()) document.body.classList.remove("search-open");
   });
 }
 

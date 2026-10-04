@@ -79,10 +79,14 @@
 .hp-listen-body { display: flex; flex-direction: column; gap: 60px; }
 .hp-activity, .hp-most { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
 .hp-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.hp-kpi { padding: 14px 16px; background: var(--surface); border: 1px solid var(--edge); min-width: 0; }
+.hp-kpi { padding: 14px 12px; background: var(--surface); border: 1px solid var(--edge); min-width: 0;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
 .hp-kpi b { display: block; font-size: 1.85rem; font-weight: 600; line-height: 1.1; color: var(--text); font-variant-numeric: tabular-nums; }
 .hp-kpi:first-child b { color: var(--accent-scrobble); }
-.hp-kpi span { display: block; margin-top: 4px; font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim); }
+a.hp-kpi { color: inherit; text-decoration: none; transition: border-color .15s, background .15s; }
+a.hp-kpi:hover, a.hp-kpi:focus-visible { border-color: var(--accent); background: var(--accent-wash); outline: none; }
+.hp-kpi span { display: block; max-width: 100%; margin-top: 4px; font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hp-chart-wrap { display: flex; flex-direction: column; padding-top: 10px; }
 .hp-chart { position: relative; height: 280px; }
 .hp-tick { position: absolute; left: 52px; right: 0; height: 0; border-top: 1px solid var(--gridline); opacity: .7; }
@@ -114,7 +118,7 @@
 .hp-art.hp-art-xl { width: 132px; height: 132px; font-size: 3rem; box-shadow: var(--shadow); }
 .hp-hero-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .hp-hero-rank { font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
-.hp-hero-title { font-size: 1.7rem; font-weight: 600; line-height: 1.15; color: var(--text); overflow-wrap: anywhere; }
+.hp-hero-title { font-size: 1.7rem; font-weight: 600; line-height: 1.15; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hp-hero-sub { font-size: 1.02rem; color: var(--text-dim); }
 .hp-hero-num { margin-top: 6px; font-family: var(--font-mono); font-size: .8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .08em; }
 .hp-hero-num b { font-family: var(--font-display); font-size: 1.8rem; color: var(--accent-scrobble); font-weight: 600; letter-spacing: 0; margin-right: 4px; font-variant-numeric: tabular-nums; }
@@ -126,7 +130,10 @@
 .hp-rk { font-family: var(--font-mono); font-size: .84rem; color: var(--text-dim); text-align: right; }
 .hp-rt { min-width: 0; display: flex; flex-direction: column; }
 .hp-rt b { font-weight: 600; font-size: 1.04rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hp-rt span { font-size: .88rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-rt span { font-size: .88rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.25em; }
+/* the same shape in every view (artists / albums / songs, any period): a blank second line keeps its height */
+.hp-hero-sub { min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-rows .hp-pad { visibility: hidden; }  /* a short list (a quiet day) keeps the panel's height */
 .hp-rc { font-family: var(--font-mono); font-size: .9rem; color: var(--silver); font-variant-numeric: tabular-nums; }
 .hp-rbar { position: absolute; left: 84px; right: 4px; bottom: 3px; height: 2px; background: var(--edge); }
 .hp-rbar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--w); background: color-mix(in srgb, var(--accent) 70%, transparent);
@@ -183,6 +190,13 @@
   .hp-page { flex-shrink: 0; min-height: var(--hp-page); box-sizing: border-box; padding: 14px 0 6px; scroll-snap-align: start; scroll-snap-stop: always;
     display: flex; flex-direction: column; gap: 12px; }
   .hp-h2 { font-size: 1.15rem; }
+  /* listening activity: the title stays at the top like every page; spare room goes to the chart (and a
+     little to the hour / weekday charts), not empty space under it. Short screens keep the minimum. */
+  .hp-activity #hp-act-body { flex: 1 0 auto; display: flex; flex-direction: column; }
+  /* a little air above and below the chart, so it doesn't crowd the stats; the chart gives up the same height,
+     so a small phone still fits as before */
+  .hp-activity .hp-chart-wrap { flex: 1 0 auto; padding: 22px 0 14px; }
+  .hp-activity .hp-chart { flex: 1 0 auto; height: auto; min-height: clamp(96px, calc(22svh - 30px), 190px); max-height: 340px; }
   .hp .hp-cue { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: auto; min-height: 28px; font-family: var(--font-mono); font-size: .64rem;
     letter-spacing: .16em; text-transform: uppercase; color: var(--text-dim); }
   .hp-seg button { min-height: 40px; padding: 0 12px; font-size: .74rem; }
@@ -223,7 +237,7 @@
   .hp-peak { font-size: .66rem; margin-top: 6px; }
   .hp-shape { gap: 8px; }
   .hp-shape-panel { padding: 10px 10px 8px; }
-  .hp-shape-panel .hp-mini-bars { height: 34px; }
+  .hp-shape-panel .hp-mini-bars { height: clamp(34px, calc(6svh - 6px), 56px); }
 
   .hp-card { padding: 12px; gap: 12px; }
   .hp-ctrl-stack { gap: 8px; }

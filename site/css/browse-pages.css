@@ -1,0 +1,80 @@
+/* =====================================================================
+   Artists (#/artists) and Songs (#/songs) -- see js/browse-pages.js. Built
+   on the Albums page's al- parts (css/albums-page.css); its own are ab-.
+   ===================================================================== */
+/* on vinyl / live: the tab bar's disc and bolt, beside the name */
+.ab-icons { display: inline-flex; gap: 8px; margin-left: 8px; vertical-align: -1px; }
+.ab-ic { display: inline-flex; align-items: center; gap: 2px; font-family: var(--font-mono); font-size: .72rem; font-weight: 400; }
+.ab-ic .i { width: 14px; height: 14px; }
+.ab-ic.vinyl { color: var(--accent-vinyl); }
+.ab-ic.live { color: var(--accent-live); }
+.ab-wall .al-meta { display: flex; align-items: center; }
+.ab-note { font-size: .74rem; margin-top: 2px; }
+.ab .al-f-title { width: 104px; }
+
+/* a Home stat's range, standing in for the window switch until removed */
+.ab-range { display: inline-flex; align-items: center; gap: 10px; padding: 0 4px 0 12px; border: 1px solid var(--accent); border-radius: var(--radius-sm);
+  background: var(--accent-wash); font-size: .86rem; white-space: nowrap; }
+.ab-range i { font-style: normal; font-family: var(--font-mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); }
+.ab-range b { color: var(--accent-soft); font-weight: 600; }
+.ab-range button { width: 30px; height: 30px; border: 0; border-radius: var(--radius-sm); background: none; color: var(--text-dim); cursor: pointer; font-size: .9rem; }
+.ab-range button:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 25%, transparent); }
+
+/* songs: a chart -- rank (and its movement), cover, song, then the count right beside it and an even bar */
+.ab-win button[aria-selected="true"] { color: var(--accent-soft); box-shadow: inset 0 -2px 0 var(--accent); background: var(--accent-wash); }
+.ab-legend { font-size: .74rem; margin: -6px 0 6px; padding-left: 15px; }  /* in line with the ranks */
+.ab-songs { --ab-pad: 15px; --ab-pos: 44px; --ab-art: 44px; --ab-gap: 14px; list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--edge); }
+.ab-songs a { display: grid; grid-template-columns: var(--ab-pos) var(--ab-art) minmax(0, 380px) minmax(0, 1fr); grid-template-areas: "pos art tt meter";
+  gap: 4px var(--ab-gap); align-items: center; padding: 9px var(--ab-pad); border-bottom: 1px solid var(--edge); }
+.ab-songs a:hover { background: var(--accent-wash); }
+.ab-songs a:hover b { color: var(--accent-soft); }
+.ab-pos { grid-area: pos; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; font-family: var(--font-mono); }
+.ab-pos b { font-size: .9rem; font-weight: 500; color: var(--text); }
+.ab-mv { font-style: normal; font-size: .62rem; letter-spacing: .02em; line-height: 1; }
+.ab-mv.up { color: var(--ok); }
+.ab-mv.down { color: var(--bad); }
+.ab-mv.same { color: var(--text-muted); }
+.ab-mv.new { text-transform: uppercase; letter-spacing: .08em; padding: 2px 4px; border-radius: 3px; }
+.ab-mv.new { color: #fff; background: var(--accent); }
+/* on a cover wall the movement sits on the cover's corner */
+.al-card { position: relative; }
+.al-card > .ab-mv { position: absolute; top: 6px; left: 6px; z-index: 1; padding: 3px 6px; border-radius: 4px; font-family: var(--font-mono); font-size: .66rem;
+  background: rgba(10, 8, 18, .82); backdrop-filter: blur(4px); box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
+.al-card > .ab-mv.new { background: var(--accent); }
+.ab-thumb { grid-area: art; width: var(--ab-art); height: var(--ab-art); object-fit: cover; display: grid; place-items: center; font-size: 1rem; }
+.ab-tt { grid-area: tt; display: flex; flex-direction: column; min-width: 0; }
+.ab-tt b { display: flex; align-items: center; min-width: 0; font-weight: 600; white-space: nowrap; }
+.ab-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ab-tt b .ab-tag, .ab-tt b .ab-icons { flex: none; }
+.ab-tt > span { font-size: .82rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ab-tag { font-style: normal; font-family: var(--font-mono); font-size: .6rem; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; margin-left: 6px;
+  border: 1px solid var(--edge); border-radius: 999px; color: var(--accent-soft); font-weight: 400; }
+.ab-meter { grid-area: meter; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; align-items: center; }
+.ab-n { font-family: var(--font-mono); font-size: .9rem; color: var(--text); text-align: left; font-variant-numeric: tabular-nums; }
+.ab-track { display: block; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--surface-3) 70%, transparent); overflow: hidden; }
+.ab-track i { display: block; height: 100%; width: calc(100% * var(--w)); min-width: 3px; border-radius: 3px; background: var(--accent); }
+
+@media (max-width: 640px) {
+  .ab-wall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 10px; }
+  .ab-wall .al-artist { display: none; }
+  .ab-wall .al-meta { white-space: nowrap; overflow: hidden; }
+  .ab-pw { display: none; }
+  .ab-wall .ab-icons { gap: 5px; margin-left: 6px; }
+  .ab-wall .ab-ic { font-size: .66rem; gap: 1px; }
+  .ab-wall .ab-ic .i { width: 12px; height: 12px; }
+  .ab-legend { text-align: right; padding-left: 0; }
+  .ab-songs { --ab-pad: 11px; --ab-pos: 34px; --ab-art: 44px; --ab-gap: 10px; }
+  .ab-songs a { grid-template-columns: var(--ab-pos) var(--ab-art) minmax(0, 1fr); grid-template-areas: "pos art tt" "pos art meter"; row-gap: 5px; }
+  .ab-pos, .ab-thumb { align-self: start; }
+  .ab-meter { grid-template-columns: auto minmax(0, 1fr); gap: 8px; }
+  .ab-n { font-size: .78rem; text-align: left; min-width: 2.2em; }
+  .ab-track { height: 5px; }
+  /* phone: the window switch on its own row, then search + sort -- slim, the height of the collapsed Filters bar */
+  .al-tools:has(.ab-win), .al-tools:has(.ab-range) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+  .al-tools .ab-win, .al-tools .ab-range { grid-column: 1 / -1; order: -1; display: flex; }
+  .al-tools .ab-range { height: 39px; justify-content: space-between; }
+  .al-tools .ab-win button { flex: 1; height: 37px; padding: 0 4px; font-size: .74rem; }
+  .al-tools:has(.ab-win) input, .al-tools:has(.ab-win) select, .al-tools:has(.ab-range) input, .al-tools:has(.ab-range) select { width: auto; height: 39px; padding: 0 10px; font-size: .84rem; }
+  .ab-tt b { font-size: .92rem; }
+}
+.page-header .ab-range { margin-top: 10px; height: 36px; }

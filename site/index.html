@@ -4,13 +4,24 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Music Companion</title>
+  <script>
+    // the theme before anything paints: your choice, else light (no dark flash for a first visit).
+    // Inside Citadel's frame, Citadel sets it.
+    try { if (window.self === window.top) document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; } catch (e) { document.documentElement.dataset.theme = "light"; }
+  </script>
   <link rel="stylesheet" href="css/style.css" />
   <link rel="stylesheet" href="css/home.css" />
+  <link rel="stylesheet" href="css/album-page.css" />
+  <link rel="stylesheet" href="css/albums-page.css" />
+  <link rel="stylesheet" href="css/artist-page.css" />
+  <link rel="stylesheet" href="css/song-page.css" />
+  <link rel="stylesheet" href="css/live.css" />
+  <link rel="stylesheet" href="css/browse-pages.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-side topbar-left">
-      <button id="topbar-back" class="icon-btn topbar-back" onclick="goBack()" type="button" title="Back" aria-label="Back"><svg class="i"><use href="#i-back"/></svg></button>
+      <button id="topbar-back" class="icon-btn topbar-back" onclick="goBack()" type="button" title="Back" aria-label="Back"><svg class="i"><use href="#i-back"/></svg><span class="tb-label"></span></button>
       <button id="hard-refresh" class="icon-btn topbar-reload" onclick="hardRefresh()" type="button" title="Reload everything — the newest version of the site and your data" aria-label="Reload everything"><svg class="i"><use href="#i-reload"/></svg></button>
       <button class="icon-btn topbar-home" onclick="location.hash='#/'" type="button" title="Home" aria-label="Home">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8" /><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10" /></svg>
@@ -43,7 +54,7 @@
     <a href="#/" data-route="home"><svg class="i"><use href="#i-home"/></svg>Home</a>
     <a href="#/vinyl" data-route="vinyl"><svg class="i"><use href="#i-disc"/></svg>Vinyl</a>
     <a href="#/shows" data-route="shows"><svg class="i"><use href="#i-bolt"/></svg>Live</a>
-    <a href="#" data-route="search" id="tabbar-search"><svg class="i"><use href="#i-search"/></svg>Search</a>
+    <a href="#/songs" data-route="digital"><svg class="i"><use href="#i-headphones"/></svg>Digital</a>
   </nav>
 
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
@@ -52,6 +63,12 @@
   <script src="js/enrichment.js"></script>
   <script src="js/collection.js"></script>
   <script src="js/home.js"></script>
+  <script src="js/album-page.js"></script>
+  <script src="js/albums-page.js"></script>
+  <script src="js/artist-page.js"></script>
+  <script src="js/song-page.js"></script>
+  <script src="js/live.js"></script>
+  <script src="js/browse-pages.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

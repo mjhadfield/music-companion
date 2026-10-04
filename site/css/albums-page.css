@@ -1,0 +1,49 @@
+/* =====================================================================
+   Albums (#/albums) -- see js/albums-page.js. Prefixed al-, plus the
+   Artists · Albums · Songs switch shared by those three lists.
+   ===================================================================== */
+.browse-switch { display: inline-flex; margin-bottom: 18px; border: 1px solid var(--edge); border-radius: var(--radius-sm); overflow: hidden; }
+.browse-switch a { padding: 7px 16px; font-family: var(--font-mono); font-size: .76rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); background: var(--surface); }
+.browse-switch a + a { border-left: 1px solid var(--edge); }
+.browse-switch a:hover { color: var(--text); }
+.browse-switch a[aria-current] { color: var(--accent-soft); background: var(--accent-wash); box-shadow: inset 0 -2px 0 var(--accent); }
+
+.al { max-width: 1240px; margin: 0 auto; }
+.al-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.al-head h1 { margin: 2px 0 2px; font-size: 2rem; }
+.al-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+.al-tools input { width: 260px; max-width: 100%; }
+.al-tools input, .al-tools select { font: inherit; font-size: .9rem; padding: 7px 10px; background: var(--surface); color: var(--text); border: 1px solid var(--edge); border-radius: var(--radius-sm); }
+
+.al-facets { margin-bottom: 22px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--edge); }
+.al-facets[open] { display: flex; flex-direction: column; gap: 8px; }
+.al-facets summary { cursor: pointer; font-family: var(--font-mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); }
+.al-facets summary b { color: var(--accent-soft); font-weight: 400; }
+.al-facet { display: flex; gap: 12px; align-items: baseline; }
+.al-f-title { flex: none; width: 74px; font-family: var(--font-mono); font-size: .72rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dim); }
+.al-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.al-chip { font: inherit; font-size: .8rem; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--edge); background: var(--surface-2); color: var(--text); cursor: pointer; }
+.al-chip i { font-style: normal; font-family: var(--font-mono); font-size: .7rem; color: var(--text-muted); margin-left: 3px; }
+.al-chip:hover { border-color: var(--accent); }
+.al-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.al-chip.on i { color: rgba(255, 255, 255, .75); }
+
+.al-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 24px 18px; }
+.al-card { display: flex; flex-direction: column; gap: 2px; min-width: 0; color: inherit; }
+.al-art { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; margin-bottom: 7px; box-shadow: var(--shadow); font-size: 2.6rem; }
+.al-card b { font-size: .92rem; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.al-artist { font-size: .82rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.al-meta { font-family: var(--font-mono); font-size: .72rem; color: var(--text-dim); }
+.al-card:hover b { color: var(--accent-soft); }
+.al-more { display: flex; gap: 14px; align-items: center; justify-content: center; margin: 28px 0 8px; }
+
+@media (max-width: 640px) {
+  .browse-switch { display: flex; width: 100%; }
+  .browse-switch a { flex: 1; text-align: center; padding: 9px 4px; }
+  .al-head h1 { font-size: 1.5rem; }
+  .al-tools, .al-tools input { width: 100%; }
+  .al-tools input { flex: 1; }
+  .al-facet { flex-direction: column; gap: 6px; }
+  .al-facets { padding: 10px; }
+  .al-wall { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 12px; }
+}

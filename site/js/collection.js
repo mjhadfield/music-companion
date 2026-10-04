@@ -318,7 +318,6 @@ function renderCollection(holdingId = null) {
   const all = loadCollection();
   const st = collectionState;
   app.innerHTML = `
-    <button class="back-link" onclick="history.back()" title="Back" aria-label="Back">←</button>
     <div class="coll-head">
       <div class="coll-title"><div class="hud">vinyl</div><h1>The Collection</h1></div>
       <div class="coll-actions">
@@ -703,6 +702,21 @@ function closeRecord(restoreHash = true) {
   setTimeout(() => { if (!shell.classList.contains("open")) shell.remove(); document.removeEventListener("keydown", drawerKeys); }, 250);
 }
 
+// A record link anywhere but the Vinyl page (an album's "Your copy", an artist's shelf, a song's
+// "On vinyl") opens the drawer over the page you're on, as Home's latest buys do -- so ✕ or Back
+// returns you there, not to the collection. ← → step through the records linked on that page.
+document.addEventListener("click", (e) => {
+  const a = e.target.closest('a[href^="#/vinyl/"]');
+  if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  if (location.hash.startsWith("#/vinyl")) return;  // on the Vinyl page the route opens it
+  const id = Number(a.getAttribute("href").slice("#/vinyl/".length));
+  if (!id || !loadCollection().some((r) => r.id === id)) return;
+  e.preventDefault();
+  const onPage = [...app.querySelectorAll('a[href^="#/vinyl/"]')].map((x) => Number(x.getAttribute("href").slice("#/vinyl/".length))).filter(Boolean);
+  if (!collectionState.open) collectionState.visible = [...new Set(onPage.length ? onPage : [id])];
+  openRecord(id);
+});
+
 // Back out of an open drawer: close it over the page that's already there -- no re-render, so
 // the collection keeps its scroll position and filters.
 window.addEventListener("popstate", () => {
@@ -1013,8 +1027,10 @@ function artistGenreNames(artistId, limit = 8) {
   return query(`SELECT ge.name FROM artist_genres ag JOIN genres ge ON ge.id = ag.genre_id WHERE ag.artist_id = ?
                 ORDER BY ag.vinyl_albums * 2 + ag.albums DESC, ge.name LIMIT ?`, [artistId, limit]).map((r) => r.name);
 }
-function genreTagsHtml(names, label = "") {
+// `list`: where a bubble leads -- the list of what this page is ("albums", "artists", "songs")
+function genreTagsHtml(names, label = "", list = "albums") {
   if (!names.length) return "";
+  const what = { albums: "album", artists: "artist", songs: "song" }[list];
   return `<div class="genre-row">${label ? `<span class="subtle">${esc(label)}</span>` : ""}${names.map((g) =>
-    `<a class="gtag" href="#/vinyl?genre=${encodeURIComponent(g)}" title="Your ${esc(genreName(g))} records">${esc(genreName(g))}</a>`).join("")}</div>`;
+    `<a class="gtag" href="#/${list}?genre=${encodeURIComponent(g)}" title="Every ${esc(genreName(g))} ${what}">${esc(genreName(g))}</a>`).join("")}</div>`;
 }
