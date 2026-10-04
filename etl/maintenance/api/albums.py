@@ -398,6 +398,94 @@ def covers_queue(req):
     return {"count": total, "counts": counts, "items": items, "marks": {"rejected": COVER_REJECTED, "skip": COVER_SKIP}}
 
 
+# ---- Unmerge: one album's history, and splitting part of it back out ----------------------------------
+@route("GET", "/api/albums/unmerge-artist")
+def unmerge_artist(req):
+    """An artist's albums for the Unmerge tab: how many were merged into each, and how many source
+    titles their plays and records arrived under (more than one = something to look at)."""
+    artist_id = req.int("artistId", required=True)
+    with read_conn() as c:
+        artist = c.execute("SELECT id, name, mbid FROM artists WHERE id = ?", (artist_id,)).fetchone()
+        if not artist:
+            raise ApiError("artist not found", 404)
+        rows = c.execute("""
+            SELECT al.id, al.title, al.year, al.mbid,
+                   (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id),
+                   (SELECT count(*) FROM vinyl_holdings v WHERE v.album_id = al.id),
+                   (SELECT count(*) FROM merge_log m WHERE m.entity_type = 'album' AND m.canonical_id = al.id AND m.undone_at IS NULL),
+                   (SELECT count(DISTINCT lower(s.raw_album_text)) FROM scrobbles s WHERE s.album_id = al.id)
+            FROM album_artists aa JOIN albums al ON al.id = aa.album_id WHERE aa.artist_id = ?
+            ORDER BY 5 DESC, al.title""", (artist_id,)).fetchall()
+    return {"artist": {"artistId": artist[0], "name": artist[1], "mbid": artist[2]},
+            "albums": [{"albumId": r[0], "title": r[1], "year": r[2], "mbid": r[3], "plays": r[4], "vinyl": r[5], "mergedIn": r[6], "spellings": r[7]}
+                       for r in rows]}
+
+
+@route("GET", "/api/albums/unmerge")
+def unmerge_view(req):
+    """One album laid open: what was merged into it (each undoable while its journal allows), the changes
+    made to it (undoable), and every source title its plays and records arrived under -- any of which can
+    be split back out into an album of its own."""
+    album_id = req.int("albumId", required=True)
+    with read_conn() as c:
+        row = c.execute("SELECT al.id, al.title, al.year, al.mbid, al.artist_id, ar.name, ar.mbid FROM albums al JOIN artists ar ON ar.id = al.artist_id "
+                        "WHERE al.id = ?", (album_id,)).fetchone()
+        if not row:
+            raise ApiError("album not found", 404)
+        merges = [{"logId": r[0], "absorbedName": r[1], "absorbedId": r[2], "at": r[3], "undoable": bool(r[4]), "moved": json.loads(r[5] or "{}"),
+                   "batchId": r[6]} for r in c.execute(
+            "SELECT id, absorbed_name, absorbed_id, merged_at, undo_json IS NOT NULL, rows_moved_json, batch_id FROM merge_log "
+            "WHERE entity_type = 'album' AND canonical_id = ? AND undone_at IS NULL ORDER BY id DESC", (album_id,))]
+        edits = []
+        for eid, changes, reason, at in c.execute("SELECT id, changes_json, reason, created_at FROM edit_log WHERE entity_type = 'album' AND entity_id = ? "
+                                                  "AND undone_at IS NULL ORDER BY id DESC LIMIT 20", (album_id,)):
+            ch = json.loads(changes or "{}")
+            plain = {k: v for k, v in ch.items() if not k.startswith("_")}
+            if plain:  # field changes (title / id / year / cover); journaled specials have their own tools
+                edits.append({"editId": eid, "changes": plain, "reason": reason, "at": at})
+        spell = defaultdict(lambda: {"scrobbles": 0, "vinyl": 0, "first": None, "last": None})
+        for raw, n, first, last in c.execute("SELECT raw_album_text, count(*), min(played_at), max(played_at) FROM scrobbles WHERE album_id = ? "
+                                              "GROUP BY lower(raw_album_text)", (album_id,)):
+            spell[raw or ""].update(scrobbles=n, first=first, last=last)
+        for raw, n in c.execute("SELECT raw_title_text, count(*) FROM vinyl_holdings WHERE album_id = ? GROUP BY lower(raw_title_text)", (album_id,)):
+            key = next((k for k in spell if k.lower() == (raw or "").lower()), raw or "")
+            spell[key]["vinyl"] += n
+    spellings = sorted(({"raw": k, **v} for k, v in spell.items()), key=lambda x: -(x["scrobbles"] + x["vinyl"]))
+    return {"album": {"albumId": row[0], "title": row[1], "year": row[2], "mbid": row[3], "artistId": row[4], "artistName": row[5], "artistMbid": row[6]},
+            "merges": merges, "edits": edits, "spellings": spellings}
+
+
+@route("POST", "/api/albums/split", mutating=True)
+def split(req):
+    """Split the plays (and records) that arrived under some source titles back out of an album, into a new
+    album with its own title (and MusicBrainz id, optional) -- merge.split_album, undoable as an edit."""
+    album_id = req.int("albumId", required=True)
+    raw_titles = [str(t) for t in (req.body.get("rawTitles") or []) if str(t).strip()]
+    title = req.str("title").strip()
+    if not raw_titles or not title:
+        raise ApiError("rawTitles and title are required")
+    mbid = req.str("mbid").strip().lower() or None
+    if mbid:
+        if not MBID_RE.match(mbid):
+            raise ApiError("That doesn't look like a MusicBrainz id")
+        try:
+            mbid = mbcache.resolve_release_group(mbid)   # a release id becomes its release group; network before the write lock
+        except requests.RequestException as exc:
+            raise ApiError(f"MusicBrainz request failed: {exc}", 502)
+        if not mbid:
+            raise ApiError("That doesn't resolve to a release or release group on MusicBrainz", 400)
+    year = int(req.body["year"]) if str(req.body.get("year") or "").isdigit() else None
+    with write_tx() as c:
+        merged = c.execute(f"SELECT id FROM merge_log WHERE entity_type = 'album' AND canonical_id = ? AND undone_at IS NULL "
+                           f"AND lower(absorbed_name) IN ({','.join('?' * len(raw_titles))}) ORDER BY id DESC LIMIT 1",
+                           (album_id, *[t.lower() for t in raw_titles])).fetchone()
+        try:
+            r = merge.split_album(c, album_id, raw_titles, {"title": title, "mbid": mbid, "year": year}, merge_log_id=merged[0] if merged else None)
+        except merge.MergeError as exc:
+            raise ApiError(str(exc), 409, exc.code)
+    return {**r, "title": title, "undo": {"kind": "edit", "id": r["editId"]}}
+
+
 @route("POST", "/api/albums/merge", mutating=True)
 def merge_albums(req):
     identity = req.body.get("identity") or None

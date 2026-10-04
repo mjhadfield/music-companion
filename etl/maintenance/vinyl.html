@@ -148,6 +148,7 @@
         <button class="small" id="bulk-links">Review confirmed pressing links</button>
         <button class="small" id="bulk-years">Review original years</button>
         <button class="small" id="bulk-covers">Fetch missing covers</button>
+        <button class="small" id="bulk-details" title="Discogs' full detail for each pressing: tracklist, country, date, matrix, styles (~2.6s a record)">Fetch pressing details</button>
       </div>
     </div>
     <div id="sweep-box"></div>
@@ -177,7 +178,7 @@ mountNav("Vinyl");
 
 const CHECKS = [
   ["artist", "Artist MBID"], ["album", "Album MBID"], ["pressing", "Pressing linked"], ["identity", "Verified"],
-  ["year", "Original year"], ["title", "Clean title"], ["cover", "Cover art"], ["versions", "No duplicates"], ["look", "Own look"],
+  ["year", "Original year"], ["title", "Clean title"], ["cover", "Cover art"], ["details", "Pressing details"], ["versions", "No duplicates"], ["look", "Own look"],
 ];
 let all = [];           // /api/vinyl/holdings
 let shown = [];         // after filter + sort (drawer j/k walks this)
@@ -419,6 +420,13 @@ function renderDrawer(h) {
   wireMove(h);
   wireCreditAliasButtons(dBody, refresh);
   dBody.querySelectorAll("[data-otherpressing]").forEach((el) => el.addEventListener("click", () => openDrawer(parseInt(el.dataset.otherpressing, 10))));
+  dBody.querySelectorAll("[data-fetch-details]").forEach((b) => b.addEventListener("click", async () => {
+    dBody.querySelectorAll("[data-fetch-details]").forEach((x) => { x.disabled = true; x.textContent = "Fetching…"; });
+    const { ok, data } = await api("/api/vinyl/fetch-details", { vinylId: h.vinylId });
+    if (!ok) { toast(esc(data.message), { error: true, timeout: 9000 }); refresh(); return; }
+    toast(`Pressing details fetched: ${esc([data.country, data.released].filter(Boolean).join(" "))}${data.tracks ? ` · ${plural(data.tracks, "track")}` : ""}${data.styles.length ? ` · ${esc(data.styles.join(", "))}` : ""}`);
+    refresh();
+  }));
   dBody.querySelectorAll("[data-jump]").forEach((b) => b.addEventListener("click", () => {
     const target = dBody.querySelector(`[data-sec="${b.dataset.jump}"]`);
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -530,6 +538,7 @@ function fixButton(h, c) {
     case "parts": return `<button class="small" data-jump="parts">Review ↓</button>`;
     case "check": return `<button class="small" data-act="check-album">Check on MusicBrainz</button>`;
     case "cover": return `<button class="small" data-jump="cover">Fix ↓</button>`;
+    case "details": return `<button class="small" data-fetch-details>Fetch</button>`;
     case "look": return `<button class="small" data-jump="look">Set ↓</button>`;
     case "versions": return `<button class="small" data-jump="versions">Review ↓</button>`;
     case "identity": return `<button class="small" data-jump="identity">Fix ↓</button>${c.key === "album"
@@ -548,6 +557,8 @@ function pressingHtml(h) {
     <dt>Label</dt><dd>${esc(h.label || "—")}${h.catalogNumber ? ` · <span class="mono">${esc(h.catalogNumber)}</span>` : ""}</dd>
     <dt>Pressing</dt><dd data-role="press"></dd>
     <dt>Released</dt><dd>${h.pressingYear || "—"}${h.discogs?.country ? ` · ${esc(h.discogs.country)}` : ""}${h.discogs?.masterId ? ` · <a class="mb" href="https://www.discogs.com/master/${h.discogs.masterId}" target="_blank" rel="noopener">Discogs master ↗</a>` : ""}</dd>
+    <dt>Details</dt><dd>${h.detailsFetched ? "Fetched from Discogs" : `<span class="warn-text">Not fetched yet</span> — no tracklist, country or matrix on the site`}
+      ${h.discogsReleaseId ? ` <button class="small" data-fetch-details>${h.detailsFetched ? "Re-fetch" : "Fetch from Discogs"}</button>` : ""}</dd>
     <dt>Colour</dt><dd data-role="colour"></dd>
     <dt>Condition</dt><dd>${esc(h.mediaCondition || "—")} <span class="meta">(media)</span>${h.sleeveCondition ? ` · ${esc(h.sleeveCondition)} <span class="meta">(sleeve)</span>` : ""}</dd>
     <dt>Rating</dt><dd>${stars(h.rating) || "—"}</dd>
@@ -990,6 +1001,7 @@ function updateBulkButtons() {
   set("bulk-links", "Review confirmed pressing links", links);
   set("bulk-years", "Review original years", years);
   set("bulk-covers", "Fetch missing covers", covers);
+  set("bulk-details", "Fetch pressing details", all.filter((h) => h.discogsReleaseId && !h.detailsFetched).length);
 }
 
 async function openBulk(action, title, blurb) {
@@ -1040,6 +1052,16 @@ document.getElementById("bulk-covers").addEventListener("click", async (e) => {
     await new Promise((r) => setTimeout(r, 250)); // polite to the Cover Art Archive
   }
   toast(`Fetched covers — found ${found} of ${targets.length}`);
+  refresh();
+});
+
+// Discogs' full detail for every record that hasn't got it (new ones after an import): the "pressings"
+// sweep -- styles become the album's Discogs genres, the tracklist is the site's for that record.
+document.getElementById("bulk-details").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const n = all.filter((h) => h.discogsReleaseId && !h.detailsFetched).length;
+  btn.disabled = true;
+  await runSweep(document.getElementById("sweep-box"), "pressings", n);
   refresh();
 });
 

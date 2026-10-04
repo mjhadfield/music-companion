@@ -788,11 +788,16 @@ function recordDetailHtml(r, all) {
   const live = songs.filter((x) => x.shows > 0);
   const liveShows = new Set(live.flatMap((x) => [...x.setlists])).size;
   const discogsTracks = jsonOr(r.tracklist, []).filter((t) => (t.type || "track") === "track" && t.title);
-  const matched = matchTracklist(discogsTracks, songs, r.album_id);
-  const tracks = discogsTracks.length ? matched.tracks : songs.map((x) => ({ pos: "", title: x.title, song: x }));
-  // anything you've played from this album that this pressing's tracklist doesn't list -- so the
-  // tracklist accounts for every play the album page counts
-  const unlisted = matched.unlisted.filter((x) => x.plays);
+  // this pressing's own tracklist (Discogs, once maintenance has fetched its details); until then the
+  // album's from MusicBrainz; with neither, just the songs you've played from it
+  const mbTracks = discogsTracks.length ? null : musicbrainzTracklist(r.album_id);
+  const refTracks = discogsTracks.length ? discogsTracks : mbTracks ? mbTracks.tracks : [];
+  const trackSource = discogsTracks.length ? "" : mbTracks ? "the album's, from MusicBrainz — this pressing's own isn't fetched yet" : "";
+  const matched = matchTracklist(refTracks, songs, r.album_id);
+  const tracks = refTracks.length ? matched.tracks : songs.map((x) => ({ pos: "", title: x.title, song: x }));
+  // anything you've played from this album that the tracklist doesn't list -- so it accounts for every
+  // play the album page counts (with no tracklist at all, the songs above already are those plays)
+  const unlisted = refTracks.length ? matched.unlisted.filter((x) => x.plays) : [];
   const ids = jsonOr(r.identifiers, []);
   const matrix = ids.filter((i) => /matrix|runout/i.test(i.type || ""));
   const barcode = ids.find((i) => /barcode/i.test(i.type || ""));
@@ -847,11 +852,12 @@ function recordDetailHtml(r, all) {
       ${top ? `<div class="subtle">Most played: <button class="linkish" data-song="${top.id}">${esc(top.title)}</button> · ${plural(top.plays, "play")}</div>` : ""}
     </section>
 
-    ${tracks.length ? `<section class="rd-sec"><h3>Tracklist <span class="subtle">plays${live.length ? " · ● heard live" : ""}</span></h3>
+    ${tracks.length ? `<section class="rd-sec"><h3>${refTracks.length ? "Tracklist" : "Songs you've played"} <span class="subtle">plays${live.length ? " · ● heard live" : ""}</span></h3>
+      ${trackSource ? `<div class="subtle" style="margin:-4px 0 6px">Tracklist: ${esc(trackSource)}</div>` : ""}
       <ol class="rd-tracks">${tracks.map((t) => `<li>${t.pos ? `<span class="pos">${esc(t.pos)}</span>` : ""}
         ${t.song ? `<button class="linkish" data-song="${t.song.id}">${esc(t.title)}</button>` : `<span>${esc(t.title)}</span>`}
         <span class="tr-right">${t.song?.shows && !t.again ? `<i class="livedot" title="Heard live at ${plural(t.song.shows, "show")}">●</i>` : ""}${t.song && !t.again ? `<span class="subtle">${t.song.plays}</span>` : t.again ? `<span class="subtle" title="Counted on its first line above">↑</span>` : ""}${t.dur ? `<span class="subtle dur">${esc(t.dur)}</span>` : ""}</span></li>`).join("")}</ol>
-      ${unlisted.length ? `<div class="rd-unlisted"><div class="subtle">Also played from this album — not on this pressing's tracklist:</div>
+      ${unlisted.length ? `<div class="rd-unlisted"><div class="subtle">Also played from this album — not on ${discogsTracks.length ? "this pressing's" : "this"} tracklist:</div>
         <ol class="rd-tracks">${unlisted.map((x) => `<li><button class="linkish" data-song="${x.id}">${esc(x.title)}</button>
           <span class="tr-right">${x.shows ? `<i class="livedot" title="Heard live at ${plural(x.shows, "show")}">●</i>` : ""}<span class="subtle">${x.plays}</span></span></li>`).join("")}</ol></div>` : ""}</section>` : ""}
 

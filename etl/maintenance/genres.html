@@ -124,14 +124,7 @@
 
   <section data-panel="activity" hidden><div class="card"><div id="activity"></div></div></section>
 
-  <div class="card" style="margin-top:22px">
-    <div class="sweeps">
-      <label>Discogs pressing details for the next <input type="number" id="p-limit" value="222" min="1" max="300" style="width:70px" /> records</label>
-      <button id="p-start">Fetch from Discogs</button>
-      <span class="meta">styles (suggested as genres), country, date, matrix, tracklist · ~2.6s each</span>
-    </div>
-    <div id="sweep"></div>
-  </div>
+  <p class="meta" style="margin-top:22px">Discogs pressing details (which bring each record's Discogs styles here as genres) are fetched on the <a href="/vinyl.html">Vinyl page</a> — “Fetch pressing details”.</p>
 </main>
 
 <script src="shared.js"></script>
@@ -166,14 +159,7 @@ async function loadCoverage() {
     + box(fmtNum(data.genres), "genres in use")
     + box(fmtNum(data.pressingsToFetch), "records without pressing details")
     + box(fmtNum(data.rules), "hidden / merged genres");
-  document.getElementById("p-start").disabled = !data.pressingsToFetch;
 }
-document.getElementById("p-start").addEventListener("click", async (e) => {
-  e.target.disabled = true;
-  await runSweep(document.getElementById("sweep"), "pressings", parseInt(document.getElementById("p-limit").value, 10) || 222);
-  e.target.disabled = false;
-  loadCoverage();
-});
 
 // -- A review tile: one album, its genres, suggestions to tick, a box to add ---------------------
 const FROM = { album: "on the album (MusicBrainz)", editions: "on its editions (MusicBrainz)", edition: "on its edition (MusicBrainz)",

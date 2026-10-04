@@ -46,6 +46,7 @@
     <button data-tab="suggestions">Suggestions</button>
     <button data-tab="singles">Singles</button>
     <button data-tab="covers">Covers</button>
+    <button data-tab="unmerge">Unmerge</button>
     <button data-tab="duplicates">Duplicates</button>
     <button data-tab="verify">Verify</button>
     <button data-tab="editions">Editions</button>
@@ -112,6 +113,13 @@
     <div class="cv-bar"><span id="cv-tally" class="meta"></span><span class="spacer"></span>
       <button class="small" id="cv-skip-page">Leave these for later →</button>
       <button class="primary" id="cv-save">Save</button></div>
+  </section>
+
+  <!-- Unmerge: one album's history, and splitting part of it back out -------------------------- -->
+  <section data-panel="unmerge" hidden>
+    <p class="meta" style="margin:0 0 10px">Find an artist or an album to see what was merged into an album and what's been changed on it — each with Undo — and every title its plays and records arrived under. Any of those can be <b>split back out</b> into an album of its own (its songs and import aliases go with it, so future plays land there too). Everything here is undoable.</p>
+    <div class="toolbar"><input type="search" id="um-q" placeholder="Find an artist or album…" style="width:340px" /><span class="meta" id="um-where"></span></div>
+    <div id="um-body"><div class="empty">Search for an artist or album above.</div></div>
   </section>
 
   <!-- Missing MBID ----------------------------------------------------------------------- -->
@@ -798,6 +806,116 @@ mountTypeahead(document.getElementById("cv-artist-q"), {
 });
 document.getElementById("cv-first").addEventListener("click", () => { cvOffset = 0; loadCovers(); });
 
+// ---- Unmerge -------------------------------------------------------------------------------------------
+const umBody = document.getElementById("um-body");
+let umView = null; // {artistId} or {albumId}
+async function umArtist(artistId) {
+  umView = { artistId };
+  umBody.innerHTML = `<div class="status-line">Loading…</div>`;
+  const { ok, data } = await api(`/api/albums/unmerge-artist?artistId=${artistId}`);
+  if (!ok) { umBody.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  document.getElementById("um-where").innerHTML = `${esc(data.artist.name)} ${mbLink("artist", data.artist.mbid)}`;
+  umBody.innerHTML = data.albums.length ? `<div class="table-scroll"><table class="data"><thead><tr><th>Album</th><th>Year</th><th>MusicBrainz</th><th class="num">Plays</th><th class="num">Vinyl</th><th class="num">Merged in</th><th class="num">Source titles</th></tr></thead><tbody>
+    ${data.albums.map((a) => `<tr class="wb-row" data-album="${a.albumId}" style="cursor:pointer"><td><a href="#unmerge">${esc(a.title)}</a></td><td>${a.year || ""}</td><td>${a.mbid ? mbLink("album", a.mbid) : `<span class="badge warn">none</span>`}</td>
+      <td class="num">${fmtNum(a.plays)}</td><td class="num">${a.vinyl || ""}</td><td class="num">${a.mergedIn ? `<b>${a.mergedIn}</b>` : ""}</td><td class="num">${a.spellings > 1 ? `<b>${a.spellings}</b>` : a.spellings || ""}</td></tr>`).join("")}</tbody></table></div>
+    <p class="meta">Bold: albums with something merged into them, or plays that arrived under more than one title. Click an album to open it.</p>`
+    : `<div class="empty">No albums credited to ${esc(data.artist.name)}.</div>`;
+  umBody.querySelectorAll("[data-album]").forEach((tr) => tr.addEventListener("click", (e) => { e.preventDefault(); umAlbum(+tr.dataset.album); }));
+}
+
+async function umAlbum(albumId) {
+  umView = { albumId };
+  umBody.innerHTML = `<div class="status-line">Loading…</div>`;
+  const { ok, data } = await api(`/api/albums/unmerge?albumId=${albumId}`);
+  if (!ok) { umBody.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const a = data.album;
+  document.getElementById("um-where").innerHTML = `<a href="#unmerge" data-role="back">${esc(a.artistName)}</a> › ${esc(a.title)}`;
+  const moved = (m) => Object.entries(m).filter(([k, v]) => v && ["scrobbles", "songs", "vinyl_holdings"].includes(k)).map(([k, v]) => `${v} ${k === "vinyl_holdings" ? "record" : k.replace(/s$/, "")}${v === 1 ? "" : "s"}`).join(", ");
+  const field = (k, v) => (v == null || v === "" ? "—" : k === "mbid" ? mbLink("album", v) : esc(String(v)));
+  umBody.innerHTML = `
+    <div class="card">
+      <div class="block-head"><div><span class="title" style="font-size:1.15rem">${esc(a.title)}</span> ${a.year ? `<span class="meta">${a.year}</span>` : ""} ${a.mbid ? mbLink("album", a.mbid) : `<span class="badge warn">no MusicBrainz id</span>`}
+        <span class="meta">· ${esc(a.artistName)}</span></div>
+        <div class="actions"><button class="small" data-role="identity">Change id…</button><a class="small" href="#discography/${a.artistId}">Discography →</a></div></div>
+      <div class="inline-form" style="margin-top:8px"><label class="meta">Title</label><input type="text" data-role="title" value="${esc(a.title)}" style="flex:1; max-width:420px" />
+        <button class="small" data-role="rename">Rename</button><span class="meta">the old title stays an import alias, so plays under it still land here</span></div>
+      <div data-role="resolve"></div>
+    </div>
+
+    <div class="section-label"><h3>Merged into this album</h3><span class="meta">${plural(data.merges.length, "merge")} still in place</span></div>
+    ${data.merges.length ? `<div class="table-scroll"><table class="data"><thead><tr><th>Album merged in</th><th>When</th><th>What it brought</th><th></th></tr></thead><tbody>
+      ${data.merges.map((m) => `<tr><td>${esc(m.absorbedName)}</td><td class="meta nowrap">${esc(fmtDate(m.at))}</td><td class="meta">${moved(m.moved) || "—"}</td>
+        <td>${m.undoable ? `<button class="small" data-undo-merge="${m.logId}">Undo merge</button>` : `<span class="meta">no undo journal — split it out by its title below</span>`}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="meta">Nothing merged into it.</p>`}
+
+    <div class="section-label"><h3>Changes to this album</h3></div>
+    ${data.edits.length ? `<div class="table-scroll"><table class="data"><thead><tr><th>Change</th><th>Why</th><th>When</th><th></th></tr></thead><tbody>
+      ${data.edits.map((e) => `<tr><td>${Object.entries(e.changes).map(([k, [o, n]]) => `<div><span class="meta">${esc(k)}</span> ${field(k, o)} → <b>${field(k, n)}</b></div>`).join("")}</td>
+        <td class="meta">${esc(e.reason || "")}</td><td class="meta nowrap">${esc(fmtDate(e.at))}</td><td><button class="small" data-undo-edit="${e.editId}">Undo</button></td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="meta">No changes to its title, id or year on record.</p>`}
+
+    <div class="section-label"><h3>Where its plays and records came from</h3><span class="meta">the title each arrived under</span></div>
+    <div class="table-scroll"><table class="data"><thead><tr><th></th><th>Arrived as</th><th class="num">Plays</th><th class="num">Records</th><th>Played</th></tr></thead><tbody>
+      ${data.spellings.map((x, i) => `<tr><td><input type="checkbox" data-i="${i}" ${data.spellings.length < 2 ? "disabled" : ""} /></td><td>${esc(x.raw) || "<span class='meta'>(blank)</span>"}</td>
+        <td class="num">${fmtNum(x.scrobbles)}</td><td class="num">${x.vinyl || ""}</td><td class="meta nowrap">${x.first ? `${esc(x.first.slice(0, 10))} → ${esc(x.last.slice(0, 10))}` : ""}</td></tr>`).join("")}</tbody></table></div>
+    ${data.spellings.length > 1 ? `<div class="card" style="margin-top:10px"><div class="meta" style="margin-bottom:6px">Split the ticked titles out into a new album — their plays, records, songs only played from them, and import aliases move with them.</div>
+      <div class="inline-form"><input type="text" data-role="split-title" placeholder="New album's title" style="flex:1; min-width:220px" />
+        <input type="text" data-role="split-mbid" placeholder="MusicBrainz id or link (optional)" style="flex:1; min-width:220px" />
+        <button class="small primary" data-role="split" disabled>Split out</button></div></div>`
+      : `<p class="meta">Everything here arrived under one title — nothing to split out.</p>`}`;
+  const $ = (r) => umBody.querySelector(`[data-role='${r}']`);
+  document.querySelector("#um-where [data-role='back']")?.addEventListener("click", (e) => { e.preventDefault(); umArtist(a.artistId); });
+  $("identity").addEventListener("click", (e) => {
+    e.target.disabled = true;
+    renderAlbumResolve($("resolve"), { ...a, baseTitle: a.title }, { reason: "corrected in Unmerge", onDone: () => umAlbum(albumId) });
+  });
+  $("rename").addEventListener("click", async () => {
+    const title = $("title").value.trim();
+    if (!title || title === a.title) return;
+    const { ok: k, data: d } = await api("/api/batch/apply", { actions: [{ type: "editAlbum", albumId, title, reason: "renamed in Unmerge" }], label: `Rename ${a.title}` });
+    if (!k) { toast(esc(d.message), { error: true }); return; }
+    toast(`Renamed to <b>${esc(title)}</b>`, { undo: { kind: "batchv2", id: d.batchId } });
+    umAlbum(albumId);
+  });
+  umBody.querySelectorAll("[data-undo-merge]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    if (!(await undoAction("merge", +b.dataset.undoMerge))) b.disabled = false;   // success reloads via mc:undone
+  }));
+  umBody.querySelectorAll("[data-undo-edit]").forEach((b) => b.addEventListener("click", async () => {
+    b.disabled = true;
+    if (!(await undoAction("edit", +b.dataset.undoEdit))) b.disabled = false;
+  }));
+  const ticked = () => [...umBody.querySelectorAll("input[data-i]:checked")].map((x) => data.spellings[+x.dataset.i].raw);
+  umBody.querySelectorAll("input[data-i]").forEach((x) => x.addEventListener("change", () => {
+    const t = ticked();
+    if ($("split")) $("split").disabled = !t.length || t.length === data.spellings.length;
+    if ($("split-title") && t.length && !$("split-title").value) $("split-title").value = t[0];
+  }));
+  $("split")?.addEventListener("click", async (e) => {
+    const t = ticked(), title = $("split-title").value.trim();
+    const mbid = ($("split-mbid").value.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i) || [""])[0];
+    if (!title) { toast("Give the new album a title", { error: true }); return; }
+    e.currentTarget.disabled = true;
+    const { ok: k, data: d } = await api("/api/albums/split", { albumId, rawTitles: t, title, mbid });
+    if (!k) { toast(esc(d.message), { error: true, timeout: 9000 }); e.currentTarget.disabled = false; return; }
+    toast(`Split out <b>${esc(d.title)}</b>: ${plural(d.scrobbles, "play")}, ${plural(d.vinyl, "record")}, ${plural(d.songs, "song")}`, { undo: d.undo });
+    notifyChanged();
+    umAlbum(albumId);
+  });
+}
+mountTypeahead(document.getElementById("um-q"), {
+  minChars: 2,
+  fetchItems: async (q) => {
+    const { data } = await api(`/api/albums/search?q=${encodeURIComponent(q)}`);
+    return [...(data.artists || []).map((x) => ({ ...x, kind: "artist" })), ...(data.albums || []).map((x) => ({ ...x, kind: "album" }))];
+  },
+  renderItem: (x) => x.kind === "album"
+    ? `<span>${esc(x.title)} <span class="meta">— ${esc(x.artistName)}${x.year ? ` (${x.year})` : ""}</span></span><span class="meta">${fmtNum(x.scrobbleCount)} plays</span>`
+    : `<span><span class="badge accent">artist</span> ${esc(x.name)}</span><span class="meta">their albums</span>`,
+  onPick: (x) => { const q = document.getElementById("um-q"); q.value = ""; q.blur(); x.kind === "album" ? umAlbum(x.albumId) : umArtist(x.artistId); },
+});
+document.addEventListener("mc:undone", () => { if (tabs.current() === "unmerge" && umView) umView.albumId ? umAlbum(umView.albumId) : umArtist(umView.artistId); });
+
 // ---------------------------------------------------------------------------------------------
 
 const tabs = mountTabs(document.getElementById("tabs"), {
@@ -806,6 +924,7 @@ const tabs = mountTabs(document.getElementById("tabs"), {
   suggestions: loadAlbumSuggestions,
   singles: loadSingles,
   covers: loadCovers,
+  unmerge: () => {},
   duplicates: runDupScan,
   verify: loadVerify,
   editions: () => mountEditions(document.getElementById("editions")).load(),

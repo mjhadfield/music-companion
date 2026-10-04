@@ -137,6 +137,7 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
     look_cols = {r[1] for r in c.execute("PRAGMA table_info(vinyl_holdings)")}
     looks = {r[0]: r[1:] for r in c.execute("SELECT id, cover_file, display_title, release_year FROM vinyl_holdings")} if "cover_file" in look_cols else {}
     presses = {r[0]: r[1:] for r in c.execute("SELECT id, press_kind, press_year FROM vinyl_holdings")} if "press_kind" in look_cols else {}
+    detailed = {r[0] for r in c.execute("SELECT holding_id FROM vinyl_details")}
     parts_of = defaultdict(list)  # a set's albums (migration 011)
     for set_id, pid, ptitle, pyear, pmbid in c.execute(
             "SELECT ap.album_id, al.id, al.title, al.year, al.mbid FROM album_parts ap JOIN albums al ON al.id = ap.part_album_id ORDER BY ap.position"):
@@ -192,6 +193,8 @@ def holdings(c, ids: list[int] | None = None) -> list[dict]:
             "look": dict(zip(("coverFile", "displayTitle", "releaseYear"), looks.get(vid, (None, None, None)))),
             # this pressing, by hand (migration 015): kind and year; `detected` is what Discogs implies
             "press": {"kind": press_kind, "year": press_year, "detected": detected},
+            # Discogs' full detail for this pressing (tracklist, country, matrix, styles): vinyl_details
+            "detailsFetched": vid in detailed,
         }
         h["checks"] = _checks(h, rg_checked, album_id in reviewed)
         h["score"] = sum({"ok": 0, "na": 0, "unknown": 1, "warn": 2, "bad": 4}[x["status"]] for x in h["checks"])
@@ -311,6 +314,11 @@ def _checks(h: dict, rg_checked: bool, reviewed: bool) -> list[dict]:
 
     # Several copies of one album: a copy that's really its own release (its own title on Discogs --
     # "Electric Ladyland Part 1" -- or a picture disc) should look like itself on the site.
+    if h["discogsReleaseId"]:
+        add("details", "Pressing details", "ok" if h["detailsFetched"] else "warn",
+            "Discogs' details fetched (tracklist, country, matrix, styles)" if h["detailsFetched"]
+            else "Not fetched from Discogs yet — the site has no tracklist for this pressing", None if h["detailsFetched"] else "details")
+
     if h["otherPressings"]:
         look = h["look"]
         distinct = h["pressingTitle"] or ("Pic" in {t["code"] for t in h["formatInfo"]["tags"]})
@@ -608,6 +616,33 @@ def copy_cover(req):
     with write_tx() as c:
         e = merge.edit_entity(c, "vinyl", vid, {"cover_file": name}, "this copy's cover")
     return {"vinylId": vid, "coverFile": name, "editId": e["editId"]}
+
+
+@route("POST", "/api/vinyl/fetch-details", mutating=True)
+def fetch_details(req):
+    """One record's pressing details from Discogs (what the "Fetch pressing details" sweep does for many)."""
+    import suggest
+    vid = req.int("vinylId", required=True)
+    with read_conn() as c:
+        row = c.execute("SELECT album_id, discogs_release_id FROM vinyl_holdings WHERE id = ?", (vid,)).fetchone()
+    if not row:
+        raise ApiError("holding not found", 404)
+    if not row[1]:
+        raise ApiError("This record has no Discogs release to fetch")
+    try:
+        import mbcache
+        mbcache.discogs_release_full(row[1])  # the network call (throttled, cached) before the write lock
+    except Exception as exc:  # noqa: BLE001 -- a Discogs error, shown as it is
+        raise ApiError(f"Discogs request failed: {exc}", 502)
+    with write_tx() as c:
+        try:
+            d = suggest.fetch_pressing_details(c, vid, row[0], row[1])
+        except Exception as exc:  # noqa: BLE001 -- a Discogs error, shown as it is
+            raise ApiError(f"Discogs request failed: {exc}", 502)
+    if not d:
+        raise ApiError(f"Discogs doesn't know release {row[1]}", 404)
+    return {"vinylId": vid, "country": d.get("country"), "released": d.get("released") or d.get("year"), "tracks": len(d.get("tracklist") or []),
+            "styles": d.get("styles") or []}
 
 
 PRESS_KINDS = ("original", "reissue", "repress")

@@ -714,12 +714,35 @@ def _genres(limit: int, log, progress, cancelled) -> None:
         conn.close()
 
 
+def fetch_pressing_details(conn, hid: int, album_id: int, rid: int) -> dict | None:
+    """One record's full Discogs detail -> vinyl_details (and its styles -> the album's Discogs genres).
+    -> the Discogs release, or None when Discogs doesn't know the id. The caller commits."""
+    import genres as genre_tags
+    d = mbcache.discogs_release_full(rid)
+    if not d:
+        return None
+    conn.execute("""
+        INSERT INTO vinyl_details (holding_id, country, released, year, format_descriptions, format_text, identifiers,
+                                   companies, tracklist, discogs_notes, genres, styles, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT (holding_id) DO UPDATE SET country = excluded.country, released = excluded.released, year = excluded.year,
+            format_descriptions = excluded.format_descriptions, format_text = excluded.format_text,
+            identifiers = excluded.identifiers, companies = excluded.companies, tracklist = excluded.tracklist,
+            discogs_notes = excluded.discogs_notes, genres = excluded.genres, styles = excluded.styles, fetched_at = excluded.fetched_at""",
+        (hid, d.get("country"), d.get("released"), d.get("year") or None,
+         json.dumps([x for f in d.get("formats") or [] for x in f.get("descriptions") or []]),
+         "; ".join(f["text"] for f in d.get("formats") or [] if f.get("text")) or None,
+         json.dumps(d.get("identifiers") or []), json.dumps(d.get("companies") or []), json.dumps(d.get("tracklist") or []),
+         d.get("notes"), json.dumps(d.get("genres") or []), json.dumps(d.get("styles") or [])))
+    genre_tags.apply_discogs_styles(conn, album_id)
+    return d
+
+
 def _pressings(limit: int, log, progress, cancelled) -> None:
     """Full Discogs detail for each record you own (pressing country and date, format
     descriptions, barcode/matrix, pressing plant, tracklist, notes, styles) -> vinyl_details,
     and the styles -> the album's Discogs genres. Discogs allows ~23 requests a minute, so this
     is about 2.6s a record. Records already fetched are skipped."""
-    import genres as genre_tags
     conn = db_connect()
     try:
         rows = conn.execute("""
@@ -734,25 +757,11 @@ def _pressings(limit: int, log, progress, cancelled) -> None:
                 break
             progress(i, len(rows))
             try:
-                d = mbcache.discogs_release_full(rid)
+                d = fetch_pressing_details(conn, hid, album_id, rid)
                 if not d:
                     log(f"  · {title}: Discogs doesn't know release {rid}")
                     continue
                 fmt = (d.get("formats") or [{}])[0] if d.get("formats") else {}
-                conn.execute("""
-                    INSERT INTO vinyl_details (holding_id, country, released, year, format_descriptions, format_text, identifiers,
-                                               companies, tracklist, discogs_notes, genres, styles, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                    ON CONFLICT (holding_id) DO UPDATE SET country = excluded.country, released = excluded.released, year = excluded.year,
-                        format_descriptions = excluded.format_descriptions, format_text = excluded.format_text,
-                        identifiers = excluded.identifiers, companies = excluded.companies, tracklist = excluded.tracklist,
-                        discogs_notes = excluded.discogs_notes, genres = excluded.genres, styles = excluded.styles, fetched_at = excluded.fetched_at""",
-                    (hid, d.get("country"), d.get("released"), d.get("year") or None,
-                     json.dumps([x for f in d.get("formats") or [] for x in f.get("descriptions") or []]),
-                     "; ".join(f["text"] for f in d.get("formats") or [] if f.get("text")) or None,
-                     json.dumps(d.get("identifiers") or []), json.dumps(d.get("companies") or []), json.dumps(d.get("tracklist") or []),
-                     d.get("notes"), json.dumps(d.get("genres") or []), json.dumps(d.get("styles") or [])))
-                genre_tags.apply_discogs_styles(conn, album_id)
                 conn.commit()
                 done += 1
                 log(f"  · {title}: {d.get('country') or '?'} {d.get('released') or d.get('year') or ''} · {', '.join(d.get('styles') or []) or 'no styles'}"
