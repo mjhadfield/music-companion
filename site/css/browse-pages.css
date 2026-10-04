@@ -41,6 +41,10 @@
 .al-card > .ab-mv { position: absolute; top: 6px; left: 6px; z-index: 1; padding: 3px 6px; border-radius: 4px; font-family: var(--font-mono); font-size: .66rem;
   background: rgba(10, 8, 18, .82); backdrop-filter: blur(4px); box-shadow: 0 1px 4px rgba(0, 0, 0, .35); }
 .al-card > .ab-mv.new { background: var(--accent); }
+/* the badge is dark in both themes, so its arrows keep the bright colours */
+.al-card > .ab-mv.up { color: #34d399; }
+.al-card > .ab-mv.down { color: #fb7185; }
+.al-card > .ab-mv.same { display: none; color: rgba(255, 255, 255, .8); }  /* desktop: unchanged says nothing */
 .ab-thumb { grid-area: art; width: var(--ab-art); height: var(--ab-art); object-fit: cover; display: grid; place-items: center; font-size: 1rem; }
 .ab-tt { grid-area: tt; display: flex; flex-direction: column; min-width: 0; }
 .ab-tt b { display: flex; align-items: center; min-width: 0; font-weight: 600; white-space: nowrap; }
@@ -63,6 +67,12 @@
   .ab-wall .ab-ic { font-size: .66rem; gap: 1px; }
   .ab-wall .ab-ic .i { width: 12px; height: 12px; }
   .ab-legend { text-align: right; padding-left: 0; }
+  /* bigger movement marks on a phone, and "–" for unchanged on the covers too */
+  .ab-mv { font-size: .78rem; }
+  .ab-mv.new { font-size: .66rem; padding: 3px 5px; }
+  .al-card > .ab-mv { font-size: .8rem; padding: 4px 7px; top: 5px; left: 5px; }
+  .al-card > .ab-mv.new { font-size: .68rem; }
+  .al-card > .ab-mv.same { display: block; }
   .ab-songs { --ab-pad: 11px; --ab-pos: 34px; --ab-art: 44px; --ab-gap: 10px; }
   .ab-songs a { grid-template-columns: var(--ab-pos) var(--ab-art) minmax(0, 1fr); grid-template-areas: "pos art tt" "pos art meter"; row-gap: 5px; }
   .ab-pos, .ab-thumb { align-self: start; }

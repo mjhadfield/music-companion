@@ -56,7 +56,7 @@ function renderAlbumsBrowse() {
   const genreChips = (st.moreGenres ? genreCounts : genreCounts.slice(0, 14));
   const plays = shown.reduce((n, r) => n + r.p, 0);
   const charted = st.sort === "plays";
-  const move = charted ? chartMoves(shown, albumsBase().rows.filter((r) => pass(r)), W.start, win, { quiet: true }) : () => "";
+  const move = charted ? chartMoves(shown, albumsBase().rows.filter((r) => pass(r)), W.start, win) : () => "";
 
   app.classList.add("wide");
   app.innerHTML = `

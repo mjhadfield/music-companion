@@ -460,6 +460,30 @@ function hpMostHtml(kind, win) {
 }
 
 // ---- the page ----------------------------------------------------------
+// Phone: the screen you're on (overview, activity, most played, record buys) is kept in this history
+// step, so Back from a page you opened returns you to it. Tapping Home is a new step: the top.
+function hpRememberScreen() {
+  const scroller = document.getElementById("hp-scroller");
+  if (!scroller || getComputedStyle(scroller).overflowY === "visible") return;  // desktop: the page itself scrolls
+  const pages = [...scroller.querySelectorAll(".hp-page")];
+  const topOf = (el) => el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  const at = history.state?.hpPage;
+  if (at && pages[at]) {
+    scroller.style.scrollSnapType = "none";  // straight there, no animated snap from the top
+    scroller.scrollTop = topOf(pages[at]);
+    requestAnimationFrame(() => { scroller.style.scrollSnapType = ""; });
+  }
+  let t = null;
+  scroller.addEventListener("scroll", () => {
+    clearTimeout(t);
+    t = setTimeout(() => {
+      if (document.body.dataset.route !== "home" || history.state?.drawer != null) return;
+      const y = scroller.scrollTop;
+      const i = pages.reduce((best, pg, k) => (Math.abs(topOf(pg) - y) < Math.abs(topOf(pages[best]) - y) ? k : best), 0);
+      if ((history.state?.hpPage || 0) !== i) history.replaceState({ ...history.state, hpPage: i }, "", location.href);
+    }, 150);
+  }, { passive: true });
+}
 // On a phone the home page is its own full-height scroller (so the browser's bars stay put and every page is
 // exactly one screen): its height is the window less the top bar and the bottom tab bar, measured.
 function hpMeasureChrome() {
@@ -536,6 +560,8 @@ function renderHome() {
     hpSwap(most, hpMostHtml(hpState.kind, k));
   });
   hpSegWire("hp-kind", (k) => { hpState.kind = k; hpSwap(most, hpMostHtml(k, hpState.win)); });
+
+  hpRememberScreen();
 
   // the sliding highlights are measured from the buttons: measure again once the fonts are in, and on resize
   const remeasure = () => {

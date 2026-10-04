@@ -92,7 +92,7 @@ function renderArtistsBrowse() {
   const activeText = [st.genre && genreName(st.genre), ...[...st.has].map((h) => ARTIST_HAS[h]), st.firstYear && `first played ${st.firstYear}`].filter(Boolean);
   const plays = shown.reduce((n, a) => n + a.p, 0);
   const charted = st.sort === "plays";
-  const move = charted ? chartMoves(shown, artistsBase().filter((a) => pass(a)), W.start, win, { quiet: true }) : () => "";
+  const move = charted ? chartMoves(shown, artistsBase().filter((a) => pass(a)), W.start, win) : () => "";
   const firstYearMin = rows.reduce((m, a) => (a.firstYear && (!m || a.firstYear < m) ? a.firstYear : m), null);
 
   app.classList.add("wide");
@@ -312,8 +312,8 @@ function abRanks(list, n) {
 }
 
 // rank movement: each entry's rank (by window plays, x.p) against the window before's whole chart
-// (x.pp, same filters) -> (entry) => badge html. On a cover wall "no change" says nothing.
-function chartMoves(shown, before, start, win, { quiet = false } = {}) {
+// (x.pp, same filters) -> (entry) => badge html. (A cover wall shows "no change" on a phone only: css.)
+function chartMoves(shown, before, start, win) {
   const now = abRanks(shown, (x) => x.p);
   const was = abRanks(before.filter((x) => x.pp).sort((a, b) => b.pp - a.pp), (x) => x.pp);
   return (x) => {
@@ -322,7 +322,7 @@ function chartMoves(shown, before, start, win, { quiet = false } = {}) {
     if (!r) return `<i class="ab-mv new" title="${x.first && x.first >= start ? `First played in the ${esc(win.since || "last 30 days")}` : "Back — not played in the window before"}">new</i>`;
     const d = r - now.get(x);
     return d > 0 ? `<i class="ab-mv up" title="Up ${d} (was ${r}) ${esc(win.vs)}">▲${d}</i>` : d < 0 ? `<i class="ab-mv down" title="Down ${-d} (was ${r}) ${esc(win.vs)}">▼${-d}</i>`
-      : quiet ? "" : `<i class="ab-mv same" title="No change ${esc(win.vs)}">–</i>`;
+      : `<i class="ab-mv same" title="No change ${esc(win.vs)}">–</i>`;
   };
 }
 // the switch -- or, arriving from a Home stat, that stat's range as a removable pill instead
