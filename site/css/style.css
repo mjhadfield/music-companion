@@ -112,7 +112,7 @@ h1, h2 {
 .topbar-left { justify-self: end; }
 .topbar-right { justify-self: start; }
 /* phone-only: the back chevron + the page's title (see setTopbarTitle) */
-.topbar .topbar-back, .topbar .topbar-title { display: none; }
+.topbar .topbar-back, .topbar .topbar-title, .topbar .topbar-reload { display: none; }
 
 .icon-btn {
   width: 30px;
@@ -698,7 +698,12 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   .topbar .icon-btn { width: 32px; height: 32px; border-color: transparent; background: none; }
   .topbar .icon-btn .i { width: 20px; height: 20px; }
   .topbar .topbar-back { display: flex; margin-left: -4px; }
-  body[data-route="home"] .topbar-back { visibility: hidden; }
+  body[data-route="home"] .topbar-back { display: none; }
+  /* phones make a hard refresh hard to find: this re-downloads the site and the data, then reloads */
+  .topbar .topbar-reload { display: flex; }
+  .topbar-reload.spinning .i { animation: reload-spin .8s linear infinite; }
+  .topbar { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .topbar-left, .topbar-right { min-width: 32px; }
   .search-wrap, .topbar-title { grid-column: 2; grid-row: 1; }
   .topbar-title { align-items: baseline; justify-content: center; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
   .topbar-title .hud { font-size: 10px; }
@@ -978,3 +983,5 @@ main#app.wide { max-width: 1380px; }
 .tl-line:not([data-song-id]) { cursor: default; opacity: .6; }
 .tl-pos { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
 .tl-dur { margin-left: 10px; font-family: var(--font-mono); font-size: 0.72rem; }
+
+@keyframes reload-spin { to { transform: rotate(360deg); } }

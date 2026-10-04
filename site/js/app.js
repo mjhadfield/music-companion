@@ -1267,6 +1267,19 @@ let lastRenderedHash = null;
 let navDepth = 0;
 let skipRender = null; // a hash change already handled in place (closing the record drawer)
 window.addEventListener("popstate", () => { if (history.state?.depth != null) navDepth = history.state.depth; });
+// The phone's "hard refresh": every file the page uses (and the database) fetched fresh -- bypassing the
+// browser's cache, which plain reloads on a phone keep reusing -- then the page reloads with them.
+async function hardRefresh() {
+  const btn = document.getElementById("hard-refresh");
+  btn?.classList.add("spinning");
+  const same = (u) => { try { return new URL(u, location.href).origin === location.origin; } catch { return false; } };
+  const urls = new Set([location.pathname || "./", "index.html", "public/music.sqlite.size", "public/music.sqlite",
+    ...[...document.scripts].map((s) => s.src).filter((u) => u && same(u)),
+    ...[...document.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.href).filter(same)]);
+  await Promise.all([...urls].map((u) => fetch(u, { cache: "reload" }).catch(() => null)));
+  location.reload();
+}
+
 function goBack() {
   if (navDepth > 0) history.back();
   else location.hash = "#/";

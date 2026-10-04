@@ -3,6 +3,7 @@ const paths = {
   home:   '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   disc:   '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12a6 6 0 0 1 6-6"/>',
   back:   '<path d="M15 18l-6-6 6-6"/>',
+  reload: '<path d="M20 11.5A8 8 0 1 1 17.7 6"/><path d="M20 3.5V9h-5.5"/>',
   chevron:'<path d="M6 9l6 6 6-6"/>',
   moon:   '<path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5a7 7 0 0 0 10.7 10.7z"/>',
   sun:    '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/>',

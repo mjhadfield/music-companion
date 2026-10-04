@@ -173,7 +173,7 @@
 @media (max-width: 640px) {
   body[data-route="home"] main#app { padding: 0 14px; min-height: 0; }
   body[data-route="home"] .footer { display: none; }
-  body[data-route="home"] .topbar-back { visibility: hidden; }
+  body[data-route="home"] .topbar-back { display: none; }
   .hp { --hp-label: .66rem; --hp-page: calc(100dvh - var(--hp-chrome, 112px)); height: var(--hp-page); overflow-y: auto; overscroll-behavior-y: contain;
     scroll-snap-type: y mandatory; gap: 0; margin: 0 -14px; padding: 0 14px; scrollbar-width: none; }
   .hp::-webkit-scrollbar { display: none; }
