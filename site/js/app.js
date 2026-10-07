@@ -549,7 +549,7 @@ function setupSearch() {
 async function fetchWithProgress(url, onProgress, totalPromise) {
   // Fired alongside the fetch itself (not awaited first) so the tiny
   // sidecar lookup never delays starting the real download.
-  const [resp, knownTotal] = await Promise.all([fetch(url), totalPromise]);
+  const [resp, knownTotal] = await Promise.all([fetch(url, { cache: "no-cache" }), totalPromise]);
   if (!resp.ok) throw new Error(`Fetching database failed: HTTP ${resp.status}`);
 
   if (!resp.body || !resp.body.getReader) {
@@ -666,7 +666,9 @@ async function boot() {
     // see the comment in fetchWithProgress for why Content-Length alone
     // can't be trusted for this. Missing/failed fetch just means the
     // progress bar falls back to whatever Content-Length says.
-    const sizePromise = fetch("public/music.sqlite.size")
+    // "no-cache": the browser asks the server each time whether its copy is still current (a quick "not modified"
+    // when it is) -- so a published database always arrives, rather than an old one the browser decided to keep
+    const sizePromise = fetch("public/music.sqlite.size", { cache: "no-cache" })
       .then((r) => (r.ok ? r.text() : "0"))
       .then((t) => Number(t.trim()) || 0)
       .catch(() => 0);

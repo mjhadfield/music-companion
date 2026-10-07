@@ -265,6 +265,32 @@ def review(req):
     return {"reviewed": n, "undo": {"kind": "inbox", "id": ids}}
 
 
+@route("POST", "/api/imports/accept", mutating=True)
+def accept(req):
+    """"Accept ticked": each item as its kind means it. A "Changed on Discogs" item is applied (Discogs' values onto
+    your record, journaled) -- accepting it never means "keep mine", which has its own button. Everything else is
+    marked reviewed. One undo for the lot."""
+    ids = [int(i) for i in (req.body.get("ids") or [])]
+    if not ids:
+        raise ApiError("ids is required")
+    undo, applied = [], 0
+    with write_tx() as c:
+        rows = c.execute(f"SELECT id, kind, entity_id, detail_json FROM import_events WHERE reviewed_at IS NULL AND id IN ({_in(ids)})", ids).fetchall()
+        for event_id, kind, entity_id, detail in rows:
+            if kind == "holding_changed":
+                changes = {f: v[1] for f, v in json.loads(detail).get("changes", {}).items()}
+                if changes:
+                    edit = merge.edit_entity(c, "vinyl", entity_id, changes, "Discogs import: changed on Discogs")
+                    if edit["editId"]:
+                        undo.append({"kind": "edit", "id": edit["editId"]})
+                        applied += 1
+        settled = [r[0] for r in rows]
+        if settled:
+            c.execute(f"UPDATE import_events SET reviewed_at = datetime('now') WHERE id IN ({_in(settled)})", settled)
+            undo.append({"kind": "inbox", "id": settled})
+    return {"reviewed": len(settled), "applied": applied, "undo": {"kind": "batch", "id": undo}}
+
+
 def unreview(c, ids) -> int:
     return c.execute(f"UPDATE import_events SET reviewed_at = NULL WHERE id IN ({_in(ids)})", list(ids)).rowcount
 

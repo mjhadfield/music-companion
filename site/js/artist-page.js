@@ -12,6 +12,7 @@ function renderArtist(id) {
   const enrichment = getArtistEnrichment(artist);   // the slow one (Wikipedia): asked for first, filled in when it lands
 
   const hist = query(`SELECT count(*) AS n, min(played_at) AS first, max(played_at) AS last FROM scrobbles WHERE artist_id = ?`, [id])[0];
+  const listened = listenTime("WHERE s.artist_id = ?", [id]);   // "≈ 84 h"
   const rank = hist.n ? query(`SELECT count(*) + 1 AS r FROM (SELECT artist_id FROM scrobbles GROUP BY artist_id HAVING count(*) > ?)`, [hist.n])[0].r : null;
   const artistCount = query(`SELECT count(DISTINCT artist_id) AS c FROM scrobbles`)[0].c;
   const byYear = Object.fromEntries(query(`SELECT strftime('%Y', played_at) AS y, count(*) AS c FROM scrobbles WHERE artist_id = ? GROUP BY y`, [id]).map((r) => [r.y, r.c]));
@@ -88,7 +89,7 @@ function renderArtist(id) {
           <h1 class="ap-title">${esc(artist.name)}</h1>
           ${genreTagsHtml(artistGenreNames(id), "", "artists")}
           <div class="ap-kpis">
-            ${kpi(apFmt(hist.n), "plays", "accent")}
+            ${kpi(apFmt(hist.n), `plays${listened ? ` · ${listened}` : ""}`, "accent")}
             ${kpi(rank ? `#${apFmt(rank)}` : "—", rank ? `of ${apFmt(artistCount)} artists` : "not played yet")}
             ${kpi(hist.first ? apMonthYear(hist.first) : "—", "first played")}
             ${kpi(hist.last ? relativeDay(hist.last) : "—", "last played")}

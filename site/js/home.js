@@ -318,6 +318,7 @@ function hpActivity(win) {
     k.newArtists = mod ? query(`SELECT count(*) AS c FROM (SELECT artist_id, min(played_at) AS f FROM scrobbles GROUP BY artist_id) WHERE f >= strftime('%Y-%m-%dT%H:%M:%S', 'now', ?)`, [mod])[0].c : null;
     const days = { day: 1, week: 7, month: 30, year: 365 }[win] || Math.max(1, (now - new Date(k.first)) / 86400000);
     k.perDay = win === "day" ? k.plays / 24 : k.plays / days;
+    k.listened = listenTime(w);                                    // "≈ 41 h" of listening in the period
 
     const hours = Object.fromEntries(query(`SELECT CAST(strftime('%H', s.played_at, '${tz}') AS INT) AS h, count(*) AS c FROM scrobbles s ${w} GROUP BY h`).map((r) => [r.h, r.c]));
     const weekWhere = win === "day" ? hpWhere("week") : w; // a single day has no weekly shape: use the past week
@@ -344,9 +345,10 @@ function hpNice(max) {
 function hpActivityHtml(win) {
   const a = hpActivity(win);
   const { series, k } = a;
-  const max = Math.max(1, ...series.map((b) => b.value));
+  const most = Math.max(0, ...series.map((b) => b.value));   // 0: nothing played in this period
+  const max = Math.max(1, most);
   const { step, top } = hpNice(max);
-  const peak = series.findIndex((b) => b.value === max);
+  const peak = most ? series.findIndex((b) => b.value === most) : -1;
   const every = Math.ceil(series.length / (window.innerWidth < 640 ? 6 : 10));
   const ticks = [];
   for (let v = 0; v <= top + 1e-9; v += step) ticks.push(v);
@@ -358,7 +360,7 @@ function hpActivityHtml(win) {
   const since = HP_WINDOWS[win].since;
   return `
     <div class="hp-kpis">
-      ${kpi(k.plays, "plays", 0, `#/songs?range=${win}`, `The songs you played in the ${since}`)}
+      ${kpi(k.plays, `plays${k.listened ? ` · ${k.listened}` : ""}`, 0, `#/songs?range=${win}`, `The songs you played in the ${since}${k.listened ? ` — ${k.listened.replace("≈ ", "about ")} of listening` : ""}`)}
       ${kpi(k.perDay < 10 ? k.perDay.toFixed(1) : Math.round(k.perDay), win === "day" ? "average per hour" : "average per day", 1, `#/scrobbles?range=${win}`, `Every play in the ${since}, ${win === "day" ? "hour" : "day"} by ${win === "day" ? "hour" : "day"}`, k.perDay < 10)}
       ${kpi(k.artists, "artists", 2, `#/artists?range=${win}`, `The artists you played in the ${since}`)}
       ${k.newArtists != null ? kpi(k.newArtists, "new artists", 3, `#/artists?range=${win}&new=1`, `Artists you played for the first time in the ${since}`)
@@ -370,7 +372,7 @@ function hpActivityHtml(win) {
         <div class="hp-bars">${series.map((b, i) => `<button type="button" class="hp-bar${i === peak ? " pk" : ""}" data-key="${esc(b.key)}" style="--h:${((b.value / top) * 100).toFixed(2)}%; --d:${Math.round(i * stagger)}ms" title="${esc(b.full)}: ${hpFmt(b.value)} plays" aria-label="${esc(b.full)}: ${hpFmt(b.value)} plays"></button>`).join("")}</div>
       </div>
       <div class="hp-xl">${series.map((b, i) => `<span>${i % every === 0 ? esc(b.label) : ""}</span>`).join("")}</div>
-      <div class="hp-peak">busiest: <b>${esc(series[peak].full)}</b> · ${hpFmt(max)} plays</div>
+      <div class="hp-peak">${peak >= 0 ? `busiest: <b>${esc(series[peak].full)}</b> · ${hpFmt(most)} plays` : `No plays in the ${esc(HP_WINDOWS[win].since)}`}</div>
     </div>
     <div class="hp-shape">
       <div class="hp-shape-panel">

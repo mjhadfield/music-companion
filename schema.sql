@@ -70,7 +70,19 @@ CREATE TABLE IF NOT EXISTS songs (
     artist_id   INTEGER NOT NULL REFERENCES artists(id),
     album_id    INTEGER REFERENCES albums(id),   -- primary/first-seen album, if any
     title       TEXT NOT NULL,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    length_ms   INTEGER,                  -- the song's length (migration 016; etl/song_lengths.py)
+    length_source TEXT                    -- tracklist | pressing | lastfm | none
+);
+
+-- Lengths for tracklist lines with none (migration 016; etl/song_lengths.py): a pressing's tracklist often has no
+-- durations, and a track never played isn't a song at all.
+CREATE TABLE IF NOT EXISTS track_lengths (
+    album_id   INTEGER NOT NULL REFERENCES albums(id),
+    title      TEXT NOT NULL,             -- the tracklist line's title, as written
+    length_ms  INTEGER,
+    source     TEXT NOT NULL,             -- song | lastfm | none
+    PRIMARY KEY (album_id, title)
 );
 
 CREATE INDEX IF NOT EXISTS idx_albums_artist ON albums(artist_id);

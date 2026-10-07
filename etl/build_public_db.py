@@ -48,6 +48,7 @@ PUBLIC_TABLES = [
     "vinyl_details",
     "album_tracklists",
     "album_tracklist_sources",
+    "track_lengths",
 ]
 # Views are recreated from schema.sql (no rows to copy) -- also listed explicitly.
 PUBLIC_VIEWS = [
@@ -128,7 +129,10 @@ def build(source_db: Path = SOURCE_DB, public_db: Path = PUBLIC_DB, covers: bool
         # Named columns, not SELECT * -- a positional copy silently shuffles values between
         # columns whenever the working database's column order differs from schema.sql's
         # (ALTER TABLE ADD COLUMN always appends, wherever schema.sql declares it).
-        cols = ", ".join(r[1] for r in conn.execute(f"PRAGMA main.table_info({table})"))
+        # Only the columns both have: a column the public schema has gained but the working database hasn't been
+        # migrated to yet (the maintenance server adds it when it next starts) is published empty, not an error.
+        src_cols = {r[1] for r in conn.execute(f"PRAGMA src.table_info({table})")}
+        cols = ", ".join(r[1] for r in conn.execute(f"PRAGMA main.table_info({table})") if r[1] in src_cols)
         cur = conn.execute(f"INSERT INTO {table} ({cols}) SELECT {cols} FROM src.{table}")
         total_rows += cur.rowcount
         print(f"  {table}: {cur.rowcount} rows")

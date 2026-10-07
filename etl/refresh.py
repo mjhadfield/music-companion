@@ -16,6 +16,7 @@ Usage:
     python etl/refresh.py --lastfm
     python etl/refresh.py --setlistfm
     python etl/refresh.py --discogs imports/new-export.csv
+    python etl/refresh.py --discogs-api        # your collection straight from Discogs (DISCOGS_TOKEN)
     python etl/refresh.py --lastfm --setlistfm --discogs imports/new-export.csv
 """
 import argparse
@@ -198,10 +199,13 @@ def main() -> None:
     parser.add_argument("--lastfm", action="store_true", help="incremental Last.fm scrobble pull")
     parser.add_argument("--setlistfm", action="store_true", help="full Setlist.fm re-pull")
     parser.add_argument("--discogs", metavar="CSV_PATH", help="import a fresh Discogs collection export")
+    parser.add_argument("--discogs-api", action="store_true", help="sync your collection straight from Discogs (needs DISCOGS_TOKEN)")
     args = parser.parse_args()
 
-    if not (args.lastfm or args.setlistfm or args.discogs):
-        parser.error("nothing to do -- pass at least one of --lastfm, --setlistfm, --discogs PATH")
+    if not (args.lastfm or args.setlistfm or args.discogs or args.discogs_api):
+        parser.error("nothing to do -- pass at least one of --lastfm, --setlistfm, --discogs PATH, --discogs-api")
+    if args.discogs and args.discogs_api:
+        parser.error("--discogs and --discogs-api are two ways to the same thing -- pick one")
 
     conn = connect()
     before = snapshot(conn)
@@ -209,8 +213,11 @@ def main() -> None:
 
     if args.discogs:
         run_step("Discogs import", ["etl/discogs_import.py", args.discogs])
+    if args.discogs_api:
+        run_step("Discogs sync", ["etl/discogs_import.py", "--api"])
     if args.lastfm:
         run_step("Last.fm pull (incremental)", ["etl/lastfm_pull.py"])
+        run_step("Song lengths (new songs)", ["etl/song_lengths.py", "--lastfm", "300"])   # lengths for anything new, from tracklists then Last.fm
     if args.setlistfm:
         run_step("Setlist.fm pull (full refresh)", ["etl/setlistfm_pull.py"])
 

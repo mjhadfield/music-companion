@@ -866,8 +866,18 @@ def _album_tracklists(limit: int, log, progress, cancelled) -> None:
         conn.close()
 
 
+def _song_lengths(limit: int, log, progress, cancelled) -> None:
+    """Each song's length (etl/song_lengths.py): from tracklists for every song (free), then Last.fm for up to
+    `limit` more, most played first (~2 a second). Lengths are information only -- nothing is merged or renamed."""
+    import song_lengths
+    log(f"Lengths from tracklists for every song, then Last.fm for up to {limit}, most played first.")
+    song_lengths.run(limit, log, progress, cancelled)
+    log("Publish for the site to use them.")
+
+
 SWEEPS = {
     "album-tracklists": _album_tracklists,
+    "song-lengths": _song_lengths,
     "genres": _genres,
     "pressings": _pressings,
     "song-recordings": _song_recordings,

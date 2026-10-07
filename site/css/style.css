@@ -241,6 +241,8 @@ main#app {
   font-size: 0.78rem;
   padding: 20px;
 }
+.footer-credit { margin-top: 6px; font-size: 0.72rem; color: var(--text-muted); }
+.footer-credit a { color: inherit; text-decoration: underline; }
 
 /* --- Home: css/home.css --- */
 

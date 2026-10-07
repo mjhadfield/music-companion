@@ -504,6 +504,28 @@ def _m015_press_override(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE vinyl_holdings ADD COLUMN {col} {typ}")
 
 
+def _m016_song_lengths(conn: sqlite3.Connection) -> None:
+    """A song's length (ms) and where it came from: 'tracklist' (MusicBrainz, by recording id or the album's
+    title), 'pressing' (your record's Discogs tracklist), 'lastfm' (track.getInfo), 'none' (asked; nobody knew).
+    Filled by etl/song_lengths.py. Public: the site shows lengths and listening time."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(songs)")}
+    for col, typ in (("length_ms", "INTEGER"), ("length_source", "TEXT")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE songs ADD COLUMN {col} {typ}")
+    # Lengths for tracklist lines that have none (a pressing's Discogs tracklist often has no durations) -- including
+    # tracks you've never played, which aren't songs at all ("Embryo"): so album pages can show running times and
+    # mark tracks too short for Last.fm to count. Keyed by album + the line's title as written. Public.
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS track_lengths (
+            album_id   INTEGER NOT NULL REFERENCES albums(id),
+            title      TEXT NOT NULL,
+            length_ms  INTEGER,
+            source     TEXT NOT NULL,
+            PRIMARY KEY (album_id, title)
+        );
+    """)
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -520,6 +542,7 @@ MIGRATIONS = [
     ("013_batches", _m013_batches),
     ("014_artist_links", _m014_artist_links),
     ("015_press_override", _m015_press_override),
+    ("016_song_lengths", _m016_song_lengths),
 ]
 
 

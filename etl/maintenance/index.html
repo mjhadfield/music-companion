@@ -58,7 +58,7 @@
         <label><input type="checkbox" id="chk-setlistfm" /> Setlist.fm shows <span class="badge bad">full re-pull</span></label>
       </div>
       <div class="source-row">
-        <label><input type="checkbox" id="chk-discogs" /> Discogs collection <span class="badge vinyl">CSV import</span></label>
+        <label><input type="checkbox" id="chk-discogs" /> Discogs collection <span class="badge vinyl" id="discogs-badge">CSV import</span></label>
         <select id="discogs-file" disabled></select>
       </div>
 
@@ -216,9 +216,12 @@ async function loadImports() {
   try {
     const res = await fetch("/imports");
     const data = await res.json();
-    discogsFile.innerHTML = data.files.length
-      ? data.files.map((f) => `<option value="${esc(f)}">${esc(f)}</option>`).join("")
-      : `<option value="">No CSV files in imports/</option>`;
+    // with a Discogs token the collection is read live (first choice); a CSV export still works
+    const live = data.discogsApi ? `<option value="__api__">Your Discogs collection (live)</option>` : "";
+    discogsFile.innerHTML = live + (data.files.length
+      ? data.files.map((f) => `<option value="${esc(f)}">CSV: ${esc(f)}</option>`).join("")
+      : (live ? "" : `<option value="">No CSV files in imports/</option>`));
+    document.getElementById("discogs-badge").textContent = data.discogsApi ? "live or CSV" : "CSV import";
   } catch {
     discogsFile.innerHTML = `<option value="">Couldn't list imports/</option>`;
   }
@@ -254,7 +257,8 @@ function resetLogPanel(statusText) {
 
 runBtn.addEventListener("click", async () => {
   errorBox.style.display = "none";
-  const body = { lastfm: chkLastfm.checked, setlistfm: chkSetlistfm.checked, discogsFile: chkDiscogs.checked ? discogsFile.value : null };
+  const viaApi = chkDiscogs.checked && discogsFile.value === "__api__";
+  const body = { lastfm: chkLastfm.checked, setlistfm: chkSetlistfm.checked, discogsApi: viaApi, discogsFile: chkDiscogs.checked && !viaApi ? discogsFile.value : null };
   runBtn.disabled = true;
   const { ok, data } = await api("/run", body);
   if (!ok) {

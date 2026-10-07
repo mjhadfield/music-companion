@@ -198,7 +198,7 @@ function renderList(tab) {
   root.innerHTML = `
     <div class="inbox-tools">
       ${st.reviewed ? "" : `<label class="meta"><input type="checkbox" data-role="all" /> <span data-role="ticked"></span></label>
-      <button class="small good" data-role="bulk">Accept ticked</button>`}
+      <button class="small good" data-role="bulk" title="New items are marked reviewed; a ticked “Changed on Discogs” item gets Discogs’ values applied (use “Keep mine” on the item to keep yours)">Accept ticked</button>`}
       <span class="spacer"></span>
       <span class="meta">${st.reviewed ? `${fmtNum(st.total)} reviewed` : `${fmtNum(st.total)} to review`}${st.total > st.items.length ? ` · showing the newest ${fmtNum(st.items.length)}` : ""}</span>
       <label class="meta"><input type="checkbox" data-role="show-reviewed" ${st.reviewed ? "checked" : ""} /> show reviewed</label>
@@ -227,9 +227,9 @@ function wireBulk(tab, root) {
     const picked = boxes().filter((b) => b.checked).map((b) => b.closest(".review-item"));
     const ids = picked.map((el) => state[tab].items[+el.dataset.i].id);
     e.target.disabled = true;
-    const { ok, data } = await api("/api/imports/review", { ids });
+    const { ok, data } = await api("/api/imports/accept", { ids });
     if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
-    toast(`${plural(data.reviewed, "item")} accepted`, { undo: data.undo });
+    toast(`${plural(data.reviewed, "item")} accepted${data.applied ? ` · ${plural(data.applied, "Discogs update")} applied` : ""}`, { undo: data.undo });
     notifyChanged();
     load(tab);
   });

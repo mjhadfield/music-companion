@@ -48,6 +48,8 @@
 .ap-bar { position: absolute; left: 48px; bottom: 3px; height: 2px; width: calc((100% - 48px) * var(--w)); background: color-mix(in srgb, var(--accent) 70%, transparent); }
 .ap-tracks li.ap-unplayed .ap-tt { font-weight: 400; color: var(--text-dim); }
 .ap-tracks li.ap-unplayed .ap-plays { color: var(--text-muted); }
+.ap-tracks li.ap-short .ap-tt { font-weight: 400; color: var(--text-dim); }
+.ap-tooshort { font-family: var(--font-mono); font-size: .62rem; letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); white-space: nowrap; }
 .ap-group-label { margin: 16px 0 4px; font-family: var(--font-mono); font-size: var(--ap-label); letter-spacing: .12em; text-transform: uppercase; color: var(--accent-soft); }
 .ap-group-label:first-of-type { margin-top: 0; }
 .ap-quiet { margin-top: 14px; }

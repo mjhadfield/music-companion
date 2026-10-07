@@ -37,13 +37,17 @@ function apGroups(ref, matched, albumId) {
 function apTracklistHtml(albumId, songs) {
   const ref = albumReferenceTracklist(albumId);
   const max = Math.max(1, ...songs.map((x) => x.plays));
+  // a track of 30 s or less can't show a play: Last.fm never counts one
+  const short = (t) => { const secs = secsOf(t.dur); return secs != null && secs > 0 && secs <= TOO_SHORT_SECS; };
   const row = (t, n) => {
     const s = t.again ? null : t.song;
     const plays = s ? s.plays : 0;
-    return `<li class="${s && plays ? "" : "ap-unplayed"}"${t.song ? ` data-song="${t.song.id}"` : ""}>
+    const tooShort = !plays && !t.again && short(t);
+    return `<li class="${s && plays ? "" : tooShort ? "ap-short" : "ap-unplayed"}"${t.song ? ` data-song="${t.song.id}"` : ""}>
       <span class="ap-pos">${esc(t.pos || String(n))}</span>
       <span class="ap-tt">${esc(t.title)}${s?.shows ? ` <i class="livedot" title="Heard live at ${apFmt(s.shows)} show${s.shows === 1 ? "" : "s"}">●</i>` : ""}</span>
-      <span class="ap-plays">${t.again ? `<span title="Counted on its first line above">↑</span>` : plays ? apFmt(plays) : "—"}</span>
+      <span class="ap-plays">${t.again ? `<span title="Counted on its first line above">↑</span>` : plays ? apFmt(plays)
+        : tooShort ? `<span class="ap-tooshort" title="Last.fm only counts a play of a track longer than 30 seconds, so this one can never show a play">too short to scrobble</span>` : "—"}</span>
       <span class="ap-dur">${esc(t.dur || "")}</span>
       ${plays ? `<i class="ap-bar" style="--w:${(plays / max).toFixed(3)}"></i>` : ""}
     </li>`;
@@ -61,7 +65,8 @@ function apTracklistHtml(albumId, songs) {
   if (other) other.tracks.forEach((t) => { if (t.song && onMain.has(t.song.id)) t.again = true; });
   const unlisted = other ? matched.unlisted.filter((x) => other.unlisted.includes(x)) : matched.unlisted;
   // the count leaves out a folded-away disc (the DVD of a CD + DVD edition)
-  const counted = groups.filter((g) => groups.length === 1 || g.tracks.some((t) => t.song && t.song.plays)).flatMap((g) => g.tracks);
+  const counted = groups.filter((g) => groups.length === 1 || g.tracks.some((t) => t.song && t.song.plays)).flatMap((g) => g.tracks)
+    .filter((t) => (t.song && t.song.plays) || !short(t));                     // a too-short track isn't one you could have played
   const played = counted.filter((t) => t.song && !t.again && t.song.plays).length;
   let n = 0;
   return `<section class="ap-card">
@@ -173,6 +178,11 @@ function renderAlbum(id) {
         <b>${esc(a.title)}</b><span class="subtle">${sub(a)}</span></a>`).join("")}</div></section>` : "";
   const kpi = (value, label, cls = "") => `<div class="ap-kpi ${cls}"><b>${value}</b><span>${esc(label)}</span></div>`;
   const yearText = album.year || parts.map((p) => p.year).filter(Boolean)[0] || "";
+  // its running time, from the tracklist shown (your pressing's, else MusicBrainz's original release)
+  const refTracks = albumReferenceTracklist(id)?.tracks || [];
+  const runSecs = refTracks.reduce((n, t) => n + (secsOf(t.duration) || 0), 0);
+  const runtime = runSecs && refTracks.every((t) => secsOf(t.duration)) ? fmtDuration(runSecs * 1000) : "";
+  const listened = listenTime(`WHERE s.album_id IN (${marks})`, scope);
 
   app.classList.add("wide");
   app.innerHTML = `
@@ -180,13 +190,13 @@ function renderAlbum(id) {
       <section class="ap-hero">
         ${apCover(album.id, album.cover_status, album.cover_updated_at, album.title, "ap-cover")}
         <div class="ap-info">
-          <div class="hud">${parts.length ? "A set of albums" : "Album"}${yearText ? ` · ${yearText}` : ""}</div>
+          <div class="hud">${parts.length ? "A set of albums" : "Album"}${yearText ? ` · ${yearText}` : ""}${runtime ? ` · ${runtime}` : ""}</div>
           <h1 class="ap-title">${esc(album.title)}</h1>
           <div class="ap-artist">${credits.map((c) => `<a href="#/artist/${c.id}">${esc(c.name)}</a>`).join(" · ")}</div>
           ${parts.length ? `<div class="subtle">A set of ${parts.map((p) => `<a href="#/album/${p.id}">${esc(p.title)}</a>${p.year ? ` (${p.year})` : ""}`).join(" + ")}</div>` : ""}
           ${genreTagsHtml(genres)}
           <div class="ap-kpis">
-            ${kpi(apFmt(hist.n), "plays", "accent")}
+            ${kpi(apFmt(hist.n), `plays${listened ? ` · ${listened}` : ""}`, "accent")}
             ${kpi(rank ? `#${rank}` : "—", rank ? `of ${ranked.length} albums` : "not played yet")}
             ${kpi(hist.first ? apMonthYear(hist.first) : "—", "first played")}
             ${kpi(hist.last ? relativeDay(hist.last) : "—", "last played")}

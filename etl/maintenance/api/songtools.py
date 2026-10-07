@@ -199,6 +199,20 @@ def tracklist_status(req):
                          OR EXISTS (SELECT 1 FROM scrobble_releases r WHERE r.release_mbid = al.mbid))""")}
 
 
+@route("GET", "/api/songs/length-status")
+def length_status(req):
+    """How many songs have a length (etl/song_lengths.py), and how much of your listening that covers."""
+    with read_conn() as c:
+        cols = {r[1] for r in c.execute("PRAGMA table_info(songs)")}
+        if "length_ms" not in cols:
+            return {"available": False}
+        row = c.execute("""SELECT count(*), sum(length_ms IS NOT NULL), sum(length_ms IS NULL AND length_source IS NULL),
+                                  sum(length_ms IS NOT NULL AND length_ms <= 30000) FROM songs""").fetchone()
+        plays = c.execute("SELECT count(*), sum(so.length_ms IS NOT NULL) FROM scrobbles s JOIN songs so ON so.id = s.song_id").fetchone()
+        return {"available": True, "songs": row[0], "known": row[1] or 0, "toLookUp": row[2] or 0, "short": row[3] or 0,
+                "plays": plays[0], "playsKnown": plays[1] or 0}
+
+
 @route("GET", "/api/songs/tracklist")
 def tracklist(req):
     album_id = req.int("albumId", required=True)

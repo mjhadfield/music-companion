@@ -118,7 +118,12 @@ function renderSong(id) {
     GROUP BY s2.song_id ORDER BY together DESC, so.title LIMIT 8`, [...ids, song.artist_id]).filter((x) => x.together >= 2) : [];
 
   const kpi = (value, label, cls = "") => `<div class="ap-kpi ${cls}"><b>${value}</b><span>${esc(label)}</span></div>`;
-  const hud = ["Song", trackWord && album ? `${trackWord} on ${album.title}` : null].filter(Boolean).join(" · ");
+  // its length: the song's own, else the tracklist line it was matched to
+  const lenMs = hasColumn("songs", "length_ms") ? query(`SELECT max(length_ms) AS l FROM songs WHERE id IN (${marks})`, ids)[0].l : null;
+  const lenText = lenMs ? fmtLength(lenMs) : track?.dur || "";
+  const listened = listenTime(`WHERE s.song_id IN (${marks})`, ids);
+  const tooShort = !n && (secsOf(lenText) || 99) <= TOO_SHORT_SECS;
+  const hud = ["Song", trackWord && album ? `${trackWord} on ${album.title}` : null, lenText || null].filter(Boolean).join(" · ");
   const variant = variantOf(song.title);
 
   app.classList.add("wide");
@@ -132,7 +137,7 @@ function renderSong(id) {
           <div class="ap-artist"><a href="#/artist/${song.artist_id}">${esc(song.artist_name)}</a>${album ? ` <span class="subtle">·</span> <a class="sp-from" href="#/album/${album.id}">${esc(album.title)}</a>${album.year ? ` <span class="subtle">(${album.year})</span>` : ""}` : ""}</div>
           ${album ? genreTagsHtml(albumGenreNames(album.id), "", "songs") : ""}
           <div class="ap-kpis">
-            ${kpi(apFmt(n), "plays", "accent")}
+            ${kpi(tooShort ? "—" : apFmt(n), tooShort ? "too short to scrobble" : `plays${listened ? ` · ${listened}` : ""}`, "accent")}
             ${kpi(rank ? `#${apFmt(rank)}` : "—", rank ? `of ${apFmt(songCount)} ${song.artist_name} songs` : "not played yet")}
             ${kpi(first ? apMonthYear(first) : "—", "first played")}
             ${kpi(last ? relativeDay(last) : "—", "last played")}

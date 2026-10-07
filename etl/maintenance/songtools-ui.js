@@ -88,6 +88,14 @@ function mountTracklists(root) {
       <div data-role="tl-sweep"></div>
       <p class="meta" style="margin:8px 0 0">The album as first released (its earliest official release), most played first, ~2 requests each — so remaster and deluxe extras show as bonus tracks on the site's album pages. Vinyl albums use your own pressing instead.</p>
     </div>
+    <div class="card tl-fetch">
+      <div class="toolbar"><span><b>Song lengths</b> <span class="meta" data-role="len-status"></span></span>
+        <span class="spacer" style="flex:1"></span>
+        <label>Next <input type="number" data-role="len-limit" value="2000" min="0" max="20000" style="width:90px" /> from Last.fm</label>
+        <button class="primary" data-role="len-start">Fetch lengths</button></div>
+      <div data-role="len-sweep"></div>
+      <p class="meta" style="margin:8px 0 0">From the tracklists you already have (MusicBrainz and your pressings) for every song, then Last.fm for the rest, most played first (~2 a second). Tracklist lines with no length (many pressings have none — and tracks you've never played) are looked up too. Lets the site show listening time and running times, and mark tracks of 30 seconds or less, which Last.fm never counts, as “too short to scrobble”. Last.fm's lengths can be a few seconds (occasionally a minute) off. Lengths are information only: nothing is merged or renamed.</p>
+    </div>
     <div class="card flush disco-shell">
       <div class="disco-top"><input type="search" class="search-box" data-role="filter" placeholder="Filter albums…" />
         <select data-role="source"><option value="vinyl">Your vinyl</option><option value="all">Vinyl + MusicBrainz tracklists</option></select>
@@ -110,6 +118,19 @@ function mountTracklists(root) {
     await runSweep($("tl-sweep"), "album-tracklists", parseInt($("tl-limit").value, 10) || 200);
     loadStatus(); loadQueue();
   });
+  async function loadLengths() {
+    const { ok, data } = await api("/api/songs/length-status");
+    if (!ok || !data.available) { $("len-status").textContent = "· restart the maintenance server to add the length columns"; $("len-start").disabled = true; return; }
+    const pct = data.plays ? Math.round(100 * data.playsKnown / data.plays) : 0;
+    $("len-status").textContent = `· ${fmtNum(data.known)} of ${fmtNum(data.songs)} songs · ${pct}% of your plays · ${fmtNum(data.toLookUp)} to look up`;
+  }
+  $("len-start").addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    await runSweep($("len-sweep"), "song-lengths", Math.max(0, parseInt($("len-limit").value, 10) || 0));
+    e.target.disabled = false;
+    loadLengths();
+  });
+  loadLengths();
   $("source").addEventListener("change", () => loadQueue());
   async function loadQueue() {
     loadStatus();

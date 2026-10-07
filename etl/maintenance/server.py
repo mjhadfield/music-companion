@@ -216,7 +216,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_error(404)
         if path == "/imports":
             imports_dir = ROOT / "imports"
-            return self._send_json({"files": sorted(p.name for p in imports_dir.glob("*.csv")) if imports_dir.exists() else []})
+            import discogs_api
+            return self._send_json({"files": sorted(p.name for p in imports_dir.glob("*.csv")) if imports_dir.exists() else [],
+                                    "discogsApi": bool(discogs_api.token())})  # a token: the collection can be read live
         if path == "/api/scheduled/lastfm":
             return self._scheduled_result(query.get("jobId", ""))
         if path.startswith("/status/"):
@@ -302,7 +304,9 @@ class Handler(BaseHTTPRequestHandler):
             args.append("--lastfm")
         if body.get("setlistfm"):
             args.append("--setlistfm")
-        if body.get("discogsFile"):
+        if body.get("discogsApi"):
+            args.append("--discogs-api")
+        elif body.get("discogsFile"):
             csv_path = ROOT / "imports" / body["discogsFile"]
             if not csv_path.is_file():
                 return self._send_json({"error": f"{csv_path} not found"}, status=400)

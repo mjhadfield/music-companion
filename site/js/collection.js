@@ -157,6 +157,31 @@ function hasColumn(table, column) {
   _columnCache[table] ||= new Set(query(`PRAGMA table_info(${table})`).map((r) => r.name));
   return _columnCache[table].has(column);
 }
+// ---- track lengths (songs.length_ms: etl/song_lengths.py) ------------------------------------------------------------
+// "4:32" / "1:02:03" -> seconds (null if it isn't a time)
+function secsOf(text) {
+  const p = String(text || "").trim().split(":").map(Number);
+  return p.length >= 2 && p.every((x) => Number.isFinite(x)) ? p.reduce((a, x) => a * 60 + x, 0) : null;
+}
+// Last.fm never counts a play of a track of 30 seconds or less -- it can't show a play, however often it's heard
+const TOO_SHORT_SECS = 30;
+const fmtLength = (ms) => { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+function fmtDuration(ms) {
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins} min`;
+  const h = ms / 3600000;
+  return h < 10 ? `${Math.floor(h)} h ${Math.round((h % 1) * 60)} min` : `${Math.round(h).toLocaleString()} h`;
+}
+// Listening time for the plays a WHERE (on scrobbles s) picks: each play times its song's length. While some songs'
+// lengths are still unknown the known part is scaled up to all the plays and shown "≈". "" when nothing is known yet.
+function listenTime(where = "", params = []) {
+  if (!hasColumn("songs", "length_ms")) return "";
+  const r = query(`SELECT count(*) AS n, sum(so.length_ms) AS ms, sum(so.length_ms IS NOT NULL) AS known
+                   FROM scrobbles s JOIN songs so ON so.id = s.song_id ${where}`, params)[0];
+  if (!r || !r.known) return "";
+  return `${r.known < r.n * 0.98 ? "≈ " : ""}${fmtDuration(r.ms * r.n / r.known)}`;
+}
+
 function hasTable(name) {
   if (!_tableCache) _tableCache = new Set(query("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')").map((r) => r.name));
   return _tableCache.has(name);
@@ -846,7 +871,7 @@ function recordDetailHtml(r, all) {
         ${r.discogs_notes ? `<div class="kv"><span>Release notes</span><div class="subtle">${esc(r.discogs_notes).replace(/\n/g, "<br>")}</div></div>` : ""}
       </details>` : ""}
       <div class="rd-links">Added ${esc(fmtDate(r.date_added))}
-        ${r.discogs_release_id ? ` · <a href="https://www.discogs.com/release/${r.discogs_release_id}" target="_blank" rel="noopener">Discogs ↗</a>` : ""}
+        ${r.discogs_release_id ? ` · <a href="https://www.discogs.com/release/${r.discogs_release_id}" target="_blank" rel="noopener">Pressing data provided by Discogs ↗</a>` : ""}
         ${r.mb_release_id ? ` · <a href="https://musicbrainz.org/release/${r.mb_release_id}" target="_blank" rel="noopener">MusicBrainz ↗</a>` : r.album_mbid ? ` · <a href="https://musicbrainz.org/release-group/${r.album_mbid}" target="_blank" rel="noopener">MusicBrainz ↗</a>` : ""}</div>
     </section>
 
@@ -1006,11 +1031,21 @@ function albumReferenceTracklist(albumId) {
   const presses = loadCollection().filter((r) => r.album_id === albumId)
     .map((r) => ({ r, tracks: jsonOr(r.tracklist, []).filter((t) => (t.type || "track") === "track" && t.title) }))
     .filter((x) => x.tracks.length);
-  if (!presses.length) return musicbrainzTracklist(albumId);
+  if (!presses.length) return withLengths(musicbrainzTracklist(albumId), albumId);
   presses.sort((a, b) => (a.r.reissue - b.r.reissue) || (a.tracks.length - b.tracks.length));
   const { r, tracks } = presses[0];
   const what = [r.reissue ? `${r.pressing_year || ""} ${r.reissueWord}` : "original press", r.country].filter(Boolean).join(", ").trim();
-  return { tracks, source: `your ${what} pressing`, holdingId: r.id, pressing: true };
+  return withLengths({ tracks, source: `your ${what} pressing`, holdingId: r.id, pressing: true }, albumId);
+}
+
+// A tracklist line with no duration (many pressings' Discogs tracklists have none) takes the length looked up for it
+// (track_lengths: etl/song_lengths.py) -- for running times, and to spot a track too short for Last.fm to count.
+function withLengths(ref, albumId) {
+  if (!ref || !hasTable("track_lengths") || ref.tracks.every((t) => t.duration)) return ref;
+  const scope = albumScope(albumId);
+  const known = new Map(query(`SELECT title, length_ms FROM track_lengths WHERE album_id IN (${scope.map(() => "?").join(",")}) AND length_ms > 0`, scope)
+    .map((x) => [normTitle(x.title), x.length_ms]));
+  return { ...ref, tracks: ref.tracks.map((t) => (t.duration || !known.has(normTitle(t.title)) ? t : { ...t, duration: fmtLength(known.get(normTitle(t.title))) })) };
 }
 
 // ---------------------------------------------------------------------

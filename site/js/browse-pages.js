@@ -146,7 +146,8 @@ function songsBase() {
   for (const r of query(`SELECT song_id, setlist_id FROM setlist_songs`)) (heard[r.song_id] ||= new Set()).add(r.setlist_id);
   const onVinyl = new Set(query(`SELECT album_id FROM vinyl_holdings${hasTable("album_parts") ? " UNION SELECT part_album_id FROM album_parts WHERE album_id IN (SELECT album_id FROM vinyl_holdings)" : ""}`).map((r) => r.album_id));
   if (hasTable("album_genres")) for (const r of query(`SELECT ag.album_id, ge.name FROM album_genres ag JOIN genres ge ON ge.id = ag.genre_id`)) (genres[r.album_id] ||= []).push(r.name);
-  const rows = query(`SELECT so.id, so.title, so.artist_id, ar.name AS artist, so.album_id, al.title AS album, al.year, al.cover_status, al.cover_updated_at
+  const rows = query(`SELECT so.id, so.title, so.artist_id, ar.name AS artist, so.album_id, al.title AS album, al.year, al.cover_status, al.cover_updated_at,
+      ${hasColumn("songs", "length_ms") ? "so.length_ms" : "NULL AS length_ms"}
     FROM songs so JOIN artists ar ON ar.id = so.artist_id LEFT JOIN albums al ON al.id = so.album_id`);
   const byKey = new Map();
   for (const r of rows) {
@@ -167,7 +168,7 @@ function songsBase() {
     const v = variantOf(best.title);
     return { ids: g.rows.map((x) => x.id), id: best.id, title: best.title, artist_id: best.artist_id, artist: best.artist, album_id: withAlbum.album_id, album: withAlbum.album, year: withAlbum.year,
       cover_status: withAlbum.cover_status, cover_updated_at: withAlbum.cover_updated_at, plays: g.plays, first: g.first, last: g.last, shows: g.shows.size,
-      vinyl: g.rows.some((x) => onVinyl.has(x.album_id)), genres: genres[withAlbum.album_id] || [], decade: withAlbum.year ? `${Math.floor(withAlbum.year / 10) * 10}s` : null,
+      vinyl: g.rows.some((x) => onVinyl.has(x.album_id)), length: (g.rows.find((x) => x.id === best.id && x.length_ms) || g.rows.find((x) => x.length_ms))?.length_ms || null, genres: genres[withAlbum.album_id] || [], decade: withAlbum.year ? `${Math.floor(withAlbum.year / 10) * 10}s` : null,
       version: v ? (v.startsWith("lang-") ? "Other language" : v[0].toUpperCase() + v.slice(1)) : "Studio",
       key: `${best.title} ${best.artist} ${withAlbum.album || ""}`.toLowerCase() };
   });
@@ -246,7 +247,7 @@ function renderSongsBrowse() {
           <span class="ab-pos"><b>${i + 1}</b>${move(s)}</span>
           ${s.album_id ? apCover(s.album_id, s.cover_status, s.cover_updated_at, s.album, "ab-thumb") : `<div class="ab-thumb ap-noart">${esc(s.title.slice(0, 1))}</div>`}
           <span class="ab-tt"><b><span class="ab-name">${esc(s.title)}</span>${s.version !== "Studio" ? `<i class="ab-tag">${esc(s.version)}</i>` : ""}${abIcons(s.vinyl, s.shows, `Heard live at ${plural(s.shows, "show")}`)}</b>
-            <span>${esc(s.artist)}${s.album ? ` · ${esc(s.album)}` : ""}${s.year ? ` (${s.year})` : ""}</span></span>
+            <span>${esc(s.artist)}${s.album ? ` · ${esc(s.album)}` : ""}${s.year ? ` (${s.year})` : ""}${s.length ? ` · ${fmtLength(s.length)}` : ""}</span></span>
           <span class="ab-meter"><span class="ab-n">${s.p ? apFmt(s.p) : "—"}</span><span class="ab-track"><i style="--w:${(s.p / max).toFixed(4)}"></i></span></span>
         </a></li>`).join("") || `<div class="empty">No songs match.</div>`}</ol>
       ${shown.length > st.shown ? `<div class="al-more"><button class="coll-btn" data-act="show-more">Show ${Math.min(200, shown.length - st.shown)} more</button>
