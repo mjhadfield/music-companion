@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music Companion — Genres</title>
 <link rel="stylesheet" href="shared.css" />
-<script>try { if (localStorage.getItem("theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
+<script src="theme-init.js"></script>
 <style>
   main.wide { max-width: 1400px; }
   .cov { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0; padding: 0; }
@@ -58,6 +58,19 @@
   .artist-pick aside { max-height: calc(100vh - 160px); overflow: auto; }
   .a-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; cursor: pointer; font-size: 0.86rem; border-radius: var(--radius-sm); }
   .a-row:hover, .a-row.current { background: var(--accent-wash); }
+  .fill-card h2 { margin: 0 0 6px; }
+  .fill-card .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+  .fill-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0; margin: 12px 0; border: 1px solid var(--edge); }
+  .fill-stats > div { padding: 10px 14px; border-right: 1px solid var(--edge); }
+  .fill-stats > div:last-child { border-right: none; }
+  .fill-stats .n { font-family: var(--font-mono); font-size: 1.1rem; }
+  .fill-stats .l { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); }
+  .fill-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-bottom: 14px; }
+  .fill-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-dim); padding: 6px 8px; border-bottom: 1px solid var(--edge); }
+  .fill-table td { padding: 5px 8px; border-bottom: 1px solid var(--edge); vertical-align: top; }
+  .fill-table .gk { display: inline-block; padding: 0 7px; margin: 1px 3px 1px 0; border-radius: 999px; background: color-mix(in srgb, var(--ok) 14%, transparent); border: 1px solid color-mix(in srgb, var(--ok) 50%, transparent); }
+  .fill-table .gk.weak { background: none; border-style: dashed; }
+  .fill-table .all { color: var(--text-muted); font-size: 0.76rem; }
   @media (max-width: 900px) { .artist-pick { grid-template-columns: 1fr; } .artist-pick aside { max-height: 260px; } }
 </style>
 </head>
@@ -74,6 +87,7 @@
     <button data-tab="artist">By artist</button>
     <button data-tab="vinyl">By vinyl</button>
     <button data-tab="genres">By genre</button>
+    <button data-tab="fill">MusicBrainz fill</button>
     <button data-tab="activity">Activity</button>
   </div>
 
@@ -122,6 +136,15 @@
     </div>
   </section>
 
+  <section data-panel="fill" hidden>
+    <div class="card fill-card">
+      <h2>MusicBrainz fill</h2>
+      <p class="meta">A one-off: up to three MusicBrainz genres for every album that has none yet, and each artist's own genres (used only while none of their albums has one).
+        Gathering only reads MusicBrainz into the cache (about 2½ hours at MusicBrainz's 1 request a second); nothing changes until you Apply the dry run below — as one batch you can undo.</p>
+      <div id="fill-run"></div>
+    </div>
+    <div class="card fill-card" id="fill-preview"><div class="meta">Loading the dry run…</div></div>
+  </section>
   <section data-panel="activity" hidden><div class="card"><div id="activity"></div></div></section>
 
   <p class="meta" style="margin-top:22px">Discogs pressing details (which bring each record's Discogs styles here as genres) are fetched on the <a href="/vinyl.html">Vinyl page</a> — “Fetch pressing details”.</p>
@@ -174,6 +197,14 @@ function albumLinks(a) {
   out.push(`<a href="/artist.html?id=${a.artistId}">Workbench</a>`);
   return out.join("");
 }
+// votes per source, e.g. "melodic death metal  edition 1 · artist 13" (the first is what the tick is based on)
+const EVIDENCE = { album: "album", editions: "editions", edition: "edition", artist: "artist" };
+const suggVotes = (s) => {
+  const ev = s.evidence?.length ? s.evidence : (s.votes ? [{ from: s.from, votes: s.votes }] : []);
+  if (!ev.length) return "";
+  return `<span class="v">${ev.length === 1 && ev[0].from === s.from && s.from !== "artist" ? ev[0].votes : ev.map((e) => `${EVIDENCE[e.from] || e.from} ${e.votes}`).join(" · ")}</span>`;
+};
+const suggTitle = (s) => [FROM[s.from] || s.from, ...(s.evidence || []).map((e) => `${FROM[e.from] || e.from}: ${e.votes} vote${e.votes === 1 ? "" : "s"}`)].join("\n");
 function genreTile(a) {
   const el = document.createElement("div");
   el.className = "review-item gtile";
@@ -194,7 +225,7 @@ function genreTile(a) {
   function paintSugg() {
     const loading = sg.querySelector("[data-role='loading']");
     sg.innerHTML = `<span class="lbl">Suggested</span>${loading ? loading.outerHTML : ""}${[...sugg.values()].map((s) =>
-      `<button class="gsug ${s.source === "discogs" ? "discogs" : ""}${s.on ? " on" : ""}" data-name="${esc(s.name)}" title="${esc(FROM[s.from] || s.from)}${s.votes ? ` · ${s.votes} vote${s.votes === 1 ? "" : "s"}` : ""}">${esc(s.name)}${s.votes ? `<span class="v">${s.votes}</span>` : ""}</button>`).join("")}
+      `<button class="gsug ${s.source === "discogs" ? "discogs" : ""}${s.on ? " on" : ""}" data-name="${esc(s.name)}" title="${esc(suggTitle(s))}">${esc(s.name)}${suggVotes(s)}</button>`).join("")}
       <span class="gadd"><input type="text" placeholder="+ genre" aria-label="Add a genre" /></span>`;
     sg.querySelectorAll(".gsug").forEach((b) => b.addEventListener("click", () => { const s = sugg.get(b.dataset.name); s.on = !s.on; paintSugg(); }));
     mountTypeahead(sg.querySelector(".gadd input"), {
@@ -418,9 +449,83 @@ async function openGenre(gid) {
 }
 
 
+// -- MusicBrainz fill (genre_fill.py): schedule the gathering, then review the dry run and Apply --
+const FILL_FROM = { album: "album", editions: "its editions", edition: "its edition" };
+let fillPolling = null;
+function tomorrowAt(hh, mm) {
+  const d = new Date(); if (d.getHours() > hh || (d.getHours() === hh && d.getMinutes() >= mm)) d.setDate(d.getDate() + 1);
+  d.setHours(hh, mm, 0, 0);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(hh)}:${pad(mm)}`;
+}
+async function loadFill() {
+  const box = document.getElementById("fill-run");
+  const { ok, data } = await api("/api/genres/fill-status");
+  if (!ok) { box.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const c = data.cache;
+  const cached = `<span class="meta">Cached so far: ${fmtNum(c["browse:rg-genres"])} artists' albums · ${fmtNum(c["resolve:release-group"])} editions · ${fmtNum(c["lookup:rg-genres"])} album look-ups · ${fmtNum(c["lookup:artist-genres"])} artists</span>`;
+  const applied = data.lastApplied ? `<div class="meta" style="margin-top:6px">Last applied: batch #${data.lastApplied.batchId} (${esc(data.lastApplied.at)} UTC) — undo it from Activity.</div>` : "";
+  if (data.job && !data.job.done) {
+    box.innerHTML = `<div class="row"><b>Gathering now</b> <span class="meta" data-role="p"></span> <button class="small" data-act="cancel-run">Cancel</button></div>
+      <progress value="0" max="1" style="width:100%;margin-top:8px"></progress><details open><summary class="meta">Log</summary><div class="log" data-role="log"></div></details>${applied}`;
+    box.querySelector("[data-act='cancel-run']").addEventListener("click", (e) => { e.target.disabled = true; api("/api/sweeps/cancel", { jobId: data.job.jobId }); });
+    if (fillPolling !== data.job.jobId) {
+      fillPolling = data.job.jobId;
+      pollJob(data.job.jobId, box.querySelector("[data-role='log']"), () => { fillPolling = null; loadFill(); loadFillPreview(); },
+        ([d, t]) => { const bar = box.querySelector("progress"); if (bar) { bar.max = Math.max(t, 1); bar.value = d; } const p = box.querySelector("[data-role='p']"); if (p) p.textContent = `${d}/${t} this step`; });
+    }
+    return;
+  }
+  const last = data.job ? `<div class="meta">Last gathering run ${data.job.cancelled ? "was cancelled" : data.job.returncode === 0 ? "finished" : "failed — see the server log"} — what it fetched is kept; scheduling again carries on from there.</div>` : "";
+  if (data.scheduled) {
+    const at = new Date(data.scheduled.at);
+    box.innerHTML = `${last}<div class="row"><span class="badge">Scheduled</span> <b>${esc(at.toLocaleString([], { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))}</b>
+      <span class="meta">— waits for anything already running, then starts</span> <button class="small" data-act="unschedule">Cancel</button></div><div class="row">${cached}</div>${applied}`;
+    box.querySelector("[data-act='unschedule']").addEventListener("click", async () => { await api("/api/genres/fill-schedule", { cancel: true }); loadFill(); });
+    return;
+  }
+  box.innerHTML = `${last}<div class="row"><label class="meta">Start gathering at <input type="datetime-local" id="fill-at" value="${tomorrowAt(3, 30)}" /></label>
+    <button class="good" data-act="schedule">Schedule</button></div><div class="row">${cached}</div>${applied}`;
+  box.querySelector("[data-act='schedule']").addEventListener("click", async () => {
+    const { ok, data } = await api("/api/genres/fill-schedule", { at: document.getElementById("fill-at").value });
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    loadFill();
+  });
+}
+async function loadFillPreview(seed = 0) {
+  const box = document.getElementById("fill-preview");
+  const { ok, data } = await api(`/api/genres/fill-preview${seed ? `?seed=${seed}` : ""}`);
+  if (!ok) { box.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const al = data.albums, ar = data.artists;
+  const stat = (n, l) => `<div><div class="n">${fmtNum(n)}</div><div class="l">${l}</div></div>`;
+  const chips = (r) => (r.genres || []).map((g) => `<span class="gk${g.votes >= 2 ? "" : " weak"}">${esc(g.name)} <span class="meta">${g.votes}</span></span>`).join("");
+  const allOf = (r) => `<div class="all">MusicBrainz: ${(r.all || []).map((g) => `${esc(g.name)} ${g.votes}`).join(" · ")}</div>`;
+  const albumRows = (rows) => rows.map((r) => `<tr><td><a href="/artist.html?id=${r.artistId}">${esc(r.artist)}</a> — ${esc(r.title)}<div class="meta">${plural(r.plays, "play")}${r.vinyl ? " · vinyl" : ""} · from ${FILL_FROM[r.from] || r.from}</div></td><td>${chips(r)}${allOf(r)}</td></tr>`).join("");
+  box.innerHTML = `<h2>Dry run</h2>
+    <p class="meta">Worked out from what's been gathered so far — nothing has changed. Solid chips have 2+ votes; dashed ones are a single vote (they stay in the low-confidence queue after applying). Umbrella genres (rock, metal, pop, punk) give way to a more specific one.</p>
+    <div class="fill-stats">${stat(al.tagged, "albums would get genres")}${stat(al.weak, "…of them on 1 vote")}${stat(al.none, "albums MusicBrainz has nothing for")}${stat(al.pending, "albums not gathered yet")}${stat(al.nomb, "albums with no MusicBrainz id")}${stat(ar.tagged, "artists would get genres")}${stat(ar.pending, "artists not gathered yet")}</div>
+    <div class="row"><button class="good" data-act="apply"${al.tagged || ar.tagged ? "" : " disabled"}>Apply — ${fmtNum(al.tagged)} albums, ${fmtNum(ar.tagged)} artists</button>
+      <button class="small" data-act="shuffle">Another random sample</button><span class="meta">${fmtNum(data.albumPlays)} plays on the albums it would tag</span></div>
+    <h3 style="margin-top:16px">Most played albums it would tag</h3><table class="fill-table"><tbody>${albumRows(data.mostPlayed)}</tbody></table>
+    <h3>40 random albums</h3><table class="fill-table"><tbody>${albumRows(data.sampleAlbums)}</tbody></table>
+    <h3>20 random artists</h3><table class="fill-table"><tbody>${data.sampleArtists.map((r) => `<tr><td><a href="/artist.html?id=${r.artistId}">${esc(r.name)}</a><div class="meta">${plural(r.plays, "play")}</div></td><td>${chips(r)}${allOf(r)}</td></tr>`).join("")}</tbody></table>
+    ${data.sampleUntagged.length ? `<h3>Some that would stay untagged</h3><table class="fill-table"><tbody>${data.sampleUntagged.map((r) => `<tr><td><a href="/artist.html?id=${r.artistId}">${esc(r.artist)}</a> — ${esc(r.title)}</td><td class="meta">${r.status === "none" ? "MusicBrainz has no genres for it" : "not gathered yet"}</td></tr>`).join("")}</tbody></table>` : ""}
+    <h3>Genres it would use most</h3><p class="meta">${data.topGenres.map(([n, c]) => `${esc(n)} ${fmtNum(c)}`).join(" · ")}</p>`;
+  box.querySelector("[data-act='shuffle']").addEventListener("click", () => loadFillPreview(1 + Math.floor(Math.random() * 1e6)));
+  box.querySelector("[data-act='apply']").addEventListener("click", async (e) => {
+    if (!confirm(`Apply MusicBrainz genres to ${al.tagged} albums and ${ar.tagged} artists? One batch — undo it any time from the toast or Activity.`)) return;
+    e.target.disabled = true; e.target.textContent = "Applying…";
+    const { ok, data: res } = await api("/api/batch/apply", { actions: [{ type: "genreFill" }], label: "MusicBrainz genre fill" });
+    if (!ok) { toast(esc(res.message), { error: true, timeout: 12000 }); e.target.disabled = false; return; }
+    toast(`Applied — ${esc(res.summaries[0].text)}`, { undo: { ...res.undo, onUndone: () => { loadFill(); loadFillPreview(); } }, timeout: 30000 });
+    notifyChanged(); loadCoverage(); loadFill(); loadFillPreview();
+  });
+}
+
 function reloadCurrent() {
   const t = tabs.current();
   if (t === "genres") loadGenres();
+  if (t === "fill") { loadFill(); loadFillPreview(); }
   if (t === "album") loadQueue();
   if (t === "vinyl") loadVinyl();
   if (t === "artist" && aCurrent) openArtist(aCurrent);
@@ -432,6 +537,7 @@ const tabs = mountTabs(document.getElementById("tabs"), {
   artist: () => loadArtistList(),
   vinyl: loadVinyl,
   genres: loadGenres,
+  fill: () => { loadFill(); loadFillPreview(); },
   activity: () => mountActivity(document.getElementById("activity"), { entityType: "album", limit: 60 }),
 }, {
   onSubpath: (tab, sub) => { if (tab === "artist" && /^\d+$/.test(sub)) { loadArtistList(); openArtist(+sub); } },

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music Companion — Inbox</title>
 <link rel="stylesheet" href="shared.css" />
-<script>try { if (localStorage.getItem("theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
+<script src="theme-init.js"></script>
 <style>
   .inbox-list { padding: 12px 14px 6px; }
   .inbox-list .review-item { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
@@ -21,19 +21,32 @@
   .runs td.num { font-family: var(--font-mono); text-align: right; }
   .runs .ev { color: var(--text-dim); font-size: 0.78rem; }
   .more { padding: 4px 14px 14px; }
+  /* Covers: tiles, so a run's worth can be checked at a glance */
+  .inbox-list.cover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .inbox-list.cover-grid .empty { grid-column: 1 / -1; }
+  .cover-grid .review-item { grid-template-columns: 1fr; gap: 8px; position: relative; }
+  .cover-grid .review-item > input { position: absolute; top: 14px; left: 14px; z-index: 1; margin: 0; width: 18px; height: 18px; }
+  .cv-img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: var(--surface); }
+  .cv-missing { width: 100%; aspect-ratio: 1; display: grid; place-items: center; background: var(--surface); color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 10px; }
+  .cv-title { font-weight: 600; font-size: 0.88rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cv-meta { font-size: 0.76rem; color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cv-meta a { color: inherit; }
+  .cover-grid .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+  .cv-storage { font-size: 0.78rem; color: var(--text-muted); padding: 10px 14px 0; }
 </style>
 </head>
 <body>
 <header id="topnav"></header>
 <main class="wide">
   <h1>Inbox</h1>
-  <p class="subtitle">What your imports added, or couldn't place with certainty. Exact MusicBrainz matches are applied as they arrive; anything new or matched only by name waits here. Tick what's fine and accept it in bulk, or deal with items one at a time (<kbd>j</kbd>/<kbd>k</kbd> to move).</p>
+  <p class="subtitle">What your imports added, or couldn't place with certainty — and the covers they found for what you played. Exact MusicBrainz matches are applied as they arrive; anything new or matched only by name waits here. Tick what's fine and accept it in bulk, or deal with items one at a time (<kbd>j</kbd>/<kbd>k</kbd> to move).</p>
 
   <div class="tabs" id="tabs">
     <button data-tab="artists">Artists</button>
     <button data-tab="albums">Albums</button>
     <button data-tab="songs">Songs</button>
     <button data-tab="vinyl">Vinyl</button>
+    <button data-tab="covers">Covers</button>
     <button data-tab="other">Other</button>
     <button data-tab="runs">Runs</button>
   </div>
@@ -42,6 +55,7 @@
   <section data-panel="albums" hidden><div class="card flush" data-list="albums"></div></section>
   <section data-panel="songs" hidden><div class="card flush" data-list="songs"></div></section>
   <section data-panel="vinyl" hidden><div class="card flush" data-list="vinyl"></div></section>
+  <section data-panel="covers" hidden><div class="card flush" data-list="covers"></div></section>
   <section data-panel="other" hidden><div class="card flush" data-list="other"></div></section>
   <section data-panel="runs" hidden><div class="card flush" id="runs"></div></section>
 </main>
@@ -50,7 +64,7 @@
 <script>
 mountNav("Inbox");
 
-const LIST_TABS = ["artists", "albums", "songs", "vinyl", "other"];
+const LIST_TABS = ["artists", "albums", "songs", "vinyl", "covers", "other"];
 const state = Object.fromEntries(LIST_TABS.map((t) => [t, { reviewed: false, keys: null, items: [] }]));
 
 const KIND = {
@@ -58,6 +72,7 @@ const KIND = {
   edition_linked: ["Edition matched by name", "warn"], unresolved_release: ["Edition not identified", "warn"],
   mbid_clash: ["Same MBID as another", "bad"], suspect: ["Check", "bad"],
   new_holding: ["New record", "accent"], holding_changed: ["Changed on Discogs", "warn"], holding_missing: ["Not in the export", "bad"],
+  new_cover: ["New cover", "accent"],
 };
 // a Discogs export's fields, as the Inbox names them
 const HOLDING_FIELD = { media_condition: "Record grade", sleeve_condition: "Sleeve grade", rating: "Rating", notes: "Notes",
@@ -155,7 +170,37 @@ function benchLink(it) {
   return artistId ? ` · <a href="/artist.html?id=${artistId}" style="text-transform:none; letter-spacing:0">open the artist in the Workbench →</a>` : "";
 }
 
+const fmtKB = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
+
+// A cover from the import's cover step: the picture is the thing to check. Accept puts it in place
+// (live on the site at the next Publish); Wrong cover sets it aside and stops it being fetched again.
+function coverItemHtml(it, i) {
+  const e = it.entity, d = it.detail;
+  const src = it.reviewedAt ? `/covers/${it.entityId}.jpg?e=${it.id}` : `/covers/pending/${it.entityId}.jpg?e=${it.id}`;
+  const img = it.hasFile ? `<img class="cv-img" src="${src}" alt="" loading="lazy" />`
+    : `<div class="cv-missing">${it.reviewedAt ? "Turned down" : "Image file missing"}</div>`;
+  const changed = e && e.mbid !== d.mbid;
+  return `<div class="review-item${it.reviewedAt ? " reviewed" : ""}" data-i="${i}">
+    <input type="checkbox" data-role="tick" ${it.clean && !it.reviewedAt ? "checked" : ""} ${it.reviewedAt ? "disabled" : ""} aria-label="tick for bulk accept" />
+    ${img}
+    <div style="min-width:0">
+      <div class="cv-title" title="${esc(e ? e.title : "")}">${e ? esc(e.title) : `<span class="meta">(album since merged or removed)</span>`}${e?.year ? ` <span class="meta">(${e.year})</span>` : ""}</div>
+      ${e ? `<div class="cv-meta"><a href="/albums.html#discography/${e.artistId}">${esc(e.artistName)}</a> · ${plural(e.plays, "play")}</div>` : ""}
+      <div class="cv-meta">${d.size}px · ${fmtKB(d.bytes || 0)} · ${mbLink("release-group", d.mbid, "MusicBrainz")}</div>
+      ${changed ? `<div class="ev-why">⚠ The album's MusicBrainz id has changed since this was fetched.</div>` : ""}
+    </div>
+    <div class="actions">
+      ${it.reviewedAt ? `<span class="meta">reviewed ${fmtDate(it.reviewedAt)}</span>` : `
+        ${it.hasFile ? keyBtn("a", "Looks right", "good", 'data-role="accept"') : ""}
+        ${keyBtn("r", it.hasFile ? "Wrong cover" : "Dismiss", "", 'data-role="reject"')}
+        ${keyBtn("s", "Skip", "", 'data-role="skip"')}`}
+    </div>
+    ${e && !it.reviewedAt ? `<div class="cv-meta"><a href="/albums.html#discography/${e.artistId}" title="A wrong cover usually means the album has the wrong MusicBrainz id — fix it in Discography">wrong album id?</a></div>` : ""}
+  </div>`;
+}
+
 function itemHtml(it, i) {
+  if (it.kind === "new_cover") return coverItemHtml(it, i);
   const [label, cls] = KIND[it.kind] || [it.kind, ""];
   const b = body(it);
   const type = it.entityType;
@@ -200,10 +245,11 @@ function renderList(tab) {
       ${st.reviewed ? "" : `<label class="meta"><input type="checkbox" data-role="all" /> <span data-role="ticked"></span></label>
       <button class="small good" data-role="bulk" title="New items are marked reviewed; a ticked “Changed on Discogs” item gets Discogs’ values applied (use “Keep mine” on the item to keep yours)">Accept ticked</button>`}
       <span class="spacer"></span>
+      ${st.storage ? `<span class="meta" title="Albums played fewer than ${st.storage.fullSizePlays} times get the ${st.storage.small}px cover; they're swapped for the ${st.storage.full}px one when they reach ${st.storage.fullSizePlays} plays">Covers on disk: ${fmtNum(st.storage.files)} · ${fmtKB(st.storage.bytes)}${st.storage.pendingFiles ? ` · waiting ${fmtNum(st.storage.pendingFiles)} · ${fmtKB(st.storage.pendingBytes)}` : ""}</span>` : ""}
       <span class="meta">${st.reviewed ? `${fmtNum(st.total)} reviewed` : `${fmtNum(st.total)} to review`}${st.total > st.items.length ? ` · showing the newest ${fmtNum(st.items.length)}` : ""}</span>
       <label class="meta"><input type="checkbox" data-role="show-reviewed" ${st.reviewed ? "checked" : ""} /> show reviewed</label>
     </div>
-    <div class="inbox-list">${st.items.length ? st.items.map(itemHtml).join("")
+    <div class="inbox-list${tab === "covers" ? " cover-grid" : ""}">${st.items.length ? st.items.map(itemHtml).join("")
       : `<div class="empty">${st.reviewed ? "Nothing reviewed here yet." : "Nothing to review — every import so far has been checked."}</div>`}</div>`;
   root.querySelector("[data-role='show-reviewed']").addEventListener("change", (e) => { st.reviewed = e.target.checked; load(tab); });
   if (!st.reviewed) wireBulk(tab, root);
@@ -229,7 +275,7 @@ function wireBulk(tab, root) {
     e.target.disabled = true;
     const { ok, data } = await api("/api/imports/accept", { ids });
     if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
-    toast(`${plural(data.reviewed, "item")} accepted${data.applied ? ` · ${plural(data.applied, "Discogs update")} applied` : ""}`, { undo: data.undo });
+    toast(`${plural(data.reviewed, "item")} accepted${data.applied ? ` · ${plural(data.applied, "Discogs update")} applied` : ""}${data.covers ? ` · ${plural(data.covers, "cover")} saved (on the site at the next Publish)` : ""}`, { undo: data.undo });
     notifyChanged();
     load(tab);
   });
@@ -241,9 +287,18 @@ function wireItem(tab, el) {
   const done = () => { state[tab].keys.advance(el); el.querySelector("[data-role='tick']").disabled = true; refreshCounts(); };
   el.querySelector("[data-role='accept']")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
-    const { ok, data } = await api("/api/imports/review", { ids: [it.id] });
+    const cover = it.kind === "new_cover";   // accepting a cover puts it in place, not just "reviewed"
+    const { ok, data } = await api(cover ? "/api/imports/accept" : "/api/imports/review", { ids: [it.id] });
     if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
-    toast("Marked reviewed", { undo: data.undo, timeout: 5000 });
+    toast(cover ? `Cover saved for <b>${esc(it.entity?.title || "")}</b> — on the site at the next Publish` : "Marked reviewed", { undo: data.undo, timeout: 5000 });
+    if (cover) notifyChanged();
+    done();
+  });
+  el.querySelector("[data-role='reject']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    const { ok, data } = await api("/api/imports/reject-cover", { eventId: it.id });
+    if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
+    toast(`Cover turned down for <b>${esc(it.entity?.title || "")}</b> — it won't be fetched again`, { undo: data.undo, timeout: 7000 });
     done();
   });
   el.querySelector("[data-role='skip']")?.addEventListener("click", () => state[tab].keys.skip(el));
@@ -288,7 +343,7 @@ async function load(tab) {
   const st = state[tab];
   const { ok, data } = await api(`/api/imports/inbox?tab=${tab}${st.reviewed ? "&reviewed=1" : ""}`);
   if (!ok) { toast(esc(data.message), { error: true }); return; }
-  st.items = data.items; st.total = data.total;
+  st.items = data.items; st.total = data.total; st.storage = data.storage || null;
   if (!st.keys) st.keys = mountReviewKeys(document.querySelector(`[data-list="${tab}"]`));
   renderList(tab);
   setCounts(data.pending);
@@ -305,7 +360,7 @@ async function loadRuns() {
   if (!ok) return;
   setCounts(data.pending);
   const root = document.getElementById("runs");
-  const SRC = { lastfm: "Last.fm", setlistfm: "setlist.fm", discogs: "Discogs" };
+  const SRC = { lastfm: "Last.fm", setlistfm: "setlist.fm", discogs: "Discogs", covers: "Covers" };
   root.innerHTML = data.runs.length ? `<table class="runs"><thead><tr><th>Source</th><th>Started</th><th>Imported</th><th>Skipped</th><th>Editions looked up</th><th>Recorded</th><th>To review</th></tr></thead><tbody>
     ${data.runs.map((r) => {
       const s = r.summary || {};

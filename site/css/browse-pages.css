@@ -88,3 +88,5 @@
   .ab-tt b { font-size: .92rem; }
 }
 .page-header .ab-range { margin-top: 10px; height: 36px; }
+/* a filtered list in a play window: how many it hides, and a way to all time */
+.ab-hidden { font-size: .78rem; margin: 0 0 10px; }

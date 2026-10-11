@@ -486,12 +486,51 @@ CREATE TABLE IF NOT EXISTS genre_rules (
     target_genre_id  INTEGER REFERENCES genres(id),
     created_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- An artist's own MusicBrainz genres (migration 017, Genres > MusicBrainz fill): only a fallback,
+-- shown through artist_genres just while none of the artist's albums has a genre.
+CREATE TABLE IF NOT EXISTS artist_mb_genres (
+    artist_id   INTEGER NOT NULL REFERENCES artists(id),
+    genre_id    INTEGER NOT NULL REFERENCES genres(id),
+    votes       INTEGER,
+    fetched_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (artist_id, genre_id)
+);
+CREATE INDEX IF NOT EXISTS idx_artist_mb_genres_genre ON artist_mb_genres(genre_id);
 CREATE VIEW IF NOT EXISTS artist_genres AS
     SELECT aa.artist_id, ag.genre_id,
            count(DISTINCT ag.album_id) AS albums,
-           count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = ag.album_id) THEN ag.album_id END) AS vinyl_albums
+           count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = ag.album_id) THEN ag.album_id END) AS vinyl_albums,
+           NULL AS votes
     FROM album_genres ag JOIN album_artists aa ON aa.album_id = ag.album_id
-    GROUP BY aa.artist_id, ag.genre_id;
+    GROUP BY aa.artist_id, ag.genre_id
+    UNION ALL
+    SELECT mg.artist_id, mg.genre_id, 0, 0, mg.votes FROM artist_mb_genres mg
+    WHERE NOT EXISTS (SELECT 1 FROM album_genres ag JOIN album_artists aa ON aa.album_id = ag.album_id
+                      WHERE aa.artist_id = mg.artist_id);
+
+-- The artist page's About (migration 017): text = what the site shows (editable in the Workbench),
+-- original_text = as fetched (Wikipedia, else Last.fm); edited = a person changed it, so a re-fetch
+-- only sets changed_upstream. MusicBrainz facts: tagline (disambiguation), area, formed, links.
+CREATE TABLE IF NOT EXISTS artist_about (
+    artist_id        INTEGER PRIMARY KEY REFERENCES artists(id),
+    text             TEXT,
+    original_text    TEXT,
+    source           TEXT CHECK (source IN ('wikipedia', 'lastfm', 'manual')),
+    edited           INTEGER NOT NULL DEFAULT 0,
+    wiki_url         TEXT,
+    wiki_title       TEXT,
+    thumbnail_url    TEXT,
+    tagline          TEXT,
+    area             TEXT,
+    begin_area       TEXT,
+    formed           TEXT,
+    ended            TEXT,
+    type             TEXT,
+    links_json       TEXT,
+    changed_upstream INTEGER NOT NULL DEFAULT 0,
+    fetched_at       TEXT,
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- The album's own tracklist for albums not on vinyl (migration 009): MusicBrainz's earliest
 -- official release of the release group. Vinyl albums use the pressing you own (vinyl_details).

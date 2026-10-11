@@ -12,7 +12,7 @@ import threading
 
 import discogs_api
 import musicbrainz as mb
-from common import connect as db_connect
+from common import RELEASE_GENRES_KEY, connect as db_connect
 
 TTL_DAYS = {"search": 7, "lookup": 30, "browse": 30}
 
@@ -120,7 +120,7 @@ def release_group_genres(rg_mbid: str):
 
 
 def release_genres(release_mbid: str):
-    return _cached(f"lookup:release-genres:{release_mbid}", "lookup", lambda: mb.release_genres(release_mbid))
+    return _cached(RELEASE_GENRES_KEY.format(release_mbid), "lookup", lambda: mb.release_genres(release_mbid))
 
 
 def artist_genres(artist_mbid: str):

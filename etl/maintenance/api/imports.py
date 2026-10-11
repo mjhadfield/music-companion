@@ -6,10 +6,15 @@ only the by-name ones reach the inbox; exact MusicBrainz links are recorded as a
 unresolved_release, mbid_clash (the source says this is the same thing as another row), suspect
 (detail.reason says why). From a Discogs import (entity_type 'vinyl'): new_holding (a record added, and
 the album it was filed under), holding_changed (the export differs from your copy: apply or keep) and
-holding_missing (a record of yours the export no longer lists). Reviewing only ever sets reviewed_at; fixes go through the normal merge
+holding_missing (a record of yours the export no longer lists). From the cover step of a Last.fm import
+(etl/cover_step.py, entity_type 'cover', entity_id = the album): new_cover, a cover fetched into
+covers/.pending/ -- accepting it puts it in place, "Wrong cover" sets it aside and marks the album
+cover-rejected so no import fetches it again. Reviewing only ever sets reviewed_at; fixes go through the normal merge
 engine, so they show in the activity feed and undo like any other merge."""
 import json
 from collections import defaultdict
+
+import covers
 
 from rapidfuzz import fuzz, process
 
@@ -25,9 +30,11 @@ TABS = {
     "albums": "(e.entity_type = 'album')",
     "songs": "(e.entity_type = 'song')",
     "vinyl": "(e.entity_type = 'vinyl')",
-    "other": "(e.entity_type IS NULL OR e.entity_type NOT IN ('artist', 'album', 'song', 'vinyl'))",
+    "covers": "(e.entity_type = 'cover')",
+    "other": "(e.entity_type IS NULL OR e.entity_type NOT IN ('artist', 'album', 'song', 'vinyl', 'cover'))",
 }
 LIMIT = 300
+COVER_REJECTED = "cover-rejected"   # the same mark Albums > Covers uses: not this cover
 
 
 def _in(ids) -> str:
@@ -40,6 +47,15 @@ def settle_gone(c) -> None:
     for et, table in {**TABLE, "vinyl": "vinyl_holdings"}.items():
         c.execute(f"UPDATE import_events SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND entity_type = ? "
                   f"AND entity_id IS NOT NULL AND entity_id NOT IN (SELECT id FROM {table})", (et,))
+    # A waiting cover whose album was merged away, or got a cover (or "none") some other way meanwhile:
+    # settled, and its file dropped -- nothing would ever use it.
+    stale = [r[0] for r in c.execute("""SELECT e.entity_id FROM import_events e LEFT JOIN albums al ON al.id = e.entity_id
+                                         WHERE e.reviewed_at IS NULL AND e.entity_type = 'cover' AND (al.id IS NULL OR al.cover_status IS NOT NULL)""")]
+    if stale:
+        c.execute(f"UPDATE import_events SET reviewed_at = datetime('now') WHERE reviewed_at IS NULL AND entity_type = 'cover' "
+                  f"AND entity_id IN ({_in(stale)})", stale)
+        for album_id in stale:
+            covers.drop_pending(album_id)
 
 
 def pending_counts(c) -> dict:
@@ -104,7 +120,7 @@ def _songs(c, ids) -> dict[int, dict]:
                 f"LEFT JOIN albums al ON al.id = s.album_id WHERE s.id IN ({_in(ids)})", ids)}
 
 
-PROFILE = {"artist": _artists, "album": _albums, "song": _songs}
+PROFILE = {"artist": _artists, "album": _albums, "song": _songs, "cover": _albums}
 
 
 def _artist_hints(c, items) -> None:
@@ -203,6 +219,9 @@ def _is_clean(it) -> bool:
     if it["kind"] == "edition_linked":
         e = it["entity"]
         return bool(e and e["mbid"] and e["mbid"] == it["detail"].get("releaseGroup"))
+    if it["kind"] == "new_cover":   # still the id it was fetched by; the picture itself is what you're checking
+        e = it["entity"]
+        return bool(e and e["mbid"] and e["mbid"] == it["detail"].get("mbid") and it.get("hasFile"))
     return False
 
 
@@ -247,10 +266,15 @@ def inbox(req):
         _title_hints(c, items, "new_song", "songs")
         _single_hints(c, items)
         for it in items:
+            if it["kind"] == "new_cover":
+                it["hasFile"] = covers.pending_path(it["entityId"]).is_file() if not it["reviewedAt"] else covers.has_local_cover(it["entityId"])
             it["clean"] = _is_clean(it)
         items.sort(key=lambda it: (it["clean"], -it["id"]))  # the ones needing a decision first; bulk-tickable after
         total = c.execute(f"SELECT count(*) FROM import_events e WHERE {TABS[tab]} AND e.reviewed_at IS {'NOT' if reviewed else ''} NULL").fetchone()[0]
-        return {"items": items, "total": total, "pending": pending_counts(c)}
+        out = {"items": items, "total": total, "pending": pending_counts(c)}
+        if tab == "covers":
+            out["storage"] = {**covers.storage(), "small": covers.SMALL, "full": covers.FULL, "fullSizePlays": covers.FULL_SIZE_PLAYS}
+        return out
 
 
 # -- Actions -----------------------------------------------------------------------------------
@@ -268,12 +292,12 @@ def review(req):
 @route("POST", "/api/imports/accept", mutating=True)
 def accept(req):
     """"Accept ticked": each item as its kind means it. A "Changed on Discogs" item is applied (Discogs' values onto
-    your record, journaled) -- accepting it never means "keep mine", which has its own button. Everything else is
-    marked reviewed. One undo for the lot."""
+    your record, journaled) -- accepting it never means "keep mine", which has its own button. A new cover is put in
+    place. Everything else is marked reviewed. One undo for the lot."""
     ids = [int(i) for i in (req.body.get("ids") or [])]
     if not ids:
         raise ApiError("ids is required")
-    undo, applied = [], 0
+    undo, applied, placed = [], 0, 0
     with write_tx() as c:
         rows = c.execute(f"SELECT id, kind, entity_id, detail_json FROM import_events WHERE reviewed_at IS NULL AND id IN ({_in(ids)})", ids).fetchall()
         for event_id, kind, entity_id, detail in rows:
@@ -284,15 +308,43 @@ def accept(req):
                     if edit["editId"]:
                         undo.append({"kind": "edit", "id": edit["editId"]})
                         applied += 1
+            elif kind == "new_cover":
+                if covers.accept_pending(c, entity_id):
+                    undo.append({"kind": "cover", "id": entity_id})
+                    placed += 1
         settled = [r[0] for r in rows]
         if settled:
             c.execute(f"UPDATE import_events SET reviewed_at = datetime('now') WHERE id IN ({_in(settled)})", settled)
             undo.append({"kind": "inbox", "id": settled})
-    return {"reviewed": len(settled), "applied": applied, "undo": {"kind": "batch", "id": undo}}
+    return {"reviewed": len(settled), "applied": applied, "covers": placed, "undo": {"kind": "batch", "id": undo}}
 
 
 def unreview(c, ids) -> int:
     return c.execute(f"UPDATE import_events SET reviewed_at = NULL WHERE id IN ({_in(ids)})", list(ids)).rowcount
+
+
+@route("POST", "/api/imports/reject-cover", mutating=True)
+def reject_cover(req):
+    """A new cover that's wrong: set aside, the album marked cover-rejected (no import fetches it again; the
+    Albums > Covers tab moves on to another album too), and the item settled. One undo."""
+    event_id = req.int("eventId", required=True)
+    with write_tx() as c:
+        row = c.execute("SELECT kind, entity_id, reviewed_at FROM import_events WHERE id = ? AND entity_type = 'cover'", (event_id,)).fetchone()
+        if not row or row[0] != "new_cover":
+            raise ApiError("that item isn't a new cover", 404)
+        if row[2]:
+            raise ApiError("already reviewed", 409)
+        album_id = row[1]
+        undo = []
+        name = covers.reject_pending(album_id)
+        if name:
+            undo.append({"kind": "cover", "id": album_id, "file": name})
+        cur = c.execute("INSERT OR IGNORE INTO review_marks (entity_type, entity_id, mark) VALUES ('album', ?, ?)", (album_id, COVER_REJECTED))
+        if cur.rowcount:
+            undo.append({"kind": "mark", "id": cur.lastrowid})
+        c.execute("UPDATE import_events SET reviewed_at = datetime('now') WHERE id = ?", (event_id,))
+        undo.append({"kind": "inbox", "id": [event_id]})
+    return {"albumId": album_id, "undo": {"kind": "batch", "id": undo}}
 
 
 @route("POST", "/api/imports/apply-holding", mutating=True)

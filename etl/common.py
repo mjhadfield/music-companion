@@ -112,6 +112,7 @@ def _set_mbid_if_free(conn: sqlite3.Connection, table: str, row_id: int, mbid: s
 
 VARIOUS_ARTISTS_MBID = "89ad4ac3-39f7-470e-963a-56509c546377"
 RELEASE_PARENT_KEY = "lookup:release-parent:{}"
+RELEASE_GENRES_KEY = "lookup:release-genres:{}"  # an edition's own voted genres (cached by releases.resolve and mbcache.release_genres)
 RESOLVE_KEY = "resolve:release-group:{}"
 TRACKS_KEY = "tracks:release:{}"  # {track id: recording id} for one release
 TITLES_KEY = "track-titles:release:{}"  # {recording id: title as printed} for one release

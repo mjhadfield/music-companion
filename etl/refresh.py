@@ -42,6 +42,7 @@ def snapshot(conn):
         "max_artist_id": conn.execute("SELECT coalesce(max(id), 0) FROM artists").fetchone()[0],
         "max_album_id": conn.execute("SELECT coalesce(max(id), 0) FROM albums").fetchone()[0],
         "scrobble_count": conn.execute("SELECT count(*) FROM scrobbles").fetchone()[0],
+        "max_scrobble_id": conn.execute("SELECT coalesce(max(id), 0) FROM scrobbles").fetchone()[0],
         "setlistfm_ids": {r[0] for r in conn.execute("SELECT setlistfm_id FROM setlists")},
         "discogs_release_ids": {
             r[0] for r in conn.execute(
@@ -218,6 +219,8 @@ def main() -> None:
     if args.lastfm:
         run_step("Last.fm pull (incremental)", ["etl/lastfm_pull.py"])
         run_step("Song lengths (new songs)", ["etl/song_lengths.py", "--lastfm", "300"])   # lengths for anything new, from tracklists then Last.fm
+        run_step("Covers (albums just played)", ["etl/cover_step.py", "--since-scrobble", str(before["max_scrobble_id"]),
+                                                 "--after-run", str(before["max_run_id"])])   # into Inbox › Covers for review
     if args.setlistfm:
         run_step("Setlist.fm pull (full refresh)", ["etl/setlistfm_pull.py"])
 

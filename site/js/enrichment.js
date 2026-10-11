@@ -8,12 +8,10 @@
  * against MusicBrainz's "be gentle" unauthenticated-API etiquette.
  * Results are cached in localStorage for 30 days.
  *
- * MusicBrainz (keyed by the MBID we already resolved during the Last.fm
- * import -- unambiguous, and it's the source of genre tags) and a plain
- * Wikipedia name search run in parallel rather than one strictly after
- * the other, preferring MusicBrainz's title when it comes back in time;
- * MusicBrainz gets a capped timeout since it's the slower/rate-limited
- * of the two, so a bad response from it never stalls the whole lookup.
+ * Artists whose About maintenance has stored (artist_about, about.py) never come here --
+ * this is only the fallback for ones not fetched yet. MusicBrainz (keyed by the MBID) gives the
+ * artist's Wikidata link, whose English sitelink is the Wikipedia page; no MBID or no page = no
+ * About (the old "<name> band" name search guessed wrong too often).
  *
  * Album cover art is NOT looked up here (or live, at all, anymore) -- it's
  * fetched once server-side by the maintenance tool (etl/covers.py) and
@@ -60,7 +58,7 @@ async function fetchJson(url, { timeoutMs } = {}) {
 // etiquette asks unauthenticated clients to stay under ~1 req/sec). Capping
 // it keeps a single slow response from stalling the whole page instead of
 // falling back to the plain Wikipedia name search within a bounded time.
-const MUSICBRAINZ_TIMEOUT_MS = 3000;
+const MUSICBRAINZ_TIMEOUT_MS = 6000;  // now the only route to the page (no name-search fallback)
 
 async function findWikipediaTitleViaMusicBrainz(mbid) {
   const data = await fetchJson(
@@ -73,15 +71,15 @@ async function findWikipediaTitleViaMusicBrainz(mbid) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 5)
     .map((t) => t.name);
-  const title = wiki ? decodeURIComponent(wiki.url.resource.split("/wiki/")[1]).replace(/_/g, " ") : null;
+  let title = wiki ? decodeURIComponent(wiki.url.resource.split("/wiki/")[1]).replace(/_/g, " ") : null;
+  // MusicBrainz now links artists to Wikidata rather than Wikipedia: its English sitelink is the page
+  const wd = !title && rels.find((r) => r.url && /wikidata\.org\/wiki\/Q\d+/.test(r.url.resource));
+  if (wd) {
+    const qid = wd.url.resource.match(/Q\d+/)[0];
+    const d = await fetchJson(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${qid}&props=sitelinks&sitefilter=enwiki&format=json&origin=*`);
+    title = d?.entities?.[qid]?.sitelinks?.enwiki?.title || null;
+  }
   return { title, tags };
-}
-
-async function findWikipediaTitleByName(name) {
-  const data = await fetchJson(
-    `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(name + " band")}&limit=1&namespace=0&format=json&origin=*`
-  );
-  return data[1] && data[1][0] ? data[1][0] : null;
 }
 
 async function fetchWikipediaSummary(title) {
@@ -97,7 +95,7 @@ async function fetchWikipediaSummary(title) {
 const EMPTY_ENRICHMENT = { extract: null, thumbnail: null, pageUrl: null, tags: [] };
 
 async function getArtistEnrichment(artist) {
-  const cacheKey = `enrich:artist:${artist.id}`;
+  const cacheKey = `enrich2:artist:${artist.id}`;  // 2: via Wikidata, no name search (old entries could be the wrong band)
   const cached = enrichCacheGet(cacheKey);
   if (cached) return cached;
 
@@ -106,13 +104,10 @@ async function getArtistEnrichment(artist) {
     // MusicBrainz before ever trying the plain (fast, no tags) Wikipedia
     // name search -- so a slow MusicBrainz response no longer means a
     // slow page even when it eventually times out and we fall back.
-    const mbPromise = artist.mbid
-      ? findWikipediaTitleViaMusicBrainz(artist.mbid).catch(() => null)
-      : Promise.resolve(null);
-    const namePromise = findWikipediaTitleByName(artist.name).catch(() => null);
-    const [mbResult, nameTitle] = await Promise.all([mbPromise, namePromise]);
-
-    const title = mbResult?.title || nameTitle;
+    // Only the page MusicBrainz points at: the old "<name> band" search took the top hit unchecked
+    // and showed the wrong band often enough (maintenance offers it as candidates to confirm instead).
+    const mbResult = artist.mbid ? await findWikipediaTitleViaMusicBrainz(artist.mbid).catch(() => null) : null;
+    const title = mbResult?.title || null;
     const tags = mbResult?.tags || [];
 
     const summary = title ? await fetchWikipediaSummary(title) : null;

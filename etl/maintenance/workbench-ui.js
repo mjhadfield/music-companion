@@ -204,3 +204,86 @@ function mountArtistLinks(el, artistId, links, onChange) {
     onPick: (a) => apply({ type: "linkArtists", artistId, linkedArtistId: a.artistId }, `Linked <b>${esc(a.name)}</b> — Live sets can now use their recordings`),
   });
 }
+
+// -- About (about.py): the artist page's text, stored and editable --------------------------------
+// Shows what the site will show (Publish to send it), with trim buttons, Save / Reset / Fetch
+// again, and a way to pick another Wikipedia page. Every save is journaled (toast Undo).
+const ABOUT_SOURCE = { wikipedia: "Wikipedia", lastfm: "Last.fm", manual: "written by you" };
+function aboutSentences(text) {
+  // sentence ends: . ! ? followed by space + a capital/quote/bracket -- skips "U.S. " style abbreviations badly, but you see it before saving
+  return (text || "").replace(/\s*\n\s*\n\s*/g, " \u2029 ").split(/(?<=[.!?])\s+(?=["“(\u2029A-Z0-9])/);
+}
+function aboutTrim(text, n) {
+  const out = aboutSentences(text).slice(0, n).join(" ");
+  return out.replace(/\s*\u2029\s*/g, "\n\n").trim();
+}
+async function mountAboutEditor(el, artistId) {
+  el.innerHTML = `<div class="meta">Loading About…</div>`;
+  const { ok, data } = await api(`/api/about?artistId=${artistId}`);
+  if (!ok) { el.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const a = data.about;
+  const links = a?.links_json ? JSON.parse(a.links_json) : {};
+  const facts = a ? [a.tagline, a.type, a.formed ? `formed ${a.formed.slice(0, 4)}` : "", [a.begin_area, a.area].filter((x, i, l) => x && l.indexOf(x) === i).join(", "), a.ended ? `ended ${a.ended.slice(0, 4)}` : ""].filter(Boolean) : [];
+  el.innerHTML = `
+    <div class="sec"><h2>About</h2>
+      ${a?.source ? `<span class="badge">${esc(ABOUT_SOURCE[a.source] || a.source)}</span>` : ""}${a?.edited ? ` <span class="badge accent" title="A re-fetch won't change it">edited by you</span>` : ""}
+      ${a?.changed_upstream ? ` <span class="badge warn" title="The fetched text below “original” has changed">Wikipedia has changed since your edit</span>` : ""}
+      <span class="meta">${a ? `fetched ${esc((a.fetched_at || "").slice(0, 10))}` : "not fetched yet"} · shows on the artist page after Publish</span></div>
+    ${facts.length ? `<p class="meta" style="margin:0 0 6px">${esc(facts.join(" · "))}</p>` : ""}
+    ${Object.keys(links).length ? `<p class="meta" style="margin:0 0 8px">${Object.entries(links).map(([k, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(k)} ↗</a>`).join(" · ")}</p>` : ""}
+    <div class="about-ed">
+      ${a?.thumbnail_url ? `<img src="${esc(a.thumbnail_url)}" alt="" />` : ""}
+      <div>
+        <textarea rows="8" data-role="text" placeholder="${a ? "No text — the site shows no About for this artist. Write one, or fetch / pick a Wikipedia page." : "Not fetched yet."}">${esc(a?.text || "")}</textarea>
+        <div class="row">
+          <span class="meta" data-role="count"></span>
+          <span class="meta">Trim:</span>
+          ${[1, 2, 3].map((n) => `<button class="small" data-trim="${n}">${n} sentence${n > 1 ? "s" : ""}</button>`).join("")}
+          <button class="small" data-trim="p">first paragraph</button>
+          <span class="spacer"></span>
+          ${a?.original_text && a.original_text !== a.text ? `<button class="small" data-act="reset" title="Back to the text as fetched">Reset to ${esc(ABOUT_SOURCE[a.source] === "written by you" ? "fetched" : ABOUT_SOURCE[a.source] || "fetched")}</button>` : ""}
+          <button class="small good" data-act="save" disabled>Save</button>
+        </div>
+        ${a?.changed_upstream && a.original_text ? `<details style="margin-top:6px"><summary class="meta">Wikipedia's current text</summary><p class="meta" style="white-space:pre-wrap">${esc(a.original_text)}</p></details>` : ""}
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="small" data-act="fetch">${a ? "Fetch again" : "Fetch now"}</button>
+      <input type="url" data-role="wiki" placeholder="https://en.wikipedia.org/wiki/…" value="${esc(a?.wiki_url || "")}" style="flex:1;min-width:240px" />
+      <button class="small" data-act="use-wiki">Use this page</button>
+      <button class="small" data-act="search">Search Wikipedia…</button>
+    </div>
+    <div data-role="results"></div>`;
+  const ta = el.querySelector("[data-role='text']"), save = el.querySelector("[data-act='save']"), count = el.querySelector("[data-role='count']");
+  const paint = () => { count.textContent = `${fmtNum(ta.value.trim().length)} characters · ${aboutSentences(ta.value.trim()).filter(Boolean).length} sentences`; save.disabled = ta.value.trim() === (a?.text || "").trim(); };
+  ta.addEventListener("input", paint); paint();
+  el.querySelectorAll("[data-trim]").forEach((b) => b.addEventListener("click", () => {
+    const src = ta.value.trim() || a?.original_text || "";
+    ta.value = b.dataset.trim === "p" ? src.split(/\n\s*\n/)[0].trim() : aboutTrim(src, +b.dataset.trim);
+    paint();
+  }));
+  const done = (res, msg) => {
+    if (!res.ok) { toast(esc(res.data.message), { error: true, timeout: 9000 }); return; }
+    toast(msg, res.data.editId ? { undo: { kind: "edit", id: res.data.editId, onUndone: () => mountAboutEditor(el, artistId) } } : {});
+    mountAboutEditor(el, artistId);
+  };
+  save.addEventListener("click", async () => { save.disabled = true; done(await api("/api/about/edit", { artistId, text: ta.value }), "About saved"); });
+  el.querySelector("[data-act='reset']")?.addEventListener("click", async () => done(await api("/api/about/edit", { artistId, reset: true }), "About reset"));
+  el.querySelector("[data-act='fetch']").addEventListener("click", async (e) => {
+    e.target.disabled = true; e.target.textContent = "Fetching…";
+    const res = await api("/api/about/fetch", { artistId });
+    done(res, res.ok ? `About fetched — ${esc(res.data.result)}` : "");
+  });
+  const useWiki = async (url) => { const res = await api("/api/about/fetch", { artistId, wikiUrl: url }); done(res, "Wikipedia page picked"); };
+  el.querySelector("[data-act='use-wiki']").addEventListener("click", () => { const u = el.querySelector("[data-role='wiki']").value.trim(); if (u) useWiki(u); });
+  el.querySelector("[data-act='search']").addEventListener("click", async (e) => {
+    const box = el.querySelector("[data-role='results']");
+    e.target.disabled = true; box.innerHTML = `<div class="meta">Searching…</div>`;
+    const { ok, data: r } = await api(`/api/about/search?artistId=${artistId}`);
+    e.target.disabled = false;
+    if (!ok) { box.innerHTML = `<div class="status-line error">${esc(r.message)}</div>`; return; }
+    box.innerHTML = r.results.length ? `<ul class="about-results">${r.results.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)} ↗</a> <span class="meta">${esc(x.snippet)}</span> <button class="small" data-url="${esc(x.url)}">Use</button></li>`).join("")}</ul>`
+      : `<div class="meta">Nothing found.</div>`;
+    box.querySelectorAll("[data-url]").forEach((b) => b.addEventListener("click", () => useWiki(b.dataset.url)));
+  });
+}

@@ -14,6 +14,7 @@ function browseHashGenre(st, route) {
   if (!params.has("genre")) return;
   st.genre = params.get("genre") || null;
   st.q = ""; st.shown = st.pageSize;
+  st.win = "all"; st.range = null;  // a genre is "who's in it", not "who you played this month"
   Object.keys(st).forEach((k) => { if (st[k] instanceof Set) st[k].clear(); });
   ["decade", "firstYear", "version"].forEach((k) => { if (k in st) st[k] = null; });
   history.replaceState(history.state, "", `#/${route}`);
@@ -53,7 +54,7 @@ function artistsBase() {
   }
   for (const r of query(`SELECT aa.artist_id, al.id, al.cover_updated_at FROM album_artists aa JOIN albums al ON al.id = aa.album_id WHERE al.cover_status = 'ok'`)) faces[r.artist_id] ||= { id: r.id, v: r.cover_updated_at, c: 0 };
   if (hasTable("artist_genres")) {
-    for (const r of query(`SELECT ag.artist_id, ge.name FROM artist_genres ag JOIN genres ge ON ge.id = ag.genre_id ORDER BY ag.albums DESC`)) (genres[r.artist_id] ||= []).push(r.name);
+    for (const r of query(`SELECT ag.artist_id, ge.name FROM artist_genres ag JOIN genres ge ON ge.id = ag.genre_id ORDER BY ag.albums DESC${agVotesOrder("ag")}`)) (genres[r.artist_id] ||= []).push(r.name);
   }
   const rows = query(`SELECT id, name, sort_name FROM artists`).map((a) => ({
     id: a.id, name: a.name, sortKey: String(a.sort_name || a.name).replace(/^the\s+/i, "").toLowerCase(), key: a.name.toLowerCase(),
@@ -94,6 +95,7 @@ function renderArtistsBrowse() {
   const charted = st.sort === "plays";
   const move = charted ? chartMoves(shown, artistsBase().filter((a) => pass(a)), W.start, win) : () => "";
   const firstYearMin = rows.reduce((m, a) => (a.firstYear && (!m || a.firstYear < m) ? a.firstYear : m), null);
+  const hidden = wk !== "all" && (st.genre || st.has.size || st.firstYear || q) ? artistsBase().filter((a) => !a.p && pass(a)).length : 0;
 
   app.classList.add("wide");
   app.innerHTML = `
@@ -116,11 +118,12 @@ function renderArtistsBrowse() {
         ${firstYearMin ? `<div class="subtle ab-note">Your plays go back to ${esc(firstYearMin)}, so “first played ${esc(firstYearMin)}” includes everyone you already loved.</div>` : ""}
       </details>
       ${charted && shown.length ? windowLegend(win) : ""}
+      ${windowHiddenNote(hidden, st.genre ? `${genreName(st.genre)} artists` : "artists", win, st)}
       <div class="al-wall ab-wall">${shown.slice(0, st.shown).map((a) => `
         <a class="al-card" href="#/artist/${a.id}">${move(a)}
           ${a.face ? `<img class="al-art" src="${esc(coverUrl(a.face.id, a.face.v))}" alt="" loading="lazy" />` : `<div class="al-art ap-noart">${esc(a.name.replace(/^the\s+/i, "").slice(0, 1))}</div>`}
           <b>${esc(a.name)}</b>
-          <span class="al-meta">${a.p ? `${apFmt(a.p)}<span class="ab-pw"> plays</span>` : "not played"}${abIcons(a.vinyl, a.shows, `Seen live ${a.shows}×`)}</span>
+          <span class="al-meta">${a.p ? `${apFmt(a.p)}<span class="ab-pw"> ${a.p === 1 ? "play" : "plays"}${windowTail(wk)}</span>` : "not played"}${abIcons(a.vinyl, a.shows, `Seen live ${a.shows}×`)}</span>
           ${a.genres.length ? `<span class="al-artist">${esc(a.genres.slice(0, 2).map(genreName).join(" · "))}</span>` : ""}
         </a>`).join("") || `<div class="empty">No artists match.</div>`}</div>
       ${shown.length > st.shown ? `<div class="al-more"><button class="coll-btn" data-act="show-more">Show ${Math.min(120, shown.length - st.shown)} more</button>
@@ -220,6 +223,7 @@ function renderSongsBrowse() {
   const activeText = [st.genre && genreName(st.genre), st.decade, st.version, ...[...st.has].map((h) => SONG_HAS[h])].filter(Boolean);
   const plays = shown.reduce((n, s) => n + s.p, 0);
   const max = Math.max(1, ...shown.map((s) => s.p));
+  const hidden = wk !== "all" && (st.genre || st.decade || st.version || st.has.size || q) ? songsBase().filter((x) => !x.p && pass(x)).length : 0;
 
   app.classList.add("wide");
   app.innerHTML = `
@@ -242,6 +246,7 @@ function renderSongsBrowse() {
         ${browseFacet("Also", hasChips)}
       </details>
       ${charted && shown.length ? windowLegend(win) : ""}
+      ${windowHiddenNote(hidden, st.genre ? `${genreName(st.genre)} songs` : "songs", win, st)}
       <ol class="ab-songs">${shown.slice(0, st.shown).map((s, i) => `
         <li><a href="#/song/${s.id}">
           <span class="ab-pos"><b>${i + 1}</b>${move(s)}</span>
@@ -345,6 +350,14 @@ function browseHashRange(st, route) {
   history.replaceState(history.state, "", `#/${route}`);
 }
 const windowLegend = (win) => `<div class="ab-legend subtle">▲▼ rank ${esc(win.vs)}</div>`;
+// "plays" on a card says which window it counts when that isn't all time ("39 plays · 30 days")
+const WINDOW_SHORT = { day: "24 hours", week: "7 days", month: "30 days", year: "12 months" };
+const windowTail = (wk) => (WINDOW_SHORT[wk] ? ` · ${WINDOW_SHORT[wk]}` : "");
+// a filtered list in a window hides what wasn't played in it -- say how many, with a way to all time
+function windowHiddenNote(n, what, win, st) {
+  if (!n || st.range) return "";
+  return `<div class="ab-hidden subtle">+${apFmt(n)} more ${esc(what)} not played in the ${esc(win.since)} — <button class="linkish" data-win="all">show all time</button></div>`;
+}
 function wireWindowSeg(st, rerender) {
   app.querySelectorAll("[data-win]").forEach((b) => b.addEventListener("click", () => { st.win = b.dataset.win; st.shown = st.pageSize; rerender(); }));
   app.querySelector("[data-act='clear-range']")?.addEventListener("click", () => { st.range = null; st.shown = st.pageSize; rerender(); });

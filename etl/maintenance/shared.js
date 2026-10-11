@@ -274,8 +274,17 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
 const COMPANION_URL = "http://192.168.0.66:8642/";
 
 // Light / dark, the same way site/ does it: localStorage["theme"], no attribute = dark. The
-// button shows the mode you're in (moon = dark, sun = light), like site/'s. Each page's <head>
-// applies the saved choice before first paint.
+// button shows the mode you're in (moon = dark, sun = light), like site/'s. theme-init.js, in each
+// page's <head>, applies the saved choice before first paint. Inside Citadel there's no button: the
+// look is Citadel's (applyCitadelLook, theme-init.js), told here by postMessage.
+if (IN_CITADEL) {
+  window.addEventListener("message", (event) => {
+    if (event.origin !== CITADEL_ORIGIN || event.data?.type !== "citadel-theme") return;
+    if (event.data.theme !== "light" && event.data.theme !== "dark") return;
+    applyCitadelLook(event.data);
+    try { sessionStorage.setItem("citadel-look", JSON.stringify(event.data)); } catch { /* just this page */ }
+  });
+}
 const THEME_ICONS = {
   moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
@@ -307,9 +316,16 @@ function mountNav(active) {
     <input class="nav-search" id="nav-search" type="search" placeholder="Find an artist, album or song…" aria-label="Search everything" />
     <span class="spacer"></span>
     <button class="publish-btn small" id="publish-btn" title="Rebuild the public database the Companion site serves"><span class="dot"></span> Publish</button>
-    <button class="theme-toggle small" id="theme-toggle" type="button"></button>
+    ${IN_CITADEL ? "" : '<button class="theme-toggle small" id="theme-toggle" type="button"></button>'}
     <a class="companion" href="${COMPANION_URL}">Music Companion ↗</a>`;
-  mountThemeToggle(header.querySelector("#theme-toggle"));
+  if (IN_CITADEL) {
+    // Back in Companion, its first paint should match too (it reads ?theme= when embedded).
+    header.querySelector(".companion").addEventListener("click", (e) => {
+      e.currentTarget.href = `${COMPANION_URL}?theme=${document.documentElement.dataset.theme === "light" ? "light" : "dark"}`;
+    });
+  } else {
+    mountThemeToggle(header.querySelector("#theme-toggle"));
+  }
   mountSearch(header.querySelector("#nav-search"));
   const btn = header.querySelector("#publish-btn");
 

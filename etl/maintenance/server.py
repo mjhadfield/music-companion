@@ -43,8 +43,9 @@ sys.path.insert(0, str(PAGE_DIR))
 from common import DB_OVERRIDDEN, DB_PATH, connect as db_connect, load_env  # noqa: E402
 from migrations import migrate  # noqa: E402
 import covers  # noqa: E402
+import genre_fill  # noqa: E402
 import merge  # noqa: E402
-from api import albums as _albums, artists as _artists, batch as _batch, editions as _editions, general as _general, genres as _genres, housekeeping as _housekeeping, imports as _imports, recordings as _recordings, songtools as _songtools, songs as _songs, vinyl as _vinyl, workbench as _workbench  # noqa: E402,F401  (registers routes)
+from api import about as _about, albums as _albums, artists as _artists, batch as _batch, editions as _editions, general as _general, genres as _genres, housekeeping as _housekeeping, imports as _imports, recordings as _recordings, songtools as _songtools, songs as _songs, vinyl as _vinyl, workbench as _workbench  # noqa: E402,F401  (registers routes)
 from api.core import ROUTES, ApiError, Req, merge_error_response  # noqa: E402
 
 load_env()
@@ -74,6 +75,7 @@ STATIC = {"/shared.js": ("shared.js", "application/javascript; charset=utf-8"),
           "/editions-ui.js": ("editions-ui.js", "application/javascript; charset=utf-8"),
           "/recordings-ui.js": ("recordings-ui.js", "application/javascript; charset=utf-8"),
           "/songtools-ui.js": ("songtools-ui.js", "application/javascript; charset=utf-8"),
+          "/theme-init.js": ("theme-init.js", "application/javascript; charset=utf-8"),
           "/shared.css": ("shared.css", "text/css; charset=utf-8")}
 FONT_TYPES = {".woff2": "font/woff2", ".ttf": "font/ttf"}
 BACKUP_DIR = DB_PATH.parent / ".refresh_backups"
@@ -99,6 +101,9 @@ def _busy_reason(kinds=("refresh", "refresh-auto", "build", "sweep")) -> str | N
             if kind == "refresh" and job["done"] and job["decision"] is None and "refresh" in kinds:
                 return "a manual refresh is waiting for Accept / Reject"
     return None
+
+
+genre_fill.JOBS, genre_fill.JOBS_LOCK, genre_fill.BUSY = jobs, jobs_lock, _busy_reason
 
 
 def run_job(job_id: str, cmd_args: list[str]) -> None:
@@ -206,6 +211,12 @@ class Handler(BaseHTTPRequestHandler):
             fp = PAGE_DIR / "fonts" / path[len("/fonts/"):]
             if fp.is_file() and fp.suffix in FONT_TYPES:
                 return self._send_file(fp, FONT_TYPES[fp.suffix])
+            return self.send_error(404)
+        if path.startswith("/covers/pending/") and "/" not in path[len("/covers/pending/"):]:
+            # an import's cover awaiting review in the Inbox (covers/.pending/)
+            fp = covers.PENDING_DIR / path[len("/covers/pending/"):]
+            if fp.is_file() and fp.suffix == ".jpg":
+                return self._send_file(fp, "image/jpeg")
             return self.send_error(404)
         if path.startswith("/covers/") and "/" not in path[len("/covers/"):]:
             # Preview of a locally-cached cover -- the private working copy (data/covers/), not
@@ -384,6 +395,9 @@ def main():
 
     host = "0.0.0.0" if PASSWORD else "127.0.0.1"
     server = ThreadingHTTPServer((host, PORT), Handler)
+    genre_fill.arm()  # a scheduled MusicBrainz genre fill survives a restart
+    if genre_fill.scheduled():
+        print(f"MusicBrainz genre fill scheduled for {genre_fill.scheduled()['at']}.")
     if PASSWORD:
         print(f"Maintenance UI: http://{_lan_ip()}:{PORT}/  (password required)")
         print("MAINTENANCE_PASSWORD is set -- reachable from the LAN. Ctrl+C to stop.")

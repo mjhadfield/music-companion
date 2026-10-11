@@ -9,7 +9,10 @@ function renderArtist(id) {
   const artist = query(`SELECT * FROM artists WHERE id = ?`, [id])[0];
   if (!artist) return renderNotFound("Artist");
   const token = renderToken;
-  const enrichment = getArtistEnrichment(artist);   // the slow one (Wikipedia): asked for first, filled in when it lands
+  // the About: stored by maintenance (artist_about -- fetched once, edited by hand); an artist without a
+  // row yet falls back to the live lookup (the slow one: asked for first, filled in when it lands)
+  const stored = storedAbout(id);
+  const enrichment = stored ? Promise.resolve(null) : getArtistEnrichment(artist);
 
   const hist = query(`SELECT count(*) AS n, min(played_at) AS first, max(played_at) AS last FROM scrobbles WHERE artist_id = ?`, [id])[0];
   const listened = listenTime("WHERE s.artist_id = ?", [id]);   // "≈ 84 h"
@@ -87,6 +90,7 @@ function renderArtist(id) {
         <div class="ap-info">
           <div class="hud">Artist${albums.length ? ` · ${plural(albums.length, "album")}` : ""}</div>
           <h1 class="ap-title">${esc(artist.name)}</h1>
+          ${stored ? aboutFactsHtml(stored) : ""}
           ${genreTagsHtml(artistGenreNames(id), "", "artists")}
           <div class="ap-kpis">
             ${kpi(apFmt(hist.n), `plays${listened ? ` · ${listened}` : ""}`, "accent")}
@@ -98,7 +102,7 @@ function renderArtist(id) {
             ${records.length ? `<a class="ap-chip vinyl" href="#/vinyl?q=${encodeURIComponent(artist.name)}">● ${plural(records.length, "record")}</a>` : ""}
             ${shows.length ? `<a class="ap-chip live" href="#ar-live" data-scroll="ar-live">● Seen live ${shows.length}×</a>` : ""}
             ${artist.mbid ? `<a class="ap-chip" href="https://musicbrainz.org/artist/${artist.mbid}" target="_blank" rel="noopener">MusicBrainz ↗</a>` : ""}
-            <span data-role="wiki-chip"></span>
+            ${stored ? aboutLinkChips(stored) : `<span data-role="wiki-chip"></span>`}
           </div>
         </div>
       </section>
@@ -133,7 +137,7 @@ function renderArtist(id) {
             <div class="ap-years">${years.map((y) => `<i class="${y === yearPeak ? "pk" : ""}" style="--h:${y.c ? Math.max(6, (y.c / yearMax) * 100).toFixed(1) : 0}%" title="${esc(y.y)}: ${apFmt(y.c)} plays"></i>`).join("")}</div>
             <div class="ap-years-cap"><span>${esc(years[0]?.y || "")}</span><span class="pk">${yearPeak ? `${apFmt(yearPeak.c)} in ${esc(yearPeak.y)}` : ""}</span><span>${esc(years[years.length - 1]?.y || "")}</span></div>
           </section>` : ""}
-          <div data-role="about"></div>
+          ${stored ? aboutCardHtml(stored) : `<div data-role="about"></div>`}
           ${records.length ? `<section class="ap-card">
             <div class="ap-head"><h2>On your shelf</h2><a class="subtle" href="#/vinyl?q=${encodeURIComponent(artist.name)}">in the collection →</a></div>
             <ol class="ar-records">${records.map((r) => `<li><a href="#/vinyl/${r.id}">${coverImg(r, "ar-rec-art")}
@@ -156,18 +160,50 @@ function renderArtist(id) {
   app.querySelectorAll("[data-disco]").forEach((b) => b.addEventListener("click", () => { st.discoSort = b.dataset.disco; renderArtist(id); }));
   app.querySelectorAll("[data-scroll]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); document.getElementById(a.dataset.scroll)?.scrollIntoView({ behavior: "smooth" }); }));
 
+  if (stored) wireAboutCard();
   enrichment.then((info) => {
     if (token !== renderToken || !info) return;
     if (info.pageUrl) app.querySelector("[data-role='wiki-chip']").outerHTML = `<a class="ap-chip" href="${esc(info.pageUrl)}" target="_blank" rel="noopener">Wikipedia ↗</a>`;
     if (!info.extract) return;
-    app.querySelector("[data-role='about']").outerHTML = `<section class="ap-card ar-about">
-      <div class="ap-head"><h2>About</h2>${info.pageUrl ? `<a class="subtle" href="${esc(info.pageUrl)}" target="_blank" rel="noopener">Wikipedia ↗</a>` : ""}</div>
-      <div class="ar-about-body">${info.thumbnail ? `<img src="${esc(info.thumbnail)}" alt="" />` : ""}<p>${esc(info.extract)}</p></div>
-      <button class="ar-more" data-act="about">Read more</button>
-    </section>`;
-    const card = app.querySelector(".ar-about");
-    const p = card.querySelector("p");
-    if (p.scrollHeight <= p.clientHeight + 2) card.querySelector("[data-act='about']").remove();
-    card.querySelector("[data-act='about']")?.addEventListener("click", (e) => { card.classList.toggle("open"); e.target.textContent = card.classList.contains("open") ? "Less" : "Read more"; });
+    app.querySelector("[data-role='about']").outerHTML = aboutCardHtml({ text: info.extract, source: "wikipedia", wiki_url: info.pageUrl, thumbnail_url: info.thumbnail });
+    wireAboutCard();
   });
+}
+
+// -- About ------------------------------------------------------------------------------------
+function storedAbout(id) {
+  if (!hasTable("artist_about")) return null;
+  return query(`SELECT * FROM artist_about WHERE artist_id = ?`, [id])[0] || null;
+}
+// "Finnish melodic death metal band · formed 1997 · Joensuu, Finland" (MusicBrainz)
+function aboutFactsHtml(a) {
+  const tag = a.tagline ? a.tagline.charAt(0).toUpperCase() + a.tagline.slice(1) : "";
+  const where = [a.begin_area, a.area].filter((x, i, l) => x && l.indexOf(x) === i).join(", ");
+  const when = a.formed ? `${a.type === "Person" ? "born" : "formed"} ${a.formed.slice(0, 4)}${a.ended ? `, ${a.type === "Person" ? "died" : "split"} ${a.ended.slice(0, 4)}` : ""}` : "";
+  const bits = [tag, when, where].filter(Boolean);
+  return bits.length ? `<div class="ar-tagline subtle">${bits.map(esc).join(" · ")}</div>` : "";
+}
+const ABOUT_CHIPS = ["Wikipedia", "Official site", "Bandcamp"];
+function aboutLinkChips(a) {
+  const links = a.links_json ? JSON.parse(a.links_json) : {};
+  if (a.wiki_url) links.Wikipedia = a.wiki_url;
+  return ABOUT_CHIPS.filter((k) => links[k]).map((k) => `<a class="ap-chip" href="${esc(links[k])}" target="_blank" rel="noopener">${esc(k)} ↗</a>`).join("");
+}
+function aboutCardHtml(a) {
+  if (!a.text) return "";
+  const credit = a.source === "wikipedia" ? `From Wikipedia, <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA</a>`
+    : a.source === "lastfm" ? "From Last.fm (user-contributed, CC BY-SA)" : "";
+  return `<section class="ap-card ar-about">
+    <div class="ap-head"><h2>About</h2>${a.wiki_url ? `<a class="subtle" href="${esc(a.wiki_url)}" target="_blank" rel="noopener">Wikipedia ↗</a>` : ""}</div>
+    <div class="ar-about-body">${a.thumbnail_url ? `<img src="${esc(a.thumbnail_url)}" alt="" />` : ""}<p>${esc(a.text)}</p></div>
+    <button class="ar-more" data-act="about">Read more</button>
+    ${credit ? `<div class="ar-credit subtle">${credit}</div>` : ""}
+  </section>`;
+}
+function wireAboutCard() {
+  const card = app.querySelector(".ar-about");
+  if (!card) return;
+  const p = card.querySelector("p");
+  if (p.scrollHeight <= p.clientHeight + 2) card.querySelector("[data-act='about']").remove();
+  card.querySelector("[data-act='about']")?.addEventListener("click", (e) => { card.classList.toggle("open"); e.target.textContent = card.classList.contains("open") ? "Less" : "Read more"; });
 }

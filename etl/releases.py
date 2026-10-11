@@ -12,7 +12,7 @@ import json
 import sqlite3
 
 import musicbrainz as mb
-from common import RELEASE_PARENT_KEY, RESOLVE_KEY, SORT_ID_KEY, TITLES_KEY, TRACKS_KEY
+from common import RELEASE_GENRES_KEY, RELEASE_PARENT_KEY, RESOLVE_KEY, SORT_ID_KEY, TITLES_KEY, TRACKS_KEY
 
 
 def unknown_releases(conn: sqlite3.Connection, release_mbids, track_ids: dict | None = None) -> list[str]:
@@ -42,10 +42,13 @@ def resolve(conn: sqlite3.Connection, release_mbid: str) -> str | None:
     its tracklist as {track id: recording id} (stored even when empty, so it's never re-asked)."""
     rg, summary, tracks, *rest = mb.resolve_release_first(release_mbid)
     titles = rest[0] if rest else None
+    genres = rest[1] if len(rest) > 1 else None
     rows = [(RESOLVE_KEY.format(release_mbid), json.dumps(rg)), (TRACKS_KEY.format(release_mbid), json.dumps(tracks or {})),
             (TITLES_KEY.format(release_mbid), json.dumps(titles or {}))]
     if summary:
         rows.append((RELEASE_PARENT_KEY.format(release_mbid), json.dumps(summary)))
+    if genres is not None:  # the edition's own genres came with the same request (Genres' MusicBrainz fill)
+        rows.append((RELEASE_GENRES_KEY.format(release_mbid), json.dumps(genres)))
     conn.executemany(
         "INSERT INTO mb_cache (key, payload_json, fetched_at) VALUES (?, ?, datetime('now')) "
         "ON CONFLICT (key) DO UPDATE SET payload_json = excluded.payload_json, fetched_at = excluded.fetched_at", rows)

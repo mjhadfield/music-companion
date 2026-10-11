@@ -875,7 +875,21 @@ def _song_lengths(limit: int, log, progress, cancelled) -> None:
     log("Publish for the site to use them.")
 
 
+def _genre_fill(limit: int, log, progress, cancelled) -> None:
+    """Gathers what the MusicBrainz genre fill needs (genre_fill.gather) -- cache only, no tags."""
+    import genre_fill
+    genre_fill.gather(limit, log, progress, cancelled)
+
+
+def _artist_about(limit: int, log, progress, cancelled) -> None:
+    """The artist page's About for artists that don't have one yet (about.sweep)."""
+    import about
+    about.sweep(limit, log, progress, cancelled)
+
+
 SWEEPS = {
+    "genre-fill": _genre_fill,
+    "artist-about": _artist_about,
     "album-tracklists": _album_tracklists,
     "song-lengths": _song_lengths,
     "genres": _genres,

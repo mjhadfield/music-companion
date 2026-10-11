@@ -48,7 +48,7 @@
 /* about: Wikipedia, clamped until "Read more" */
 .ar-about-body { overflow: hidden; }
 .ar-about-body img { float: right; width: 96px; height: 96px; object-fit: cover; margin: 0 0 8px 14px; border: 1px solid var(--edge); }
-.ar-about-body p { margin: 0; font-size: .92rem; line-height: 1.6; color: var(--text); display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
+.ar-about-body p { margin: 0; font-size: .92rem; line-height: 1.6; color: var(--text); white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; }
 .ar-about.open .ar-about-body p { display: block; -webkit-line-clamp: unset; }
 .ar-about .ar-more { margin-top: 10px; }
 
@@ -75,3 +75,6 @@
 .ar-date { white-space: nowrap; }
 .ar-records .stars { white-space: nowrap; }
 .ar-disco .subtle { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-tagline { margin: -2px 0 8px; font-size: .9rem; }
+.ar-credit { margin-top: 10px; font-size: .72rem; }
+.ar-credit a { color: inherit; }

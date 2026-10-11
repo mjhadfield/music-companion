@@ -132,6 +132,12 @@ def undo(req):
                 elif k == "inbox":
                     from api.imports import unreview
                     unreview(c, it["id"] if isinstance(it["id"], list) else [it["id"]])
+                elif k == "cover":   # an Inbox cover decision: back to waiting for review
+                    import covers
+                    try:
+                        covers.return_to_pending(c, i, it.get("file"))
+                    except ValueError as exc:
+                        raise ApiError(str(exc))
                 else:
                     raise ApiError(f"unknown batch item kind {k!r}")
         return {"undone": len(items), "name": f"{len(items)} change{'' if len(items) == 1 else 's'}"}
@@ -217,7 +223,7 @@ def decide_suggestion(req):
 def start_sweep(req):
     kind = req.str("kind")
     # edition lookups are one request each and cache for good -- a bigger batch is fine there
-    limit = max(1, min(req.int("limit", 50), 1000 if kind in ("album-editions", "song-recordings", "album-tracklists") else 300 if kind == "pressings" else 200))
+    limit = max(1, min(req.int("limit", 50), 1000 if kind in ("album-editions", "song-recordings", "album-tracklists", "artist-about") else 300 if kind == "pressings" else 200))
     job_id = uuid.uuid4().hex
     params = {}
     if req.body.get("artistId"):

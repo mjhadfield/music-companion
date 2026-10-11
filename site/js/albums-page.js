@@ -32,7 +32,7 @@ function renderAlbumsBrowse() {
   const st = albumsState;
   // a genre (or decade) in the address -- from a genre bubble -- sets the filter
   const params = new URLSearchParams((location.hash.split("?")[1] || ""));
-  if (params.has("genre")) { st.genre = params.get("genre") || null; st.decade = null; st.q = ""; st.shown = 60; history.replaceState(history.state, "", "#/albums"); }
+  if (params.has("genre")) { st.genre = params.get("genre") || null; st.decade = null; st.q = ""; st.shown = 60; st.win = "all"; history.replaceState(history.state, "", "#/albums"); }
   // the window: plays in it (Week / Month / Year / All time) and rank movement, as on Songs and Artists
   const W = playWindow("album_id", st.win), win = PLAY_WINDOWS[st.win];
   albumsBase().rows.forEach((r) => { r.p = W.cur.get(r.id) || 0; r.pp = W.prev.get(r.id) || 0; });
@@ -57,6 +57,7 @@ function renderAlbumsBrowse() {
   const plays = shown.reduce((n, r) => n + r.p, 0);
   const charted = st.sort === "plays";
   const move = charted ? chartMoves(shown, albumsBase().rows.filter((r) => pass(r)), W.start, win) : () => "";
+  const hidden = st.win !== "all" && (st.genre || st.decade || q) ? albumsBase().rows.filter((r) => !r.p && pass(r)).length : 0;
 
   app.classList.add("wide");
   app.innerHTML = `
@@ -80,12 +81,13 @@ function renderAlbumsBrowse() {
           `<button class="al-chip${d === st.decade ? " on" : ""}" data-decade="${esc(d)}">${esc(d)} <i>${n}</i></button>`).join("")}</div></div>
       </details>
       ${charted && shown.length ? windowLegend(win) : ""}
+      ${windowHiddenNote(hidden, st.genre ? `${genreName(st.genre)} albums` : "albums", win, st)}
       <div class="al-wall">${shown.slice(0, st.shown).map((r) => `
         <a class="al-card" href="#/album/${r.id}">${move(r)}
           ${apCover(r.id, r.cover_status, r.cover_updated_at, r.title, "al-art")}
           <b>${esc(r.title)}</b>
           <span class="al-artist">${esc(r.artist)}</span>
-          <span class="al-meta">${[r.year, r.p ? `${apFmt(r.p)} plays` : "not played"].filter(Boolean).join(" · ")}${r.vinyl ? ` <span class="vinyl-dot" title="On vinyl">●</span>` : ""}</span>
+          <span class="al-meta">${[r.year, r.p ? `${apFmt(r.p)} ${r.p === 1 ? "play" : "plays"}${windowTail(st.win)}` : "not played"].filter(Boolean).join(" · ")}${r.vinyl ? ` <span class="vinyl-dot" title="On vinyl">●</span>` : ""}</span>
         </a>`).join("") || `<div class="empty">No albums match.</div>`}</div>
       ${shown.length > st.shown ? `<div class="al-more"><button class="coll-btn" data-act="show-more">Show ${Math.min(120, shown.length - st.shown)} more</button>
         <span class="subtle">showing ${apFmt(st.shown)} of ${apFmt(shown.length)}</span></div>` : ""}

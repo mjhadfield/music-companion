@@ -33,6 +33,8 @@ Action types (all ids are ints):
   unlinkArtists    {artistId, linkedArtistId}
   albumGenres      {albumId, keep: [{name, mbid?, source, votes?}], drop: [genreId], reject: [name]}
                                         one album's reviewed genres (Maintenance > Genres); marks it reviewed
+  genreFill        {}                   the MusicBrainz genre fill (genre_fill.py), worked out again from the
+                                        cache right here -- every untagged album / artist it has genres for
   foldSingle       {singleId, albumId}  a single filed as an album (singles.py): its own copies of
                                         songs merge into their twins on the album, then it merges in
 """
@@ -145,6 +147,9 @@ def run_action(c, it: dict) -> tuple[list[dict], dict]:
     if t == "unlinkArtists":
         r = merge.unlink_artists(c, _int(it, "artistId"), _int(it, "linkedArtistId"))
         return [{"kind": "edit", "id": r["editId"]}], {"text": "Unlink artists"}
+    if t == "genreFill":
+        import genre_fill
+        return genre_fill.apply(c)
     if t == "albumGenres":
         import genres as genre_tags
         album_id = _int(it, "albumId")
@@ -330,6 +335,9 @@ def undo_handle(c, h: dict) -> None:
             c.execute(f"DELETE FROM duplicate_dismissals WHERE id IN ({','.join('?' * len(h['ids']))})", h["ids"])
     elif k == "mark":
         c.execute("DELETE FROM review_marks WHERE id = ?", (int(h["id"]),))
+    elif k == "artistMbGenres":
+        import genre_fill
+        genre_fill.undo_artist_rows(c, h)
     elif k == "alias":
         c.execute("INSERT INTO alias_overrides (id, source, source_key, canonical_type, canonical_id, note) VALUES (?, ?, ?, ?, ?, ?)", h["row"])
     else:
@@ -385,7 +393,8 @@ def apply(req):
     actions = _actions(req)
     label = str(req.body.get("label") or "")[:120]
     artist_id = int(req.body["artistId"]) if str(req.body.get("artistId") or "").isdigit() else None
-    snapshot = merge.labelled_snapshot(label or "batch") if len(actions) > BIG_BATCH else None
+    big = len(actions) > BIG_BATCH or any(a.get("type") == "genreFill" for a in actions)  # the fill touches thousands of albums
+    snapshot = merge.labelled_snapshot(label or "batch") if big else None
     c = db_connect()
     try:
         c.execute("BEGIN IMMEDIATE")

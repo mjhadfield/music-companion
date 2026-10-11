@@ -526,6 +526,61 @@ def _m016_song_lengths(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m017_artist_genres_and_about(conn: sqlite3.Connection) -> None:
+    """Two public, artist-keyed tables (merges carry them -- merge._move_artist_extras):
+      artist_mb_genres  the artist's own MusicBrainz genres (Maintenance > Genres > MusicBrainz fill).
+                        Only a fallback: artist_genres shows them just while none of the artist's
+                        albums has a genre (votes kept so a fallback-only artist still sorts sensibly).
+      artist_about      the artist page's About: text (what the site shows, editable) and
+                        original_text (as fetched), source wikipedia|lastfm|manual, edited (1 = a
+                        person changed it -- a re-fetch never overwrites it, it sets changed_upstream),
+                        the Wikipedia page, and MusicBrainz facts (tagline = disambiguation, area,
+                        formed, type, links_json = official site / Bandcamp / ...).
+    artist_genres is recreated with the fallback rows and a votes column."""
+    _run_statements(conn, """
+        CREATE TABLE IF NOT EXISTS artist_mb_genres (
+            artist_id   INTEGER NOT NULL REFERENCES artists(id),
+            genre_id    INTEGER NOT NULL REFERENCES genres(id),
+            votes       INTEGER,
+            fetched_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (artist_id, genre_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_artist_mb_genres_genre ON artist_mb_genres(genre_id);
+        CREATE TABLE IF NOT EXISTS artist_about (
+            artist_id        INTEGER PRIMARY KEY REFERENCES artists(id),
+            text             TEXT,
+            original_text    TEXT,
+            source           TEXT CHECK (source IN ('wikipedia', 'lastfm', 'manual')),
+            edited           INTEGER NOT NULL DEFAULT 0,
+            wiki_url         TEXT,
+            wiki_title       TEXT,
+            thumbnail_url    TEXT,
+            tagline          TEXT,
+            area             TEXT,
+            begin_area       TEXT,
+            formed           TEXT,
+            ended            TEXT,
+            type             TEXT,
+            links_json       TEXT,
+            changed_upstream INTEGER NOT NULL DEFAULT 0,
+            fetched_at       TEXT,
+            updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        DROP VIEW IF EXISTS artist_genres;
+        CREATE VIEW artist_genres AS
+            SELECT aa.artist_id, ag.genre_id,
+                   count(DISTINCT ag.album_id) AS albums,
+                   count(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM vinyl_holdings v WHERE v.album_id = ag.album_id) THEN ag.album_id END) AS vinyl_albums,
+                   NULL AS votes
+            FROM album_genres ag JOIN album_artists aa ON aa.album_id = ag.album_id
+            GROUP BY aa.artist_id, ag.genre_id
+            UNION ALL
+            SELECT mg.artist_id, mg.genre_id, 0, 0, mg.votes FROM artist_mb_genres mg
+            WHERE NOT EXISTS (SELECT 1 FROM album_genres ag JOIN album_artists aa ON aa.album_id = ag.album_id
+                              WHERE aa.artist_id = mg.artist_id)
+    """)
+
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -543,6 +598,7 @@ MIGRATIONS = [
     ("014_artist_links", _m014_artist_links),
     ("015_press_override", _m015_press_override),
     ("016_song_lengths", _m016_song_lengths),
+    ("017_artist_genres_and_about", _m017_artist_genres_and_about),
 ]
 
 

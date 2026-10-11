@@ -155,6 +155,12 @@ python3 etl/refresh.py --discogs imports/new-export.csv
 python3 etl/refresh.py --lastfm --setlistfm --discogs imports/new-export.csv   # any combination
 ```
 
+A `--lastfm` pull also fetches covers for the albums you just played
+(`etl/cover_step.py`). They wait in maintenance › Inbox › Covers until you accept
+them. An album played fewer than 5 times gets the archive's 250px thumbnail,
+about a third the size of the 500px one. The 500px cover is swapped in when the
+album reaches 5 plays or has a copy on vinyl.
+
 Read the report. If it looks right:
 
 ```bash

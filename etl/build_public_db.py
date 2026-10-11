@@ -45,6 +45,8 @@ PUBLIC_TABLES = [
     "alias_overrides",
     "genres",
     "album_genres",
+    "artist_mb_genres",
+    "artist_about",
     "vinyl_details",
     "album_tracklists",
     "album_tracklist_sources",

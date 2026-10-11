@@ -1060,8 +1060,11 @@ function albumGenreNames(albumId) {
 function artistGenreNames(artistId, limit = 8) {
   if (!hasTable("artist_genres")) return [];
   return query(`SELECT ge.name FROM artist_genres ag JOIN genres ge ON ge.id = ag.genre_id WHERE ag.artist_id = ?
-                ORDER BY ag.vinyl_albums * 2 + ag.albums DESC, ge.name LIMIT ?`, [artistId, limit]).map((r) => r.name);
+                ORDER BY ag.vinyl_albums * 2 + ag.albums DESC${agVotesOrder("ag")}, ge.name LIMIT ?`, [artistId, limit]).map((r) => r.name);
 }
+// artist_genres rows that come from the artist's own MusicBrainz genres (no albums tagged yet) carry
+// votes -- the order among them. Older public builds (before migration 017) have no such column.
+const agVotesOrder = (alias) => (hasTable("artist_mb_genres") ? `, coalesce(${alias}.votes, 0) DESC` : "");
 // `list`: where a bubble leads -- the list of what this page is ("albums", "artists", "songs")
 function genreTagsHtml(names, label = "", list = "albums") {
   if (!names.length) return "";

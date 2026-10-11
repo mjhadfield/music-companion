@@ -326,16 +326,23 @@ def suggest(req):
     with read_conn() as c:
         def add(name, mbid_, votes, frm, source, tick):
             n = _resolved_name(c, name)
-            if not n or n in have or n in hidden or n in out:
+            if not n or n in have or n in hidden:
                 return
-            out[n] = {"name": n, "mbid": mbid_, "votes": votes or None, "from": frm, "source": source, "tick": tick}
-        picked = {g[0] for g in genre_tags.pick_musicbrainz(group)}
+            if n in out:  # already suggested from a stronger source: keep its row, show this evidence too
+                if votes and not any(e["from"] == frm for e in out[n]["evidence"]):
+                    out[n]["evidence"].append({"from": frm, "votes": votes})
+                return
+            out[n] = {"name": n, "mbid": mbid_, "votes": votes or None, "from": frm, "source": source, "tick": tick,
+                      "evidence": [{"from": frm, "votes": votes}] if votes else []}
+        # a tie on the album's own votes goes to the genre the artist has more votes for (Insomnium's
+        # Anno 1696: melodic death metal 1 / metal 1 on the edition -- the artist has 13 / 3)
+        picked = {g[0] for g in genre_tags.pick_musicbrainz(group, artist)}
         for g in sorted(group, key=lambda g: -g["count"]):
             add(g["name"], g["id"], g["count"], "album", "musicbrainz", g["name"] in picked)
-        rel_picked = {g[0] for g in genre_tags.pick_musicbrainz(releases)} if not group else set()
+        rel_picked = {g[0] for g in genre_tags.pick_musicbrainz(releases, artist)} if not group else set()
         for g in releases:
             add(g["name"], g["id"], g["count"], "editions", "musicbrainz", g["name"] in rel_picked)
-        ed_picked = {g[0] for g in genre_tags.pick_musicbrainz(edition or [])}
+        ed_picked = {g[0] for g in genre_tags.pick_musicbrainz(edition or [], artist)}
         for g in edition or []:
             add(g["name"], g["id"], g["count"], "edition", "musicbrainz", g["name"] in ed_picked)
         for st in sorted(styles):
@@ -353,3 +360,47 @@ def suggest(req):
         if fallback and ticked:
             notes.append("nothing of its own — the artist's top genres are ticked")
     return {"albumId": album_id, "suggestions": list(out.values()), "notes": notes}
+
+
+# -- MusicBrainz fill (genre_fill.py) --------------------------------------------------------
+
+@route("GET", "/api/genres/fill-status")
+def fill_status(req):
+    """The fill card: when it's scheduled, the gathering run (running or last), and how much is
+    gathered so far (cache-only counts -- cheap enough to poll)."""
+    import genre_fill
+    job = genre_fill.running_job()
+    out = {"scheduled": genre_fill.scheduled(), "job": None}
+    if job:
+        out["job"] = {"jobId": job[0], **job[1]}
+    with read_conn() as c:
+        out["cache"] = {k: c.execute(f"SELECT count(*) FROM mb_cache WHERE key LIKE '{k}:%'").fetchone()[0]
+                        for k in ("browse:rg-genres", "resolve:release-group", "lookup:release-genres", "lookup:rg-genres", "lookup:artist-genres")}
+        row = c.execute("SELECT id, created_at FROM batches WHERE actions_json LIKE '%genreFill%' AND undone_at IS NULL ORDER BY id DESC LIMIT 1").fetchone()
+        out["lastApplied"] = {"batchId": row[0], "at": row[1]} if row else None
+    return out
+
+
+@route("POST", "/api/genres/fill-schedule", mutating=True)
+def fill_schedule(req):
+    """{at: "YYYY-MM-DDTHH:MM"} schedules the gathering run (replacing any earlier one); {cancel: true} drops it."""
+    import genre_fill
+    from datetime import datetime
+    if req.body.get("cancel"):
+        return {"cancelled": genre_fill.cancel_schedule()}
+    try:
+        at = datetime.fromisoformat(req.str("at"))
+    except ValueError:
+        raise ApiError("at must be a local date and time, e.g. 2026-10-11T03:30")
+    if genre_fill.running_job() and not genre_fill.running_job()[1]["done"]:
+        raise ApiError("The fill is gathering right now -- cancel it first.", 409)
+    return {"scheduled": genre_fill.schedule(at)}
+
+
+@route("GET", "/api/genres/fill-preview")
+def fill_preview(req):
+    """The dry run: what the gathered MusicBrainz data would tag (counts + random samples). Nothing is written."""
+    import genre_fill
+    seed = req.int("seed", 0) or None
+    with read_conn() as c:
+        return genre_fill.preview(c, seed)

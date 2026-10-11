@@ -38,11 +38,11 @@
   --font-body: var(--font-display);
 
   /* theme-dependent extras */
-  --bad-soft: var(--bad-soft);            /* readable red text on dark */
+  --bad-soft: #ffb3c0;            /* readable red text on dark */
   --reissue: #93c5fd;             /* the "reissue" badge's blue */
   --log-bg: #0a0810;              /* job log / output boxes */
-  --nav-bg: rgba(11, 9, 16, 0.92);
-  --shadow-pop: var(--shadow-pop);
+  --nav-bg: color-mix(in srgb, var(--bg-2) 92%, transparent);   /* follows a Citadel custom theme's --bg-2 */
+  --shadow-pop: rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
 
@@ -59,7 +59,6 @@
   --bad-soft: #8a2e2e;
   --reissue: #2c5ea8;
   --log-bg: #efe4cf;
-  --nav-bg: rgba(245, 236, 221, 0.92);
   --shadow-pop: rgba(60, 40, 10, 0.18);
   color-scheme: light;
 }
@@ -68,6 +67,8 @@
 * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
 
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-body); line-height: 1.5; }
+/* Inside Citadel with a background picture behind the frame: let it show, as Companion does. */
+html.citadel-bg, html.citadel-bg body { background: transparent; }
 a { color: var(--accent-soft); }
 a:hover { color: var(--accent-hi); }
 

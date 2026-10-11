@@ -112,6 +112,52 @@ def _move_album_genres(conn, journal: dict, rows_moved: dict, absorbed_id: int, 
         rows_moved[table] = len(moved)
 
 
+ARTIST_ABOUT_COLS = ("text", "original_text", "source", "edited", "wiki_url", "wiki_title", "thumbnail_url", "tagline",
+                     "area", "begin_area", "formed", "ended", "type", "links_json", "changed_upstream", "fetched_at", "updated_at")
+
+
+def _move_artist_extras(conn, journal: dict, rows_moved: dict, absorbed_id: int, canonical_id: int) -> None:
+    """An artist's own MusicBrainz genres and its About follow it into the survivor; ones the
+    survivor already has are dropped instead (the survivor's About wins) -- journaled for undo."""
+    if not _has_table(conn, "artist_about"):
+        return
+    dup = "genre_id IN (SELECT genre_id FROM artist_mb_genres WHERE artist_id = ?)"
+    dropped = [list(r) for r in conn.execute(f"SELECT genre_id, votes, fetched_at FROM artist_mb_genres WHERE artist_id = ? AND {dup}", (absorbed_id, canonical_id))]
+    conn.execute(f"DELETE FROM artist_mb_genres WHERE artist_id = ? AND {dup}", (absorbed_id, canonical_id))
+    moved = [r[0] for r in conn.execute("SELECT genre_id FROM artist_mb_genres WHERE artist_id = ?", (absorbed_id,))]
+    conn.execute("UPDATE artist_mb_genres SET artist_id = ? WHERE artist_id = ?", (canonical_id, absorbed_id))
+    journal["artist_mb_genres_moved"], journal["artist_mb_genres_dropped"] = moved, dropped
+    rows_moved["artist_mb_genres"] = len(moved)
+    about = conn.execute(f"SELECT {', '.join(ARTIST_ABOUT_COLS)} FROM artist_about WHERE artist_id = ?", (absorbed_id,)).fetchone()
+    if about:
+        if conn.execute("SELECT 1 FROM artist_about WHERE artist_id = ?", (canonical_id,)).fetchone():
+            conn.execute("DELETE FROM artist_about WHERE artist_id = ?", (absorbed_id,))
+            journal["artist_about_dropped"] = list(about)
+        else:
+            conn.execute("UPDATE artist_about SET artist_id = ? WHERE artist_id = ?", (canonical_id, absorbed_id))
+            journal["artist_about_moved"] = True
+
+
+def _undo_artist_extras(conn, j: dict, absorbed_id: int, canonical_id: int) -> None:
+    if not _has_table(conn, "artist_about"):
+        return
+    moved = j.get("artist_mb_genres_moved") or []
+    if moved:
+        conn.execute("UPDATE artist_mb_genres SET artist_id = ? WHERE artist_id = ? AND genre_id IN (SELECT value FROM json_each(?))",
+                     (absorbed_id, canonical_id, json.dumps(moved)))
+    conn.executemany("INSERT OR IGNORE INTO artist_mb_genres (artist_id, genre_id, votes, fetched_at) VALUES (?, ?, ?, ?)",
+                     [(absorbed_id, *r) for r in j.get("artist_mb_genres_dropped") or []])
+    if j.get("artist_about_moved"):
+        conn.execute("UPDATE artist_about SET artist_id = ? WHERE artist_id = ?", (absorbed_id, canonical_id))
+    if j.get("artist_about_dropped"):
+        conn.execute(f"INSERT OR IGNORE INTO artist_about (artist_id, {', '.join(ARTIST_ABOUT_COLS)}) VALUES (?, {', '.join('?' * len(ARTIST_ABOUT_COLS))})",
+                     (absorbed_id, *j["artist_about_dropped"]))
+
+
+def _has_table(conn, name: str) -> bool:
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone() is not None
+
+
 def _move_album_parts(conn, journal: dict, absorbed_id: int, canonical_id: int) -> None:
     """Set links follow the album on either side (the set, or a part of one). Journaled: the
     original rows and the ones written in their place, for undo."""
@@ -408,6 +454,7 @@ def merge_artists(conn, absorbed_id: int, canonical_id: int) -> dict:
     for source in ("lastfm", "setlistfm", "discogs"):
         _upsert_alias(conn, journal, source, absorbed["name"].strip().lower(), "artist", canonical_id, note)
 
+    _move_artist_extras(conn, journal, rows_moved, absorbed_id, canonical_id)
     conn.execute("DELETE FROM artists WHERE id = ?", (absorbed_id,))
     if absorbed["mbid"] and not canonical["mbid"]:
         _set_canonical_fields(conn, journal, "artists", canonical_id, {"mbid": absorbed["mbid"]})
@@ -603,6 +650,7 @@ def undo_merge(conn, log_id: int) -> dict:
     if entity_type == "artist":
         for album_id in j["album_artists_moved"]:
             conn.execute("UPDATE album_artists SET artist_id = ? WHERE album_id = ? AND artist_id = ?", (absorbed_id, album_id, canonical_id))
+        _undo_artist_extras(conn, j, absorbed_id, canonical_id)
     elif entity_type == "album":
         for artist_id in j["album_artists_moved"]:
             conn.execute("UPDATE album_artists SET album_id = ? WHERE artist_id = ? AND album_id = ?", (absorbed_id, artist_id, canonical_id))
@@ -1027,6 +1075,9 @@ def _undo_created_artist(conn, artist_id: int) -> None:
         raise MergeError("Another artist is linked to that one now -- unlink it first.", "diverged")
     for table, col in (("review_marks", "entity_id"), ("notes", "entity_id")):
         conn.execute(f"DELETE FROM {table} WHERE entity_type = 'artist' AND {col} = ?", (artist_id,))
+    if _has_table(conn, "artist_about"):  # fetched for it since -- re-fetchable, not a decision
+        conn.execute("DELETE FROM artist_mb_genres WHERE artist_id = ?", (artist_id,))
+        conn.execute("DELETE FROM artist_about WHERE artist_id = ?", (artist_id,))
     conn.execute("DELETE FROM artists WHERE id = ?", (artist_id,))
 
 
@@ -1168,6 +1219,11 @@ def undo_edit(conn, edit_id: int) -> dict:
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_movePlays" in changes:
         _undo_move_plays(conn, changes["_movePlays"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
+    if "_about" in changes:
+        import about
+        about.undo_edit(conn, entity_id, changes["_about"])
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_artistLink" in changes:

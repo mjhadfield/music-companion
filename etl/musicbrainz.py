@@ -190,18 +190,18 @@ def resolve_release_first(mbid: str) -> tuple:
     """resolve_release_group for ids that are *usually releases* (Last.fm's album mbids): asks
     for the release first, so the common case is one request instead of two -- and that same
     request brings its group's summary (artist credit, type, first-release date) and its
-    tracklist. -> (release-group id or None, summary or None, {track id: recording id} or None,
-    {recording id: track title} or None).
+    tracklist, and the edition's own voted genres. -> (release-group id or None, summary or None,
+    {track id: recording id} or None, {recording id: track title} or None, [genre] or None).
     The track map matters because Last.fm's per-track "mbid" is sometimes a track id, which only
     the release's tracklist can turn into the recording (the song)."""
-    release = _mb_lookup("release", mbid, {"inc": "release-groups+artist-credits+recordings"})
+    release = _mb_lookup("release", mbid, {"inc": "release-groups+artist-credits+recordings+genres"})
     if release and release.get("release-group"):
         rg = dict(release["release-group"])
         rg.setdefault("artist-credit", release.get("artist-credit") or [])
-        return rg["id"], _release_group_summary(rg), release_track_map(release), release_track_titles(release)
+        return rg["id"], _release_group_summary(rg), release_track_map(release), release_track_titles(release), _genre_list(release)
     if _mb_lookup("release-group", mbid) is not None:
-        return mbid, None, None, None
-    return None, None, None, None
+        return mbid, None, None, None, None
+    return None, None, None, None, None
 
 
 def sort_recording_or_track(mbid: str) -> dict:
@@ -334,6 +334,36 @@ def release_genres(release_mbid: str) -> list[dict] | None:
         if exc.response is not None and exc.response.status_code == 404:
             return None
         raise
+
+
+# MusicBrainz url-relationship types worth a link on the artist page, in display order
+ABOUT_LINK_TYPES = {"official homepage": "Official site", "bandcamp": "Bandcamp", "wikidata": "Wikidata", "discogs": "Discogs",
+                    "allmusic": "AllMusic", "last.fm": "Last.fm"}
+
+
+def artist_about(artist_mbid: str) -> dict | None:
+    """The facts for an artist page's About, one request: type, area, where/when formed, the
+    disambiguation (a ready-made tagline: "Finnish melodic death metal band"), and its links --
+    Wikidata (MusicBrainz links that now, rarely Wikipedia), official site, Bandcamp... None if unknown."""
+    a = _mb_lookup("artist", artist_mbid, {"inc": "url-rels"})
+    if not a:
+        return None
+    links: dict[str, str] = {}
+    wikipedia = None
+    for r in a.get("relations") or []:
+        url = (r.get("url") or {}).get("resource") or ""
+        if r.get("ended") or not url:
+            continue
+        if r.get("type") == "wikipedia" and "en.wikipedia.org/wiki/" in url:
+            wikipedia = url
+        label = ABOUT_LINK_TYPES.get(r.get("type"))
+        if label and label not in links:
+            links[label] = url
+    life = a.get("life-span") or {}
+    return {"name": a.get("name"), "type": a.get("type"), "tagline": a.get("disambiguation") or None,
+            "area": (a.get("area") or {}).get("name"), "beginArea": (a.get("begin-area") or {}).get("name"),
+            "formed": life.get("begin"), "ended": life.get("end") if life.get("ended") else None,
+            "wikipedia": wikipedia, "wikidata": links.get("Wikidata"), "links": links}
 
 
 def artist_genres(artist_mbid: str) -> list[dict]:

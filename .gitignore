@@ -49,3 +49,8 @@ site/build/
 
 # Session snapshots the maintenance server takes before its first write (see etl/maintenance/merge.py).
 data/.snapshots/
+
+# Covers an import fetched that are still waiting for review in the Inbox, and ones set aside
+# (turned down / undone) -- never published, so never committed either (etl/covers.py).
+data/covers/.pending/
+data/covers/.removed/

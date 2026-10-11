@@ -102,7 +102,7 @@ function hpOverview() {
     // what the last 30 days sounded like: each artist's main genre, weighted by plays
     artists.genres = hasTable("artist_genres") ? query(`
       WITH main AS (SELECT artist_id, genre_id FROM (SELECT artist_id, genre_id,
-                      row_number() OVER (PARTITION BY artist_id ORDER BY albums DESC, vinyl_albums DESC) AS rn FROM artist_genres) WHERE rn = 1)
+                      row_number() OVER (PARTITION BY artist_id ORDER BY albums DESC, vinyl_albums DESC${agVotesOrder("artist_genres")}) AS rn FROM artist_genres) WHERE rn = 1)
       SELECT ge.name, count(*) AS c FROM scrobbles s JOIN main m ON m.artist_id = s.artist_id JOIN genres ge ON ge.id = m.genre_id
       WHERE s.played_at >= ${recent} GROUP BY ge.id ORDER BY c DESC`) : [];
 

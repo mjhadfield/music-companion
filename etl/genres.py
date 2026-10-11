@@ -70,14 +70,37 @@ def genre_id(conn: sqlite3.Connection, name: str, mbid: str | None = None, creat
     return resolve_rules(conn, conn.execute("INSERT INTO genres (name, mbid) VALUES (?, ?)", (name, mbid)).lastrowid)
 
 
-def pick_musicbrainz(genres: list[dict]) -> list[tuple[str, str | None, int]]:
-    """Which of a release group's voted genres to keep: >= MB_MIN_VOTES votes, else the top one."""
+def _ranked(genres: list[dict] | None, tiebreak: list[dict] | None = None) -> list[tuple[str, str | None, int]]:
+    """(name, mbid, votes), most votes first; a tie goes to the genre the artist has more votes
+    for (`tiebreak` = the artist's MusicBrainz genres), then by name -- never to list order."""
+    tb = {g.get("name"): int(g.get("count") or 0) for g in tiebreak or [] if g.get("name")}
     items = [(g.get("name"), g.get("id"), int(g.get("count") or 0)) for g in genres or [] if g.get("name")]
+    return sorted(items, key=lambda i: (-i[2], -tb.get(i[0], 0), i[0]))
+
+
+def pick_musicbrainz(genres: list[dict], tiebreak: list[dict] | None = None) -> list[tuple[str, str | None, int]]:
+    """Which of a release group's voted genres to keep: >= MB_MIN_VOTES votes, else the top one
+    (a tie broken by the artist's votes)."""
+    items = _ranked(genres, tiebreak)
     keep = [i for i in items if i[2] >= MB_MIN_VOTES]
-    if not keep and items:
-        top = max(i[2] for i in items)
-        keep = [i for i in items if i[2] == top][:1]
-    return keep
+    return keep or items[:1]
+
+
+# The one-off MusicBrainz fill (Maintenance > Genres): at most FILL_MAX genres, and a bare umbrella
+# genre gives way when something more specific qualifies ("Is This It": indie rock, not rock).
+FILL_MAX = 3
+UMBRELLA_GENRES = {"rock", "metal", "pop", "punk"}
+
+
+def pick_for_fill(genres: list[dict] | None, tiebreak: list[dict] | None = None) -> list[tuple[str, str | None, int]]:
+    """Up to FILL_MAX genres: those with >= MB_MIN_VOTES votes, best first, umbrellas dropped when
+    a more specific one qualifies; else the single top genre (tie broken by the artist's votes)."""
+    items = _ranked(genres, tiebreak)
+    strong = [i for i in items if i[2] >= MB_MIN_VOTES]
+    if not strong:
+        return items[:1]
+    specific = [i for i in strong if i[0] not in UMBRELLA_GENRES]
+    return (specific or strong)[:FILL_MAX]
 
 
 def apply(conn: sqlite3.Connection, album_id: int, source: str, items: list[tuple[str, str | None, int | None]]) -> dict:

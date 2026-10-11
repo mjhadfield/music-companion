@@ -639,6 +639,9 @@ function applyCitadelLook(msg) {
     }
   }
   root.classList.toggle("citadel-bg", !!msg.bg);
+  // The gear opens Maintenance in this same frame; it reads ?theme= for its first paint, then follows Citadel itself.
+  const gear = document.getElementById("maintenance-link");
+  if (gear) gear.href = `${new URL(gear.href).origin}/?theme=${msg.theme}`;
 }
 
 function initEmbeddedTheme() {

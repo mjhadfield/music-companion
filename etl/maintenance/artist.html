@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music Companion — Workbench</title>
 <link rel="stylesheet" href="shared.css" />
-<script>try { if (localStorage.getItem("theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}</script>
+<script src="theme-init.js"></script>
 <style>
   main.wide { max-width: 1340px; }
   .q-counts { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -37,6 +37,15 @@
   .ck-facts b { font-family: var(--font-mono); }
   .ck-songs { columns: 2 320px; font-size: .86rem; margin: 0; padding-left: 22px; }
   .ck-songs li { break-inside: avoid; padding: 2px 0; }
+  .about-ed { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
+  .about-ed img { width: 120px; max-height: 160px; object-fit: cover; border: 1px solid var(--edge); }
+  .about-ed textarea { width: 100%; font: inherit; font-size: .9rem; line-height: 1.5; resize: vertical; padding: 8px 10px;
+                       background: var(--surface); color: var(--text); border: 1px solid var(--edge); border-radius: var(--radius-sm); }
+  .about-ed .row, #about .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+  .about-ed .spacer { flex: 1; }
+  .about-results { list-style: none; padding: 0; margin: 8px 0 0; font-size: .86rem; }
+  .about-results li { padding: 5px 0; border-bottom: 1px solid var(--edge); }
+  .about-card { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 0 0 12px; }
 </style>
 </head>
 <body>
@@ -48,6 +57,8 @@
     <h1>Workbench</h1>
     <p class="subtitle">Everything outstanding for one artist on one page — albums to merge or identify, song duplicates, songs filed under the wrong album. Changes queue up in a basket, get a dry run, then apply as one undoable batch.</p>
   </div>
+  <div class="card about-card" id="about-sweep"></div>
+  <div id="about-sweep-run" style="margin:-4px 0 14px"></div>
   <div class="tabs" id="wb-tabs">
     <button data-tab="todo">To review</button>
     <button data-tab="reviewed">Reviewed</button>
@@ -90,6 +101,7 @@
   </div>
   <div class="ck-facts" id="ck-facts"></div>
   <div id="ck-warn"></div>
+  <div id="ck-about"></div>
   <div class="sec"><h2>Albums</h2><span class="meta" id="ck-album-meta"></span><a class="meta" id="ck-disco">fix ids in Albums › Discography →</a></div>
   <div class="ck-grid" id="ck-albums"></div>
   <div class="sec"><h2>Most played songs</h2><span class="meta" id="ck-song-meta"></span></div>
@@ -108,6 +120,7 @@
   <div class="artist-links" id="b-links"></div>
   <div id="b-done" class="notice done-note" hidden></div>
   <div id="b-body"></div>
+  <div id="about"></div>
 </section>
 
 </main>
@@ -254,6 +267,21 @@ function section(body, title, note, items, render, extra = "") {
   return list;
 }
 
+// the About sweep (about.py): fetch the artist page's About for artists that don't have one yet
+async function loadAboutSweep() {
+  const el = document.getElementById("about-sweep");
+  const { ok, data } = await api("/api/about/status");
+  if (!ok) { el.hidden = true; return; }
+  el.innerHTML = `<b>Artist About texts</b><span class="meta">${fmtNum(data.rows)} fetched (Wikipedia ${fmtNum(data.wikipedia)} · Last.fm ${fmtNum(data.lastfm)} · none ${fmtNum(data.noText)}) · ${fmtNum(data.edited)} edited by you${data.changedUpstream ? ` · <b>${fmtNum(data.changedUpstream)}</b> changed on Wikipedia since your edit` : ""} · ${fmtNum(data.toFetch)} still to fetch</span>
+    ${data.toFetch ? `<label class="meta">Fetch <select data-role="n"><option>100</option><option selected>500</option><option>1000</option></select></label><button class="small good" data-act="go">Fetch About texts</button>` : ""}
+    <span class="meta">— about 1–2 s each, most played first; each artist's own is edited in the workbench (Publish to show them)</span>`;
+  el.querySelector("[data-act='go']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    await runSweep(document.getElementById("about-sweep-run"), "artist-about", +el.querySelector("[data-role='n']").value);
+    loadAboutSweep();
+  });
+}
+
 async function loadBench() {
   document.getElementById("bench").hidden = false;
   const mine = ++loading;   // an undo toast and the mc:undone event can both ask -- only the latest paints
@@ -266,6 +294,7 @@ async function loadBench() {
     if (ok) mountArtistLinks(document.getElementById("b-links"), artistId, l.links, () => loadBench());
   });
   document.title = `Workbench — ${data.artist.name}`;
+  if (!document.getElementById("about").dataset.mounted) { document.getElementById("about").dataset.mounted = "1"; mountAboutEditor(document.getElementById("about"), artistId); }
   basket.label = data.artist.name;
   document.getElementById("b-name").innerHTML = `${esc(data.artist.name)} ${data.artist.mbid ? mbLink("artist", data.artist.mbid) : ""}`;
   const c = data.counts, total = Object.values(c).reduce((a, b) => a + b, 0);
@@ -410,6 +439,7 @@ async function loadCheck(id) {
       <div>${x.mbid ? mbLink("album", x.mbid) : `<span class="badge warn">no id</span>`}</div>
       <div class="g">${x.genres.length ? x.genres.slice(0, 5).map((g) => `<span>${esc(g)}</span>`).join("") : `<span class="meta">no genres</span>`}</div>
     </div>`).join("") : `<div class="empty">No albums credited to ${esc(a.name)}.</div>`;
+  mountAboutEditor(document.getElementById("ck-about"), id);
   document.getElementById("ck-song-meta").textContent = data.songs.length ? `of ${plural(a.songs, "song")}` : "";
   document.getElementById("ck-songs").innerHTML = data.songs.map((x) => `<li>${esc(x.title)} <span class="meta">— ${x.album ? esc(x.album) : "no album"} · ${fmtNum(x.plays)}</span></li>`).join("") || `<li class="meta">No plays.</li>`;
   window.scrollTo(0, 0);
@@ -430,6 +460,7 @@ else if (artistId) loadBench();
 else {
   document.getElementById("queue").hidden = false;
   mountTabs(document.getElementById("wb-tabs"), { todo: loadQueue, reviewed: loadReviewed });
+  loadAboutSweep();
 }
 </script>
 </body>
