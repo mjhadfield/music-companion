@@ -271,6 +271,15 @@ runBtn.addEventListener("click", async () => {
   pollJob(data.jobId, logEl, (result) => onJobDone(data.jobId, runBtn, result));
 });
 
+// A refresh finished while this page wasn't open (reload, another device): bring back its log and
+// the Accept / Reject choice -- until it's decided, scheduled Last.fm imports wait for it.
+(async () => {
+  const { ok, data } = await api("/api/refresh/pending");
+  if (!ok || !data.jobId) return;
+  resetLogPanel("Waiting for Accept / Reject…");
+  pollJob(data.jobId, logEl, (result) => onJobDone(data.jobId, runBtn, result));
+})();
+
 async function decide(action) {
   acceptBtn.disabled = true;
   rejectBtn.disabled = true;

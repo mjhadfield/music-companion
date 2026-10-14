@@ -89,6 +89,18 @@ jobs_lock = threading.Lock()
 _general.JOBS, _general.JOBS_LOCK = jobs, jobs_lock
 
 
+def _pending_refresh() -> str | None:
+    """The manual refresh still waiting for Accept / Reject, if any. Only a successful run whose
+    pre-run backup still exists counts: a failed run never offers the choice, and without the backup
+    a Reject has nothing to restore -- either way it must not hold up scheduled imports forever.
+    Call with jobs_lock held."""
+    for job_id, job in jobs.items():
+        if (job["kind"] == "refresh" and job["done"] and job["decision"] is None and job["returncode"] == 0
+                and job["backup"] and job["backup"].is_file()):
+            return job_id
+    return None
+
+
 def _busy_reason(kinds=("refresh", "refresh-auto", "build", "sweep")) -> str | None:
     """Why a scheduled import shouldn't start now (None = free): something already running, or a
     manual refresh waiting for Accept / Reject (a Reject restores the pre-refresh copy)."""
@@ -98,8 +110,8 @@ def _busy_reason(kinds=("refresh", "refresh-auto", "build", "sweep")) -> str | N
             if not job["done"] and kind in kinds:
                 return {"refresh": "a manual refresh is running", "refresh-auto": "an automatic Last.fm update is running",
                         "build": "a publish is running", "sweep": "a MusicBrainz sweep is running"}[kind]
-            if kind == "refresh" and job["done"] and job["decision"] is None and "refresh" in kinds:
-                return "a manual refresh is waiting for Accept / Reject"
+        if "refresh" in kinds and _pending_refresh():
+            return "a manual refresh is waiting for Accept / Reject on the Maintenance home page"
     return None
 
 
@@ -232,6 +244,11 @@ class Handler(BaseHTTPRequestHandler):
                                     "discogsApi": bool(discogs_api.token())})  # a token: the collection can be read live
         if path == "/api/scheduled/lastfm":
             return self._scheduled_result(query.get("jobId", ""))
+        if path == "/api/refresh/pending":
+            # lets the page bring Accept / Reject back after a reload or from another device
+            with jobs_lock:
+                pending = _pending_refresh()
+            return self._send_json({"jobId": pending})
         if path.startswith("/status/"):
             job_id = path[len("/status/"):]
             since = int(query.get("since", "0") or 0)
@@ -310,6 +327,13 @@ class Handler(BaseHTTPRequestHandler):
         busy = _busy_reason(kinds=("refresh-auto",))
         if busy:
             return self._send_json({"error": busy + " -- try again in a minute."}, status=409)
+        # A second refresh on top of an undecided one would leave two backups where rejecting the older
+        # silently throws away the newer run too -- settle the first one before starting another.
+        with jobs_lock:
+            pending = _pending_refresh()
+        if pending:
+            return self._send_json({"error": "The last refresh is still waiting for Accept / Reject -- decide that one first."},
+                                   status=409)
         args = []
         if body.get("lastfm"):
             args.append("--lastfm")
