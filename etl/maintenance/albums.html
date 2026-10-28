@@ -862,7 +862,7 @@ async function loadTypes() {
   tabs.setCount("types", todo || null);
   const stat = (n, l) => `<div><div class="n">${fmtNum(n || 0)}</div><div class="l">${l}</div></div>`;
   box.innerHTML = `<h2>MusicBrainz fill — dry run</h2>
-    <div class="ty-stats">${stat(st.set, "albums would get a type")}${stat(st.change, "would change")}${stat(st.same, "already right")}${stat(st.manual, "set by hand")}${stat((data.check || []).length, "to check first")}${stat(data.pendingUsed, "played/owned, not looked up")}${stat(data.nombUsed, "played/owned, no MusicBrainz id")}</div>
+    <div class="ty-stats">${stat(st.set, "albums would get a type")}${stat(st.change, "would change")}${stat(st.same, "already right")}${stat(st.manual, "set by hand")}${stat((data.check || []).length, "to check first")}${stat(data.pendingUsed, "played/owned, not looked up")}${stat(data.nombUsed, "played/owned, no MusicBrainz id")}${data.notfoundUsed ? stat(data.notfoundUsed, "played/owned, id not on MusicBrainz") : ""}</div>
     <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button class="good" data-act="apply"${todo ? "" : " disabled"}>Apply — ${fmtNum(todo)} albums</button>
       <span class="meta">${Object.entries(data.kinds).filter(([, n]) => n).map(([k, n]) => `${TY_LABEL[k]} ${fmtNum(n)}`).join(" · ")}</span>
@@ -877,7 +877,7 @@ async function loadTypes() {
     ${data.changes.length ? `<h3 style="margin-top:16px">Would change</h3><table class="ty-table"><tbody>
       ${data.changes.map((r) => `<tr><td>${tyAlbum(r)}</td><td>${TY_LABEL[r.current]} → <b>${TY_LABEL[r.kind]}</b></td><td>${tyMbText(r)}</td></tr>`).join("")}</tbody></table>` : ""}
     <h3 style="margin-top:16px">Most played in each <span class="meta">— once applied</span></h3>
-    <div class="chips" id="ty-kinds">${Object.keys(TY_LABEL).map((k) => `<button class="chip filter-chip" data-kind="${k}" aria-pressed="${k === tyKind}">${TY_LABEL[k]} <span class="meta">${fmtNum(data.totals[k])}</span></button>`).join("")}${data.pending.length ? `<button class="chip filter-chip" data-kind="pending" aria-pressed="${tyKind === "pending"}">Not looked up <span class="meta">${fmtNum(data.pendingUsed)}</span></button>` : ""}</div>
+    <div class="chips" id="ty-kinds">${Object.keys(TY_LABEL).map((k) => `<button class="chip filter-chip" data-kind="${k}" aria-pressed="${k === tyKind}">${TY_LABEL[k]} <span class="meta">${fmtNum(data.totals[k])}</span></button>`).join("")}${data.pending.length ? `<button class="chip filter-chip" data-kind="pending" aria-pressed="${tyKind === "pending"}">Not looked up <span class="meta">${fmtNum(data.pendingUsed)}</span></button>` : ""}${data.notfound.length ? `<button class="chip filter-chip" data-kind="notfound" aria-pressed="${tyKind === "notfound"}">Not on MusicBrainz <span class="meta">${fmtNum(data.notfoundUsed)}</span></button>` : ""}</div>
     <div id="ty-kind-list"></div>`;
   wireTySelects(box, loadTypes);
   paintTypeKind();
@@ -898,7 +898,7 @@ async function loadTypes() {
   });
 }
 function paintTypeKind() {
-  const rows = tyKind === "pending" ? tyData.pending : tyData.byKind[tyKind] || [];
+  const rows = tyKind === "pending" || tyKind === "notfound" ? tyData[tyKind] : tyData.byKind[tyKind] || [];
   document.getElementById("ty-kind-list").innerHTML = rows.length
     ? `<table class="ty-table"><tbody>${rows.map((r) => `<tr><td>${tyAlbum(r)}</td><td class="num">${fmtNum(r.plays)} plays</td><td>${tyMbText(r)}${r.status === "manual" ? ` <span class="badge accent">by hand</span>` : ""}</td><td>${tySelect(r)}</td></tr>`).join("")}</tbody></table>`
     : `<div class="empty">Nothing here.</div>`;
@@ -910,7 +910,7 @@ async function openTypesArtist(artistId) {
   const { ok, data } = await api(`/api/albums/types-artist?artistId=${artistId}`);
   if (!ok) { box.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
   const typeText = (r) => r.current ? `${TY_LABEL[r.current]}${r.status === "manual" ? ` <span class="badge accent">by hand</span>` : ""}`
-    : `<span class="meta">${{ nomb: "no MusicBrainz id", pending: "not looked up", check: "check the id" }[r.status] || "not applied yet"}</span>`;
+    : `<span class="meta">${{ nomb: "no MusicBrainz id", notfound: "id not on MusicBrainz", pending: "not looked up", check: "check the id" }[r.status] || "not applied yet"}</span>`;
   box.innerHTML = `<h3>${esc(data.name)}</h3>${data.albums.length ? `<table class="ty-table"><thead><tr><th>Album</th><th class="num">Plays</th><th>Now</th><th>MusicBrainz</th><th>Set</th></tr></thead><tbody>
     ${data.albums.map((r) => `<tr class="${TY_MAIN.has(r.current) ? "main" : "folded"}"><td>${esc(r.title)}${r.year ? ` <span class="meta">(${r.year})</span>` : ""}${r.vinyl ? ` <span class="badge vinyl">vinyl</span>` : ""}</td>
       <td class="num">${fmtNum(r.plays)}</td><td>${typeText(r)}</td><td>${tyMbText(r)}${r.kind && r.kind !== r.current ? ` <span class="meta">→ ${TY_LABEL[r.kind]}</span>` : ""}</td><td>${tySelect(r)}</td></tr>`).join("")}</tbody></table>`

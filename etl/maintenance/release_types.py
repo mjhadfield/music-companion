@@ -98,10 +98,14 @@ def plan(conn, artist_id: int | None = None) -> list[dict]:
       set      gets a type (none yet)        change   MusicBrainz's type differs from the stored one
       same     already right                 manual   set by hand -- left alone
       pending  has an id, type not cached    nomb     no MusicBrainz id
+      notfound has an id MusicBrainz doesn't know (neither a group nor a release -- a stale Last.fm id)
       check    MusicBrainz says single/EP but the album has too many songs for one (TOO_MANY) --
                left untyped: its id is probably wrong
     artist_id: only the albums crediting that artist (as the artist page lists them)."""
     groups, parents, resolved = _mb_types(conn)
+    # resolve:release-group: caches None only on a 404 for both the group and the release lookup
+    gone = {k.split(":", 2)[2] for (k,) in conn.execute(
+        "SELECT key FROM mb_cache WHERE key LIKE 'resolve:release-group:%' AND payload_json = 'null'")}
     where = "WHERE al.id IN (SELECT album_id FROM album_artists WHERE artist_id = ?)" if artist_id else ""
     rows = conn.execute(f"""
         SELECT al.id, al.title, al.mbid, al.release_type, al.release_type_source, ar.id, ar.name,
@@ -120,7 +124,7 @@ def plan(conn, artist_id: int | None = None) -> list[dict]:
         elif not mbid:
             status = "nomb"
         elif not kind:
-            status = "pending"
+            status = "notfound" if mbid in gone else "pending"
         elif kind in TOO_MANY and songs >= TOO_MANY[kind]:
             status = "check"
         elif cur is None:
@@ -150,9 +154,11 @@ def preview(conn) -> dict:
         "status": status, "kinds": kinds, "totals": totals,
         "pendingUsed": sum(1 for r in used if r["status"] == "pending"),
         "nombUsed": sum(1 for r in used if r["status"] == "nomb"),
+        "notfoundUsed": sum(1 for r in used if r["status"] == "notfound"),
         "changes": [pick(r) for r in by_plays if r["status"] == "change"][:200],
         "byKind": {k: [pick(r) for r in used if after(r) == k][:40] for k in KINDS},
         "pending": [pick(r) for r in used if r["status"] == "pending"][:40],
+        "notfound": [pick(r) for r in used if r["status"] == "notfound"][:40],
         "check": [pick(r) for r in by_plays if r["status"] == "check"],
     }
 
