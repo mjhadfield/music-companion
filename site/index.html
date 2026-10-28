@@ -13,7 +13,7 @@
     // An old copy of this page from the browser's cache (an earlier version of the site) fetches
     // everything fresh and reloads -- once. Stamped by etl/bump_site_version.py, with the ?v= on
     // every stylesheet and script below; between versions everything caches as normal.
-    const SITE_VERSION = "20261011-000810";
+    const SITE_VERSION = "20261028-202219";
     fetch("version.txt", { cache: "no-store" }).then((r) => (r.ok ? r.text() : "")).then((v) => {
       v = v.trim();
       if (!v || v === SITE_VERSION) return;
@@ -21,14 +21,14 @@
       return Promise.all([location.pathname || "./", "index.html"].map((u) => fetch(u, { cache: "reload" }).catch(() => null))).then(() => location.reload());
     }).catch(() => {});
   </script>
-  <link rel="stylesheet" href="css/style.css?v=20261011-000810" />
-  <link rel="stylesheet" href="css/home.css?v=20261011-000810" />
-  <link rel="stylesheet" href="css/album-page.css?v=20261011-000810" />
-  <link rel="stylesheet" href="css/albums-page.css?v=20261011-000810" />
-  <link rel="stylesheet" href="css/artist-page.css?v=20261011-000810" />
-  <link rel="stylesheet" href="css/song-page.css?v=20261011-000810" />
-  <link rel="stylesheet" href="css/live.css?v=20261011-000810" />
-  <link rel="stylesheet" href="css/browse-pages.css?v=20261011-000810" />
+  <link rel="stylesheet" href="css/style.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/home.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/album-page.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/albums-page.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/artist-page.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/song-page.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/live.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/browse-pages.css?v=20261028-202219" />
 </head>
 <body>
   <header class="topbar">
@@ -72,17 +72,17 @@
   </nav>
 
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
-  <script src="js/icons.js?v=20261011-000810"></script>
-  <script src="js/charts.js?v=20261011-000810"></script>
-  <script src="js/enrichment.js?v=20261011-000810"></script>
-  <script src="js/collection.js?v=20261011-000810"></script>
-  <script src="js/home.js?v=20261011-000810"></script>
-  <script src="js/album-page.js?v=20261011-000810"></script>
-  <script src="js/albums-page.js?v=20261011-000810"></script>
-  <script src="js/artist-page.js?v=20261011-000810"></script>
-  <script src="js/song-page.js?v=20261011-000810"></script>
-  <script src="js/live.js?v=20261011-000810"></script>
-  <script src="js/browse-pages.js?v=20261011-000810"></script>
-  <script src="js/app.js?v=20261011-000810"></script>
+  <script src="js/icons.js?v=20261028-202219"></script>
+  <script src="js/charts.js?v=20261028-202219"></script>
+  <script src="js/enrichment.js?v=20261028-202219"></script>
+  <script src="js/collection.js?v=20261028-202219"></script>
+  <script src="js/home.js?v=20261028-202219"></script>
+  <script src="js/album-page.js?v=20261028-202219"></script>
+  <script src="js/albums-page.js?v=20261028-202219"></script>
+  <script src="js/artist-page.js?v=20261028-202219"></script>
+  <script src="js/song-page.js?v=20261028-202219"></script>
+  <script src="js/live.js?v=20261028-202219"></script>
+  <script src="js/browse-pages.js?v=20261028-202219"></script>
+  <script src="js/app.js?v=20261028-202219"></script>
 </body>
 </html>

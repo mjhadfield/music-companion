@@ -35,8 +35,15 @@ Action types (all ids are ints):
                                         one album's reviewed genres (Maintenance > Genres); marks it reviewed
   genreFill        {}                   the MusicBrainz genre fill (genre_fill.py), worked out again from the
                                         cache right here -- every untagged album / artist it has genres for
+  releaseTypeFill  {}                   release types from MusicBrainz (release_types.py) for every album the
+                                        cache can type -- never one set by hand
+  setReleaseType   {albumId, kind}      by hand: album | ep | live | single | compilation | other, or null
+                                        for MusicBrainz's again
   foldSingle       {singleId, albumId}  a single filed as an album (singles.py): its own copies of
                                         songs merge into their twins on the album, then it merges in
+  moveSingleTracks {singleId, albumId}  a single with B-sides (singles.py kind "tracks"): only the tracks the
+                                        album has move there (songs merged into their twins, plays moved); the
+                                        single keeps the rest
 """
 import json
 import re
@@ -150,6 +157,16 @@ def run_action(c, it: dict) -> tuple[list[dict], dict]:
     if t == "genreFill":
         import genre_fill
         return genre_fill.apply(c)
+    if t == "releaseTypeFill":
+        import release_types
+        return release_types.apply(c)
+    if t == "setReleaseType":
+        import release_types
+        album_id, kind = _int(it, "albumId"), it.get("kind") or None
+        if kind is not None and kind not in release_types.KINDS:
+            raise ApiError(f"setReleaseType: kind must be one of {', '.join(release_types.KINDS)} or null")
+        r = release_types.set_type(c, album_id, kind)
+        return ([{"kind": "edit", "id": r["editId"]}] if r["editId"] else []), {"text": f"Release type: {kind or 'MusicBrainz'}"}
     if t == "albumGenres":
         import genres as genre_tags
         album_id = _int(it, "albumId")
@@ -167,12 +184,12 @@ def run_action(c, it: dict) -> tuple[list[dict], dict]:
         single_id, album_id = _int(it, "singleId"), _int(it, "albumId")
         # re-checked against the data as it is now (an earlier action in this batch may have changed it)
         found = singles.find_singles(c, album_ids=[single_id])
-        if not found or found[0]["target"]["albumId"] != album_id:
+        if not found or found[0]["target"]["albumId"] != album_id or found[0]["kind"] != "fold":
             raise ApiError("foldSingle: that no longer looks like a single from that album -- reload and check it again", 409)
         handles, moved = [], {}
         for tr in found[0]["tracks"]:
             for sid in tr["ownIds"]:                                   # only the single's own copies
-                if sid == tr["twin"]["songId"]:
+                if not tr["twin"] or sid == tr["twin"]["songId"]:      # no twin (on the album's tracklist only): it moves with the merge
                     continue
                 r = merge.merge_songs(c, sid, tr["twin"]["songId"])
                 handles.append({"kind": "merge", "id": r["logId"]})
@@ -183,6 +200,31 @@ def run_action(c, it: dict) -> tuple[list[dict], dict]:
         for k, v in r["rowsMoved"].items():
             moved[k] = moved.get(k, 0) + v
         return handles, {"text": f'Fold the single "{r["absorbedTitle"]}" into "{r["canonicalTitle"]}"', "rowsMoved": moved}
+    if t == "moveSingleTracks":
+        single_id, album_id = _int(it, "singleId"), _int(it, "albumId")
+        found = singles.find_singles(c, album_ids=[single_id])
+        if not found or found[0]["target"]["albumId"] != album_id or found[0]["kind"] != "tracks":
+            raise ApiError("moveSingleTracks: that no longer looks like a single with tracks from that album -- reload and check it again", 409)
+        handles, moved, songs = [], {}, set()
+        for tr in found[0]["tracks"]:
+            if not tr["onTarget"]:
+                continue
+            twin = tr["twin"]["songId"] if tr["twin"] else None
+            for sid in tr["songIds"]:
+                if twin and sid in tr["ownIds"] and sid != twin:      # the single's own copy merges into the album's
+                    r = merge.merge_songs(c, sid, twin)
+                    handles.append({"kind": "merge", "id": r["logId"]})
+                    for k, v in r["rowsMoved"].items():
+                        moved[k] = moved.get(k, 0) + v
+                else:
+                    songs.add(sid)
+            if twin:
+                songs.add(twin)
+        r = merge.move_song_plays(c, single_id, album_id, sorted(songs), "tracks of a single moved to its album")
+        handles.append({"kind": "edit", "id": r["editId"]})
+        moved["scrobbles"] = moved.get("scrobbles", 0) + r["scrobbles"]
+        moved["songs"] = moved.get("songs", 0) + r["songs"]
+        return handles, {"text": f'Move {plural_tracks(r["scrobbles"])} from the single "{found[0]["title"]}" to "{found[0]["target"]["title"]}"', "rowsMoved": moved}
     if t == "mergeSongs":
         canonical, absorbed = _int(it, "canonicalId"), _ints(it, "absorbedIds")
         if canonical in absorbed:
@@ -300,6 +342,10 @@ def run_action(c, it: dict) -> tuple[list[dict], dict]:
     raise ApiError(f"unknown action type {t!r}")
 
 
+def plural_tracks(n: int) -> str:
+    return f"{n} play{'' if n == 1 else 's'}"
+
+
 def undo_handle(c, h: dict) -> None:
     k = h.get("kind")
     # a merge or edit already undone on its own (Activity's per-item Undo) needs nothing more --
@@ -393,7 +439,7 @@ def apply(req):
     actions = _actions(req)
     label = str(req.body.get("label") or "")[:120]
     artist_id = int(req.body["artistId"]) if str(req.body.get("artistId") or "").isdigit() else None
-    big = len(actions) > BIG_BATCH or any(a.get("type") == "genreFill" for a in actions)  # the fill touches thousands of albums
+    big = len(actions) > BIG_BATCH or any(a.get("type") in ("genreFill", "releaseTypeFill") for a in actions)  # the fills touch thousands of albums
     snapshot = merge.labelled_snapshot(label or "batch") if big else None
     c = db_connect()
     try:

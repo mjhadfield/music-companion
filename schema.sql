@@ -45,7 +45,12 @@ CREATE TABLE IF NOT EXISTS albums (
     -- live database (new columns always append at the end), or that insert quietly shuffles
     -- values into the wrong columns instead of failing loudly.
     cover_status      TEXT CHECK (cover_status IN ('ok', 'none')),
-    cover_updated_at  TEXT
+    cover_updated_at  TEXT,
+    -- What kind of release it is (etl/maintenance/release_types.py), from MusicBrainz's release-group
+    -- type or set by hand: the artist page shows album/ep/live as the discography and folds the rest.
+    -- NULL = not typed yet. release_type_source: 'musicbrainz' | 'manual' (the fill never touches manual).
+    release_type        TEXT CHECK (release_type IN ('album', 'ep', 'live', 'single', 'compilation', 'other')),
+    release_type_source TEXT CHECK (release_type_source IN ('musicbrainz', 'manual'))
 );
 
 -- Full artist credit per album (many-to-many). Real releases are often

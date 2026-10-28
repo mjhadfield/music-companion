@@ -699,7 +699,7 @@ def undo_merge(conn, log_id: int) -> dict:
 
 # -- Identity edits --------------------------------------------------------------------------
 
-EDITABLE = {"artists": {"mbid", "name"}, "albums": {"mbid", "title", "year", "cover_status", "cover_updated_at"},
+EDITABLE = {"artists": {"mbid", "name"}, "albums": {"mbid", "title", "year", "cover_status", "cover_updated_at", "release_type", "release_type_source"},
             "songs": {"mbid", "title", "album_id"}, "vinyl_holdings": {"album_id", "mb_release_id", "disc_colour", "cover_file", "display_title", "release_year",
                                # the Discogs-owned fields: changed only by applying a "Changed on Discogs" Inbox item
                                "media_condition", "sleeve_condition", "rating", "notes", "catalog_number", "label", "format", "date_added",
@@ -1037,6 +1037,37 @@ def move_album_plays(conn, from_album: int, to_album: int, raw_titles: list[str]
             "editions": len(editions)}
 
 
+def move_song_plays(conn, from_album: int, to_album: int, song_ids: list[int], reason: str) -> dict:
+    """Moves the plays of some songs from one album to another of the same artist -- a single's tracks
+    that are on its album, while its B-sides stay (singles.py kind "tracks"). Those songs' scrobbles
+    filed under from_album go to to_album, and any of the songs filed under from_album is re-filed there.
+    No aliases change: the single stays a release of its own. Journaled as {"_moveSongPlays": ...}."""
+    src, dst = _row_dict(conn, "albums", from_album), _row_dict(conn, "albums", to_album)
+    if not src or not dst:
+        raise MergeError("both albums must exist", "not_found")
+    if src["artist_id"] != dst["artist_id"]:
+        raise MergeError("Plays can only move between albums of the same artist.", "different_artist")
+    ids = json.dumps(sorted(set(song_ids)))
+    scrobbles = [r[0] for r in conn.execute(
+        "SELECT id FROM scrobbles WHERE album_id = ? AND song_id IN (SELECT value FROM json_each(?))", (from_album, ids))]
+    songs = [r[0] for r in conn.execute("SELECT id FROM songs WHERE album_id = ? AND id IN (SELECT value FROM json_each(?))", (from_album, ids))]
+    if not scrobbles and not songs:
+        raise MergeError("Nothing of those songs is on that album.", "merge_error")
+    conn.execute("UPDATE scrobbles SET album_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_album, json.dumps(scrobbles)))
+    conn.execute("UPDATE songs SET album_id = ? WHERE id IN (SELECT value FROM json_each(?))", (to_album, json.dumps(songs)))
+    detail = {"from": from_album, "fromTitle": src["title"], "to": to_album, "toTitle": dst["title"], "scrobbleIds": scrobbles, "songIds": songs}
+    edit_id = conn.execute("INSERT INTO edit_log (entity_type, entity_id, entity_name, changes_json, reason) VALUES ('album', ?, ?, ?, ?)",
+                           (to_album, dst["title"], json.dumps({"_moveSongPlays": detail}), reason)).lastrowid
+    return {"editId": edit_id, "scrobbles": len(scrobbles), "songs": len(songs)}
+
+
+def _undo_move_song_plays(conn, d: dict) -> None:
+    conn.execute("UPDATE scrobbles SET album_id = ? WHERE id IN (SELECT value FROM json_each(?)) AND album_id = ?",
+                 (d["from"], json.dumps(d["scrobbleIds"]), d["to"]))
+    conn.execute("UPDATE songs SET album_id = ? WHERE id IN (SELECT value FROM json_each(?)) AND album_id = ?",
+                 (d["from"], json.dumps(d["songIds"]), d["to"]))
+
+
 def _undo_move_plays(conn, d: dict) -> None:
     back, to = d["from"], d["to"]
     if not _row_dict(conn, "albums", back) or not _row_dict(conn, "albums", to):
@@ -1248,6 +1279,10 @@ def undo_edit(conn, edit_id: int) -> dict:
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_splitSong" in changes:
         _undo_split_song(conn, changes["_splitSong"])
+        conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
+        return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
+    if "_moveSongPlays" in changes:
+        _undo_move_song_plays(conn, changes["_moveSongPlays"])
         conn.execute("UPDATE edit_log SET undone_at = datetime('now') WHERE id = ?", (edit_id,))
         return {"editId": edit_id, "entityType": entity_type, "entityId": entity_id, "name": name}
     if "_relink" in changes:

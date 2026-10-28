@@ -16,7 +16,10 @@ import mbcache
 import merge
 from api.core import ApiError, read_conn, route, write_tx
 from common import artist_mbid_sets
-from titles import base_key, fold, sequel_marker, split_title
+from titles import base_key, fold, sequel_marker, split_title, variant_tags
+from singles import COMPILATION_RE
+
+SOUNDTRACK_RE = re.compile(r"\b(soundtrack|motion picture|original score|o\.?s\.?t\.?)\b", re.I)
 
 MBID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
@@ -827,6 +830,50 @@ def verify(req):
             credits[alb].add(art)
         sets = artist_mbid_sets(c)
         mbid_sets = {alb: set().union(*(sets.get(a, set()) for a in arts)) for alb, arts in credits.items()}
+        # what the album is here, to set beside MusicBrainz's: its songs (filed under it or played from it)
+        # and how many are live / remix versions, and the type it's been given (Albums > Types)
+        here_songs = defaultdict(dict)
+        for alb, sid, stitle in c.execute(
+                "SELECT album_id, id, title FROM songs WHERE album_id IS NOT NULL "
+                "UNION SELECT sc.album_id, s.id, s.title FROM scrobbles sc JOIN songs s ON s.id = sc.song_id WHERE sc.album_id IS NOT NULL"):
+            here_songs[alb][sid] = stitle
+        types_here = {r[0]: r[1:] for r in c.execute("SELECT id, release_type, release_type_source FROM albums WHERE release_type IS NOT NULL")}
+
+    def here_of(aid: int) -> dict:
+        titles = list(here_songs.get(aid, {}).values())
+        tags = [variant_tags(t) for t in titles]
+        rt, src = types_here.get(aid, (None, None))
+        return {"songs": len(titles), "live": sum("live" in t for t in tags), "remix": sum("remix" in t for t in tags),
+                "sample": sorted(titles, key=lambda t: (not variant_tags(t), t))[:3], "type": rt, "typeSource": src}
+
+    def type_flag(title: str, types: list, here: dict) -> dict | None:
+        """MusicBrainz says live / compilation / single...: flag it only when nothing here backs that up --
+        a live album whose songs are live versions (Ceremony and Devotion), a remix album of remixes, a
+        single of one or two songs, or a type you've set by hand are what they say."""
+        odd = [t for t in types if t in ("Live", "Compilation", "Single", "Remix", "Soundtrack", "DJ-mix")]
+        if not odd or here["typeSource"] == "manual" or ("live" in set(split_title(title)[1]) and "Live" in odd) or "live" in fold(title):
+            return None
+        n = here["songs"]
+        agrees = {"Live": n and here["live"] * 2 >= n, "Remix": n and here["remix"] * 2 >= n,
+                  "Single": 0 < n <= 3 and "Single" == types[0],
+                  "Compilation": bool(COMPILATION_RE.search(title or "")),        # its own title says so: Greatest Hits, The Ultimate Collection
+                  "Soundtrack": bool(SOUNDTRACK_RE.search(title or ""))}
+        unexplained = [t for t in odd if not agrees.get(t)]
+        if not unexplained:
+            return None
+        why = []
+        if "Compilation" in unexplained and n > 1:
+            why.append(f"nothing in the title says best-of/collection")
+        if "Live" in unexplained:
+            why.append(f"{here['live']} of its {n} songs here {'is a live version' if here['live'] == 1 else 'are live versions'}" if n else "no songs here to tell")
+        if "Single" in unexplained and n > 3:
+            why.append(f"it has {n} songs here — a lot for a single")
+        if "Remix" in unexplained:
+            why.append(f"{here['remix']} of its {n} songs here {'is a remix' if here['remix'] == 1 else 'are remixes'}")
+        return {"code": "type_mismatch", "severity": "low",
+                "text": f"MusicBrainz type is {'/'.join(t for t in types if t)}" + (f", but {'; '.join(why)}" if why else "") +
+                        " — check the id isn't a different release (a live album, best-of or single of the same name)."}
+
     flagged, checked = [], 0
     for aid, title, year, mbid, artist_name, artist_mbid, plays, vinyl in rows:
         if mbid not in cache:
@@ -849,14 +896,12 @@ def verify(req):
             if year and first.isdigit() and int(first) != year:
                 flags.append({"code": "year_mismatch", "severity": "medium",
                               "text": f"Year here is {year}, but it was first released in {first} (a reissue's year?)."})
-            types = [rg.get("primaryType")] + (rg.get("secondaryTypes") or [])
-            odd = [t for t in types if t in ("Live", "Compilation", "Single", "Remix", "Soundtrack", "DJ-mix")]
-            local_tags = set(split_title(title)[1])
-            if odd and not ("live" in local_tags and "Live" in odd) and "live" not in fold(title):
-                flags.append({"code": "type_mismatch", "severity": "low", "text": f"MusicBrainz type is {'/'.join(t for t in types if t)} — check it's not a different release."})
+            tf = type_flag(title, [rg.get("primaryType")] + (rg.get("secondaryTypes") or []), here_of(aid))
+            if tf:
+                flags.append(tf)
         if flags:
             flagged.append({"albumId": aid, "title": title, "year": year, "mbid": mbid, "artistName": artist_name,
-                            "scrobbleCount": plays, "vinylCount": vinyl, "mb": rg, "flags": flags})
+                            "scrobbleCount": plays, "vinylCount": vinyl, "mb": rg, "here": here_of(aid), "flags": flags})
     sev = {"high": 0, "medium": 1, "low": 2}
     flagged.sort(key=lambda x: (min(sev[f["severity"]] for f in x["flags"]), -(x["vinylCount"] * 50 + x["scrobbleCount"])))
     return {"checked": checked, "unchecked": len(rows) - checked, "flagged": flagged}
@@ -888,3 +933,29 @@ def edit(req):
         e = merge.edit_entity(c, "album", album_id, changes, req.str("reason") or "edited")
         title = c.execute("SELECT title FROM albums WHERE id = ?", (album_id,)).fetchone()[0]
     return {"albumId": album_id, "title": title, "editId": e["editId"], "changes": e["changes"]}
+
+
+# -- Types: what kind of release each album is (release_types.py) ---------------------------------
+
+@route("GET", "/api/albums/types-preview")
+def types_preview(req):
+    """The dry run of the MusicBrainz release-type fill -- nothing changes until it's applied
+    (batch action releaseTypeFill)."""
+    import release_types
+    with read_conn() as c:
+        return release_types.preview(c)
+
+
+@route("GET", "/api/albums/types-artist")
+def types_artist(req):
+    """One artist's albums (credited, played or owned -- the artist page's discography) with their
+    type now and MusicBrainz's, for setting by hand (batch action setReleaseType)."""
+    import release_types
+    artist_id = req.int("artistId", required=True)
+    with read_conn() as c:
+        name = c.execute("SELECT name FROM artists WHERE id = ?", (artist_id,)).fetchone()
+        if not name:
+            raise ApiError("artist not found", 404)
+        rows = [r for r in release_types.plan(c, artist_id) if r["plays"] or r["vinyl"]]
+    rows.sort(key=lambda r: (release_types.KINDS.index(r["current"]) if r["current"] else 99, -r["plays"]))
+    return {"artistId": artist_id, "name": name[0], "kinds": list(release_types.KINDS), "main": list(release_types.MAIN), "albums": rows}

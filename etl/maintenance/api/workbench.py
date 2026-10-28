@@ -165,7 +165,7 @@ def _flags_by_artist(c) -> dict[int, list[dict]]:
     out = defaultdict(list)
     for f in flagged:
         if f["albumId"] in owner:
-            out[owner[f["albumId"]]].append({"albumId": f["albumId"], "title": f["title"], "mbid": f["mbid"], "flags": f["flags"], "mb": f["mb"]})
+            out[owner[f["albumId"]]].append({k: f[k] for k in ("albumId", "title", "year", "mbid", "flags", "mb", "here", "scrobbleCount", "vinylCount")})
     return out
 
 

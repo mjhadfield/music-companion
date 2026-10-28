@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+CLAUDE.md
 
 # Secrets -- real values live only in .env locally, never committed.
 # .env.example is the committed template.

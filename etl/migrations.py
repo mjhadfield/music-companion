@@ -581,6 +581,17 @@ def _m017_artist_genres_and_about(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _m018_release_types(conn: sqlite3.Connection) -> None:
+    """albums.release_type (album | ep | live | single | compilation | other, NULL = not typed yet) and
+    release_type_source (musicbrainz | manual) -- filled by Maintenance > Albums > Types
+    (release_types.py). Public: the artist page splits its discography by it."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(albums)")}
+    if "release_type" not in cols:
+        conn.execute("ALTER TABLE albums ADD COLUMN release_type TEXT "
+                     "CHECK (release_type IN ('album', 'ep', 'live', 'single', 'compilation', 'other'))")
+    if "release_type_source" not in cols:
+        conn.execute("ALTER TABLE albums ADD COLUMN release_type_source TEXT CHECK (release_type_source IN ('musicbrainz', 'manual'))")
+
 MIGRATIONS = [
     ("001_maintenance_review_tables", _m001_maintenance_review_tables),
     ("002_vinyl_pressings", _m002_vinyl_pressings),
@@ -599,6 +610,7 @@ MIGRATIONS = [
     ("015_press_override", _m015_press_override),
     ("016_song_lengths", _m016_song_lengths),
     ("017_artist_genres_and_about", _m017_artist_genres_and_about),
+    ("018_release_types", _m018_release_types),
 ]
 
 

@@ -224,7 +224,8 @@ function flagItem(f) {
   const el = document.createElement("div");
   el.className = "review-item wb-item";
   el.innerHTML = `<div class="row"><div><div class="title">${esc(f.title)} ${mbLink("album", f.mbid)}</div>
-      ${f.flags.map((x) => `<div class="meta"><span class="badge ${x.severity === "high" ? "bad" : x.severity === "medium" ? "warn" : ""}">${esc(x.severity)}</span> ${esc(x.text)}</div>`).join("")}</div>
+      ${f.flags.map((x) => `<div class="meta"><span class="badge ${x.severity === "high" ? "bad" : x.severity === "medium" ? "warn" : ""}">${esc(x.severity)}</span> ${esc(x.text)}</div>`).join("")}
+      ${flagSidesHtml(f)}</div>
       <div class="actions">${keyBtn("o", "Looks right")}${keyBtn("f", "Fix…")}${keyBtn("s", "Skip")}</div></div><div class="slot"></div>`;
   el.querySelector("[data-key='o']").addEventListener("click", () => {
     basket.add(`fl:${f.albumId}`, { type: "mark", entityType: "album", entityId: f.albumId, mark: "verified:album-mbid" }, `“${esc(f.title)}”'s MusicBrainz id is right`, el);

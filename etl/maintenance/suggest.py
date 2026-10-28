@@ -881,6 +881,12 @@ def _genre_fill(limit: int, log, progress, cancelled) -> None:
     genre_fill.gather(limit, log, progress, cancelled)
 
 
+def _album_types(limit: int, log, progress, cancelled) -> None:
+    """Release types for albums whose MusicBrainz type isn't cached yet (release_types.sweep)."""
+    import release_types
+    release_types.sweep(limit, log, progress, cancelled)
+
+
 def _artist_about(limit: int, log, progress, cancelled) -> None:
     """The artist page's About for artists that don't have one yet (about.sweep)."""
     import about
@@ -896,6 +902,7 @@ SWEEPS = {
     "pressings": _pressings,
     "song-recordings": _song_recordings,
     "album-editions": _album_editions,
+    "album-types": _album_types,
     "live-albums": _live_albums,
     "artist-suggest": _artist_suggest,
     "album-suggest": _album_suggest,

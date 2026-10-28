@@ -226,6 +226,9 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
       } else if (i.changes._movePlays) {
         const d = i.changes._movePlays;
         what = `Moved ${plural(d.scrobbleIds.length, "play")} (as “${esc(d.rawTitles.join(" / "))}”) from <span class="who">${esc(d.fromTitle)}</span> to <span class="who">${esc(d.toTitle)}</span>`;
+      } else if (i.changes._moveSongPlays) {
+        const d = i.changes._moveSongPlays;
+        what = `Moved ${plural(d.scrobbleIds.length, "play")} of the single <span class="who">${esc(d.fromTitle)}</span> to <span class="who">${esc(d.toTitle)}</span>`;
       } else if (i.changes._created) {
         what = `Added album <span class="who">${esc(i.name)}</span> from MusicBrainz ${i.changes._created.mbid ? mbLink("album", i.changes._created.mbid) : ""}`;
       } else if (i.changes._split) {
@@ -599,6 +602,22 @@ function mountReviewKeys(container, { onActivate } = {}) {
 // Button html with its keyboard shortcut shown.
 function keyBtn(key, label, cls = "", attrs = "") {
   return `<button class="small ${cls}" data-key="${esc(key)}" ${attrs}>${label} <kbd>${esc(key)}</kbd></button>`;
+}
+
+// -- A MusicBrainz flag's two sides (Albums > Verify, Workbench) ------------------------------
+// f: a verify row -- title/year/scrobbleCount/vinylCount, here {songs, live, remix, sample, type, typeSource}
+// and mb (the release group as MusicBrainz has it), so "is this id the right release?" can be answered by eye.
+const RELEASE_TYPE_LABEL = { album: "Album", ep: "EP", live: "Live album", single: "Single", compilation: "Compilation", other: "Other" };
+function flagSidesHtml(f) {
+  const h = f.here || {}, rg = f.mb;
+  const versions = [h.live ? `${h.live} live` : "", h.remix ? `${h.remix} remix` : ""].filter(Boolean).join(", ");
+  const hereLine = `<b>${esc(f.title)}</b>${f.year ? ` (${f.year})` : ""} · ${plural(h.songs || 0, "song")}${versions ? ` (${versions})` : ""}`
+    + `${f.scrobbleCount != null ? ` · ${plural(f.scrobbleCount, "play")}` : ""}${f.vinylCount ? ` · <span class="badge vinyl">vinyl</span>` : ""}`
+    + `${h.type ? ` · typed <b>${esc(RELEASE_TYPE_LABEL[h.type] || h.type)}</b>${h.typeSource === "manual" ? " by hand" : ""}` : ""}`
+    + `${(h.sample || []).length ? `<div class="meta">e.g. ${h.sample.map((t) => `“${esc(t)}”`).join(", ")}</div>` : ""}`;
+  const mbLine = rg ? `<b>${esc(rg.title)}</b> by ${esc(rg.artistCredit || "?")} · ${esc([rg.primaryType, ...(rg.secondaryTypes || [])].filter(Boolean).join(" + ") || "no type")}`
+    + `${rg.firstReleaseDate ? ` · first released ${esc(rg.firstReleaseDate)}` : ""} ${mbLink("album", f.mbid)}` : `<span class="meta">not found</span>`;
+  return `<table class="flag-sides"><tr><th>Here</th><td>${hereLine}</td></tr><tr><th>MusicBrainz</th><td>${mbLine}</td></tr></table>`;
 }
 
 // -- Comparison grid ------------------------------------------------------------------------

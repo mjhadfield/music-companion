@@ -11,12 +11,22 @@ its plays filed there, sometimes its own copy of the song. This finds them from 
   "album" is usually a real album or compilation you've only played a song or two from). L is the
   bigger release, not a compilation or live album.
 
-Folding one (merge.fold_single, via the batch action "foldSingle"): S's own songs merge into
-their twins on L, then S merges into L -- plays move, the single's title and editions are
-aliased to L so future imports land there. Journaled like any merge; undo puts it all back.
-High tier (arrives ticked) only when nothing argues against it: no vinyl copy of the single,
-MusicBrainz doesn't call it an Album, no version tags or edition words (remaster, deluxe,
-soundtrack...) in the single's title.
+"On L" means a song filed under L, or a line of L's tracklist (your pressing's Discogs tracklist,
+or the MusicBrainz one in album_tracklists) -- a single's song is often filed only under the single
+(Ghost's Hunter's Moon), so L's own songs alone can't see it. Tracklist-only evidence is always Review.
+
+Two kinds of item:
+  fold     every track of S is on L. Folding (batch action "foldSingle"): S's own songs merge into
+           their twins on L (or, on L's tracklist with no twin, simply move with it), then S merges
+           into L -- plays move, the single's title and editions are aliased to L so future imports
+           land there.
+  tracks   the title track is on L but S has others that aren't (B-sides, a stray play): S stays a
+           single; batch action "moveSingleTracks" moves only the tracks L has -- their plays, and
+           their songs (merged into L's twins first). Future plays from the single still arrive on
+           the single (an album alias can't pick tracks), so it can come back here. Always Review.
+Journaled like any merge; undo puts it all back. High tier (arrives ticked) only for a fold with
+nothing against it: no vinyl copy of the single, MusicBrainz doesn't call it an Album, no version
+tags or edition words (remaster, deluxe, soundtrack...) in the single's title, every track a song on L.
 """
 import json
 import re
@@ -81,9 +91,27 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
                 WHERE s.artist_id IN ({_in(artists)}) AND sc.album_id IS NOT NULL GROUP BY 1, 2""", artists):
         played[album_id][sid] = n
         titles[sid] = (title, home)
+    listed = defaultdict(set)                                          # album -> tracks on its tracklist(s)
+    for album_id, title in c.execute(
+            f"SELECT t.album_id, t.title FROM album_tracklists t JOIN albums al ON al.id = t.album_id WHERE al.artist_id IN ({_in(artists)})", artists):
+        listed[album_id].add(_track(title))
+    for album_id, tracklist in c.execute(
+            f"SELECT h.album_id, d.tracklist FROM vinyl_details d JOIN vinyl_holdings h ON h.id = d.holding_id "
+            f"JOIN albums al ON al.id = h.album_id WHERE al.artist_id IN ({_in(artists)})", artists):
+        try:
+            lines = json.loads(tracklist or "[]")
+        except ValueError:
+            continue
+        for x in lines if isinstance(lines, list) else []:
+            if isinstance(x, dict) and (x.get("title") or "").strip() and x.get("type", "track") == "track":
+                listed[album_id].add(_track(x["title"]))
+    for album_id, keys in listed.items():
+        for k in keys:
+            if album_id in albums:
+                holds[albums[album_id]["artistId"]][k].add(album_id)
     vinyl = dict(c.execute("SELECT album_id, count(*) FROM vinyl_holdings GROUP BY album_id").fetchall())
     mb = _mb_types(c)
-    sizes = {a: len(v) for a, v in filed.items()}
+    sizes = {a: max(len(filed.get(a, [])), len(listed.get(a, ()))) for a in set(filed) | set(listed)}
     dismissed = {(a, b) for a, b in c.execute("SELECT entity_id_a, entity_id_b FROM duplicate_dismissals WHERE entity_type = 'album'")}
 
     def unsuitable(album: dict) -> str | None:
@@ -115,34 +143,42 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
                 t["songIds"].append(sid)
         if not tracks or len(tracks) > MAX_TRACKS:
             continue
-        key = base_key(s["title"])
-        title_track = any(k[0] == key for k in tracks)
-        if not title_track:
+        key = _track(s["title"])[0]                                    # same normalising as the tracks (apostrophe-blind)
+        lead = [k for k in tracks if k[0] == key]                      # the title track(s) --
+        lead = [k for k in lead if not k[1]] or lead                   # the plain one when there is one, not its remixes (Pendulum's Halo)
+        if not lead:
             continue
-        # albums (of this artist, other than S) that hold every one of S's tracks
+        holders = lambda k: {a for a in holds[artist].get(k, set())  # noqa: E731
+                             if a != s["albumId"] and artist in credited.get(a, set()) and a in albums}
+        # albums (of this artist, other than S) that have the title track -- a fold needs every track there too
         homes = None
-        for k in tracks:
-            h = {a for a in holds[artist].get(k, set()) if a != s["albumId"] and artist in credited.get(a, set()) and a in albums}
-            homes = h if homes is None else homes & h
-            if not homes:
-                break
-        if not homes:
-            continue
-        homes = [a for a in homes if sizes.get(a, 0) > len(tracks) and not unsuitable(albums[a])
+        for k in lead:
+            homes = holders(k) if homes is None else homes & holders(k)
+        homes = [a for a in homes or () if sizes.get(a, 0) > len(tracks) and not unsuitable(albums[a])
                  and (min(a, s["albumId"]), max(a, s["albumId"])) not in dismissed]
         if not homes:
             continue
-        target = albums[sorted(homes, key=lambda a: (not albums[a]["mbid"], -sizes.get(a, 0), albums[a]["year"] or 9999, a))[0]]
+        covers = {a: {k for k in tracks if a in holders(k)} for a in homes}
+        target = albums[sorted(homes, key=lambda a: (-len(covers[a]), not albums[a]["mbid"], -sizes.get(a, 0), albums[a]["year"] or 9999, a))[0]]
+        on_target = covers[target["albumId"]]
+        kind = "fold" if len(on_target) == len(tracks) else "tracks"
         target_songs = {}
         for sid, title in filed.get(target["albumId"], []):
             target_songs.setdefault(_track(title), (sid, title))
         rows = []
         for k, t in tracks.items():
             twin = target_songs.get(k)
+            via = None if k not in on_target else "song" if twin else "tracklist"
             rows.append({"title": t["title"], "plays": t["plays"], "songIds": t["songIds"], "ownIds": t["ownIds"], "filedHere": bool(t["ownIds"]),
-                         "twin": {"songId": twin[0], "title": twin[1]} if twin else None})
+                         "twin": {"songId": twin[0], "title": twin[1]} if twin else None, "onTarget": via is not None, "via": via})
         mb_type = mb.get(s["mbid"] or "", (None, []))
         reasons = []
+        if kind == "tracks":
+            stay = [r["title"] for r in rows if not r["onTarget"]]
+            reasons.append(f"{'/'.join(stay[:3])}{'…' if len(stay) > 3 else ''} {'is' if len(stay) == 1 else 'are'}n't on {target['title']} "
+                           f"(B-sides?) -- {'it stays' if len(stay) == 1 else 'they stay'} on the single; only the tracks {target['title']} has move")
+        if any(r["via"] == "tracklist" for r in rows):
+            reasons.append(f"{target['title']}'s tracklist lists {'it' if len(on_target) == 1 else 'them'}, but no song is filed there yet -- the single's song moves there")
         if vinyl.get(s["albumId"]):
             reasons.append(f"you own {vinyl[s['albumId']]} copy of it on vinyl -- a real single in your collection")
         if mb_type[0] == "Album":
@@ -151,11 +187,13 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
             reasons.append(f"its title says {'/'.join(sorted(variant_tags(s['title'])))}")
         if EDITION_WORDS.search(s["title"] or ""):
             reasons.append("its title reads like an edition of an album (remaster / deluxe / soundtrack...)")
-        out.append({"key": f"sg:{s['albumId']}", "singleId": s["albumId"], "title": s["title"], "mbid": s["mbid"], "year": s["year"],
+        moving = [r for r in rows if r["onTarget"]]
+        out.append({"key": f"sg:{s['albumId']}", "kind": kind, "singleId": s["albumId"], "title": s["title"], "mbid": s["mbid"], "year": s["year"],
                     "artistId": artist, "target": {"albumId": target["albumId"], "title": target["title"], "mbid": target["mbid"],
                                                     "year": target["year"], "songs": sizes.get(target["albumId"], 0)},
-                    "tracks": sorted(rows, key=lambda r: -r["plays"]), "plays": sum(r["plays"] for r in rows),
-                    "songsToMerge": sum(1 for r in rows if r["filedHere"]), "titleTrack": title_track,
+                    "tracks": sorted(rows, key=lambda r: (not r["onTarget"], -r["plays"])), "plays": sum(r["plays"] for r in rows),
+                    "movingPlays": sum(r["plays"] for r in moving),
+                    "songsToMerge": sum(1 for r in moving if r["filedHere"] and r["twin"]), "titleTrack": True,
                     "mbType": mb_type[0], "vinyl": vinyl.get(s["albumId"], 0), "tier": "review" if reasons else "high", "reasons": reasons})
     out.sort(key=lambda x: (x["tier"] != "high", -x["plays"], x["singleId"]))
     return out

@@ -3,7 +3,11 @@
 // stat boxes, cards, cover rows -- css/album-page.css) plus its own
 // (css/artist-page.css, ar- prefix).
 // ---------------------------------------------------------------------
-const artistPageState = { songsAll: false, discoSort: "plays" };
+const artistPageState = { songsAll: false, discoSort: "plays", discoMore: false };
+// The discography is albums, EPs and live albums (albums.release_type -- maintenance > Albums > Types);
+// singles, compilations and the rest (untyped included) fold away underneath it.
+const DISCO_MAIN = new Set(["album", "ep", "live"]);
+const DISCO_MORE = [["single", "Singles"], ["compilation", "Compilations"], ["other", "Other releases"]];
 
 function renderArtist(id) {
   const artist = query(`SELECT * FROM artists WHERE id = ?`, [id])[0];
@@ -25,8 +29,10 @@ function renderArtist(id) {
   const yearMax = Math.max(1, ...years.map((y) => y.c));
 
   // their albums (credited, played or owned), most played first
+  // until a Publish brings typed albums (the column, and the fill applied), everything's an album
+  const typed = hasColumn("albums", "release_type") && query(`SELECT 1 FROM albums WHERE release_type IS NOT NULL LIMIT 1`).length > 0;
   const albums = query(`
-    SELECT al.id, al.title, al.year, al.cover_status, al.cover_updated_at,
+    SELECT al.id, al.title, al.year, al.cover_status, al.cover_updated_at, ${typed ? "al.release_type" : "NULL AS release_type"},
       (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays,
       (SELECT count(*) FROM vinyl_holdings v WHERE v.album_id = al.id) AS vinyl
     FROM album_artists aa JOIN albums al ON al.id = aa.album_id WHERE aa.artist_id = ?`, [id]).filter((a) => a.plays || a.vinyl);
@@ -76,7 +82,15 @@ function renderArtist(id) {
       <span class="ap-plays">${apFmt(s.plays)}</span>
       <i class="ap-bar" style="--w:${(s.plays / maxSong).toFixed(3)}"></i>
     </li>`).join("");
-  const disco = [...albums].sort(st.discoSort === "year" ? (a, b) => (a.year || 9999) - (b.year || 9999) || b.plays - a.plays : (a, b) => b.plays - a.plays);
+  const discoAll = [...albums].sort(st.discoSort === "year" ? (a, b) => (a.year || 9999) - (b.year || 9999) || b.plays - a.plays : (a, b) => b.plays - a.plays);
+  const isMain = (a) => !typed || DISCO_MAIN.has(a.release_type);
+  const disco = discoAll.filter(isMain);
+  const moreGroups = DISCO_MORE.map(([k, label]) => [label, discoAll.filter((a) => !isMain(a) && (a.release_type || "other") === k)]).filter(([, list]) => list.length);
+  const discoTiles = (list) => `<div class="ar-disco${list === disco ? "" : " ar-disco-sm"}">${list.map((a) => `<a href="#/album/${a.id}" title="${esc(a.title)}">${apCover(a.id, a.cover_status, a.cover_updated_at, a.title, "ap-more-art")}
+    <b>${esc(a.title)}</b><span class="subtle">${a.vinyl ? `<span class="vinyl-dot" title="On vinyl">●</span> ` : ""}${a.plays ? `${apFmt(a.plays)} plays` : "not played"}</span>${a.year || a.release_type === "ep" || a.release_type === "live"
+      ? `<span class="subtle">${[a.year, { ep: "EP", live: "Live" }[a.release_type]].filter(Boolean).join(" · ")}</span>` : ""}</a>`).join("")}</div>`;
+  const moreCount = moreGroups.reduce((n, [, list]) => n + list.length, 0);
+  const moreHtml = moreGroups.map(([label, list]) => `${disco.length || moreGroups.length > 1 ? `<h3 class="ar-rel-h">${label} <span class="subtle">${list.length}</span></h3>` : ""}${discoTiles(list)}`).join("");
   const kpi = (value, label, cls = "") => `<div class="ap-kpi ${cls}"><b>${value}</b><span>${esc(label)}</span></div>`;
   const span = shows.length ? `${shows[shows.length - 1].event_date.slice(0, 4)}${shows[0].event_date.slice(0, 4) !== shows[shows.length - 1].event_date.slice(0, 4) ? `–${shows[0].event_date.slice(0, 4)}` : ""}` : "";
 
@@ -118,8 +132,11 @@ function renderArtist(id) {
           ${albums.length ? `<section class="ap-card">
             <div class="ap-head"><h2>Discography</h2><div class="ar-sort">${[["plays", "Most played"], ["year", "By year"]].map(([k, t]) =>
               `<button data-disco="${k}" aria-pressed="${st.discoSort === k}">${t}</button>`).join("")}</div></div>
-            <div class="ar-disco">${disco.map((a) => `<a href="#/album/${a.id}" title="${esc(a.title)}">${apCover(a.id, a.cover_status, a.cover_updated_at, a.title, "ap-more-art")}
-              <b>${esc(a.title)}</b><span class="subtle">${a.vinyl ? `<span class="vinyl-dot" title="On vinyl">●</span> ` : ""}${a.plays ? `${apFmt(a.plays)} plays` : "not played"}</span>${a.year ? `<span class="subtle">${a.year}</span>` : ""}</a>`).join("")}</div>
+            ${disco.length ? discoTiles(disco) : moreHtml}
+            ${disco.length && moreCount ? `<details class="ar-rel"${st.discoMore ? " open" : ""}>
+              <summary>Singles, compilations &amp; more <span class="subtle">${moreGroups.map(([label, list]) => `${list.length} ${label.toLowerCase()}`).join(" · ")}</span></summary>
+              ${moreHtml}
+            </details>` : ""}
           </section>` : ""}
 
           ${shows.length ? `<section class="ap-card" id="ar-live">
@@ -158,6 +175,7 @@ function renderArtist(id) {
   app.querySelectorAll("[data-song]").forEach((el) => el.addEventListener("click", () => { location.hash = `#/song/${el.dataset.song}`; }));
   app.querySelector("[data-act='songs']")?.addEventListener("click", () => { st.songsAll = !st.songsAll; renderArtist(id); });
   app.querySelectorAll("[data-disco]").forEach((b) => b.addEventListener("click", () => { st.discoSort = b.dataset.disco; renderArtist(id); }));
+  app.querySelector(".ar-rel")?.addEventListener("toggle", (e) => { st.discoMore = e.target.open; });
   app.querySelectorAll("[data-scroll]").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); document.getElementById(a.dataset.scroll)?.scrollIntoView({ behavior: "smooth" }); }));
 
   if (stored) wireAboutCard();

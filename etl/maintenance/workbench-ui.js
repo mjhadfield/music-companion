@@ -151,25 +151,34 @@ function albumSuggestItem(m, { basket, keys, profile, showArtist = false, onReso
 // into the album -- plays move, its title and editions route there from now on. Not a single =
 // a remembered album dismissal for that pair.
 function singleItem(x, { basket, keys, showArtist = false }) {
+  // kind "fold": every track is on the album -- the single merges in. kind "tracks": it has B-sides,
+  // so only the tracks the album has move there and the single stays (singles.py).
   const el = document.createElement("div");
   el.className = "review-item wb-item";
-  const to = x.target;
+  const to = x.target, fold = x.kind !== "tracks";
+  const on = (t) => t.onTarget !== false;                              // (older servers didn't say: every track was on the album)
+  const moving = x.tracks.filter(on);
+  const what = (t) => !on(t) ? "stays on the single"
+    : t.filedHere && t.twin ? `its own copy merges into “${esc(t.twin.title)}” on ${esc(to.title)}`
+    : t.filedHere ? `its song moves to ${esc(to.title)} (on its tracklist)`
+    : `the plays move to ${esc(to.title)}`;
   el.innerHTML = `<div class="row"><div>
-      <div class="title">${showArtist ? `<a href="/artist.html?id=${x.artistId}">${esc(x.artistName)}</a> — ` : ""}“${esc(x.title)}” is a single from <b>${esc(to.title)}</b>
+      <div class="title">${showArtist ? `<a href="/artist.html?id=${x.artistId}">${esc(x.artistName)}</a> — ` : ""}“${esc(x.title)}” is a single from <b>${esc(to.title)}</b>${fold ? "" : " — with B-sides"}
         ${x.mbid ? mbLink("album", x.mbid) : ""} ${x.mbType ? `<span class="badge">MusicBrainz: ${esc(x.mbType)}</span>` : ""}</div>
-      <div class="meta">${plural(x.plays, "play")} filed on the single${x.songsToMerge ? ` · ${plural(x.songsToMerge, "song")} of its own to merge` : ""} · ${esc(to.title)}${to.year ? ` (${to.year})` : ""} has ${plural(to.songs, "song")} ${to.mbid ? mbLink("album", to.mbid) : ""}</div>
+      <div class="meta">${plural(x.plays, "play")} filed on the single${fold ? "" : `, ${fmtNum(x.movingPlays)} of them for ${esc(to.title)}`}${x.songsToMerge ? ` · ${plural(x.songsToMerge, "song")} of its own to merge` : ""} · ${esc(to.title)}${to.year ? ` (${to.year})` : ""} has ${plural(to.songs, "track")} ${to.mbid ? mbLink("album", to.mbid) : ""}</div>
       ${x.reasons.length ? `<div class="warn-text">Check: ${x.reasons.map(esc).join("; ")}</div>` : ""}</div>
-      <div class="actions">${keyBtn("m", "Fold into album", "good")}${keyBtn("d", "Not a single")}${keyBtn("s", "Skip")}</div></div>
-    <div class="table-scroll"><table class="data"><thead><tr><th>Track on the single</th><th class="num">Plays from it</th><th>Folding it</th></tr></thead><tbody>
-    ${x.tracks.map((t) => `<tr><td>${esc(t.title)}</td><td class="num">${fmtNum(t.plays)}</td>
-      <td class="meta">${t.filedHere ? `its own copy merges into “${esc(t.twin.title)}” on ${esc(to.title)}` : `already on ${esc(to.title)} — the plays move there`}</td></tr>`).join("")}</tbody></table></div>`;
+      <div class="actions">${keyBtn("m", fold ? "Fold into album" : `Move ${moving.length === 1 ? "its track" : `${moving.length} tracks`} to album`, "good")}${keyBtn("d", fold ? "Not a single" : "Leave as is")}${keyBtn("s", "Skip")}</div></div>
+    <div class="table-scroll"><table class="data"><thead><tr><th>Track on the single</th><th class="num">Plays from it</th><th>${fold ? "Folding it" : "Moving the tracks"}</th></tr></thead><tbody>
+    ${x.tracks.map((t) => `<tr><td>${esc(t.title)}</td><td class="num">${fmtNum(t.plays)}</td><td class="meta">${what(t)}</td></tr>`).join("")}</tbody></table></div>`;
   el.querySelector("[data-key='m']").addEventListener("click", () => {
-    basket.add(x.key, { type: "foldSingle", singleId: x.singleId, albumId: to.albumId },
-      `Fold the single “${esc(x.title)}” into “<b>${esc(to.title)}</b>”`, el);
+    if (fold) basket.add(x.key, { type: "foldSingle", singleId: x.singleId, albumId: to.albumId }, `Fold the single “${esc(x.title)}” into “<b>${esc(to.title)}</b>”`, el);
+    else basket.add(x.key, { type: "moveSingleTracks", singleId: x.singleId, albumId: to.albumId },
+      `Move ${moving.map((t) => `“${esc(t.title)}”`).join(", ")} from the single “${esc(x.title)}” to “<b>${esc(to.title)}</b>”`, el);
     keys.advance(el);
   });
   el.querySelector("[data-key='d']").addEventListener("click", () => {
-    basket.add(x.key, { type: "dismiss", entityType: "album", ids: [x.singleId, to.albumId] }, `“${esc(x.title)}” isn't a single from “${esc(to.title)}”`, el);
+    basket.add(x.key, { type: "dismiss", entityType: "album", ids: [x.singleId, to.albumId] },
+      fold ? `“${esc(x.title)}” isn't a single from “${esc(to.title)}”` : `Leave the single “${esc(x.title)}” as it is`, el);
     keys.advance(el);
   });
   el.querySelector("[data-key='s']").addEventListener("click", () => keys.skip(el));

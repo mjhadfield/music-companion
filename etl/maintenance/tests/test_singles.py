@@ -23,12 +23,14 @@ from tests.test_batch import TABLES, checksum, everything  # noqa: E402
 ALBUMS = [  # id, title
     (10, "Fortitude"), (11, "The Chant"), (12, "Absolutely"), (13, "TEKKNO"), (14, "Pump It"),
     (15, "Evolve"), (16, "Ready To Fly (Hardcore Mix)"), (17, "Greatest Hits"), (18, "Amazonia"), (19, "Another World"),
+    (20, "Hunter's Moon"), (21, "Lonely Day"),
 ]
 SONGS = [  # id, album, title
     (100, 10, "Amazonia"), (101, 10, "The Chant"), (102, 10, "Into the Storm"), (103, 10, "Another World"), (104, 10, "Hold On"),
     (110, 13, "Pump It"), (111, 13, "Fuckboi"), (112, 13, "Mindreader"), (113, 14, "Pump It"),
     (120, 15, "Ready To Fly"), (121, 15, "Calling For A Sign"), (122, 16, "Ready To Fly (Hardcore Mix)"),
     (130, 12, "Absolutely Song"),
+    (105, 10, "Lonely Day"), (140, 20, "Hunter’s Moon"), (141, 21, "Snowblind"), (142, 21, "Lonely Day"),
 ]
 PLAYS = [  # song, album it was played from
     (101, 11), (100, 11), (102, 11),           # "The Chant" single: three pre-release tracks
@@ -38,6 +40,8 @@ PLAYS = [  # song, album it was played from
     (100, 17),                                 # Amazonia on a compilation
     (100, 18),                                 # "Amazonia" single -- but owned on vinyl
     (103, 19),                                 # "Another World" single
+    (140, 20), (140, 20),                      # "Hunter's Moon" single: its song filed only under it, on the album's tracklist
+    (142, 21), (105, 21), (141, 21),           # "Lonely Day" single: its own copy, the album's song, and a B-side
 ]
 
 
@@ -56,6 +60,7 @@ class SinglesTests(unittest.TestCase):
         conn.executemany("INSERT INTO scrobbles (song_id, artist_id, album_id, played_at, raw_artist_text, raw_track_text, raw_album_text) VALUES (?, 1, ?, ?, 'Band', ?, ?)",
                          [(s, a, f"2020-01-{i + 1:02d}", titles[s], dict(ALBUMS)[a]) for i, (s, a) in enumerate(PLAYS)])
         conn.execute("INSERT INTO vinyl_holdings (album_id, discogs_release_id, raw_title_text, raw_artist_text) VALUES (18, 1, 'Amazonia', 'Band')")
+        conn.execute("INSERT INTO album_tracklists (album_id, position, number, title) VALUES (10, 6, '6', 'Hunters Moon')")
         conn.commit()
         conn.close()
         self.conn = connect()
@@ -106,6 +111,36 @@ class SinglesTests(unittest.TestCase):
             batch.apply(Req({}, {"actions": [{"type": "foldSingle", "singleId": 11, "albumId": 13}]}))      # wrong album
         with self.assertRaises(ApiError):
             batch.apply(Req({}, {"actions": [{"type": "foldSingle", "singleId": 12, "albumId": 10}]}))      # not a single
+
+    def test_on_the_albums_tracklist_counts(self):
+        x = self._found()[20]                                              # Hunter's Moon: no song filed on Fortitude, but it's listed
+        self.assertEqual((x["kind"], x["target"]["albumId"], x["tier"]), ("fold", 10, "review"))
+        self.assertEqual(x["tracks"][0]["via"], "tracklist")
+        before = checksum(self.conn)
+        out = batch.apply(Req({}, {"actions": [{"type": "foldSingle", "singleId": 20, "albumId": 10}]}))
+        q = self.conn.execute
+        self.assertEqual(q("SELECT album_id FROM songs WHERE id = 140").fetchone()[0], 10)       # its song moves to the album
+        self.assertEqual(q("SELECT count(*) FROM scrobbles WHERE song_id = 140 AND album_id = 10").fetchone()[0], 2)
+        batch.undo_batch(out["batchId"])
+        self.assertEqual(checksum(self.conn), before)
+
+    def test_a_single_with_b_sides_moves_only_the_albums_tracks(self):
+        x = self._found()[21]
+        self.assertEqual((x["kind"], x["target"]["albumId"], x["tier"]), ("tracks", 10, "review"))
+        self.assertEqual({t["title"]: t["onTarget"] for t in x["tracks"]}, {"Lonely Day": True, "Snowblind": False})
+        with self.assertRaises(ApiError):                                  # a fold would take the B-side too
+            batch.apply(Req({}, {"actions": [{"type": "foldSingle", "singleId": 21, "albumId": 10}]}))
+        before = checksum(self.conn)
+        out = batch.apply(Req({}, {"actions": [{"type": "moveSingleTracks", "singleId": 21, "albumId": 10}]}))
+        q = self.conn.execute
+        self.assertIsNone(q("SELECT 1 FROM songs WHERE id = 142").fetchone())                    # its own copy merged into the album's
+        self.assertEqual(q("SELECT count(*) FROM scrobbles WHERE song_id = 105 AND album_id = 10").fetchone()[0], 2)
+        self.assertEqual(q("SELECT album_id FROM scrobbles WHERE song_id = 141").fetchone()[0], 21)  # the B-side stays
+        self.assertEqual(q("SELECT album_id FROM songs WHERE id = 141").fetchone()[0], 21)
+        self.assertIsNotNone(q("SELECT 1 FROM albums WHERE id = 21").fetchone())                 # still a single of its own
+        self.assertNotIn(21, self._found())                                                      # and nothing left to move
+        batch.undo_batch(out["batchId"])
+        self.assertEqual(checksum(self.conn), before)
 
 
 if __name__ == "__main__":

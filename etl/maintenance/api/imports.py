@@ -190,6 +190,8 @@ def _single_hints(c, items) -> None:
     if not new:
         return
     for x in singles.find_singles(c, album_ids=list(new)):
+        if x["kind"] != "fold":                                        # a single with B-sides is a release of its own
+            continue
         new[x["singleId"]]["single"] = {"albumId": x["target"]["albumId"], "title": x["target"]["title"], "artistId": x["artistId"]}
         new[x["singleId"]]["warning"] = (f"Looks like a single from “{x['target']['title']}” — fold it in from the Workbench or "
                                          f"Albums › Singles rather than accepting it as an album.")

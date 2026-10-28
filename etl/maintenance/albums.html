@@ -30,6 +30,21 @@
   .cv-choice button[aria-pressed="true"] { background: var(--accent-wash); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
   .cv-choice button[data-c="use"][aria-pressed="true"] { box-shadow: inset 0 -2px 0 var(--ok); }
   .cv-choice button:disabled { opacity: .35; }
+  /* Types */
+  .ty-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin: 12px 0; border: 1px solid var(--edge); background: var(--surface-2); }
+  .ty-stats > div { padding: 10px 14px; border-right: 1px solid var(--edge); }
+  .ty-stats > div:last-child { border-right: none; }
+  .ty-stats .n { font-family: var(--font-mono); font-size: 1.1rem; }
+  .ty-stats .l { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); }
+  .ty-table { width: 100%; border-collapse: collapse; font-size: .84rem; margin-bottom: 14px; }
+  .ty-table th { text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); padding: 6px 8px; border-bottom: 1px solid var(--edge); }
+  .ty-table td { padding: 5px 8px; border-bottom: 1px solid var(--edge); vertical-align: middle; }
+  .ty-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ty-table select { font-size: .8rem; }
+  .ty-table tr.folded td:first-child { box-shadow: inset 3px 0 0 var(--edge-strong); }
+  .ty-table tr.main td:first-child { box-shadow: inset 3px 0 0 var(--ok); }
+  .ty-pick { display: flex; gap: 10px; align-items: center; margin: 4px 0 12px; }
+  .ty-pick input { flex: 1; max-width: 420px; }
   .cv-bar { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; padding: 10px 12px;
     background: var(--surface-2); border: 1px solid var(--edge); border-radius: var(--radius-sm); }
 </style>
@@ -45,6 +60,7 @@
     <button data-tab="missing">Missing MBID</button>
     <button data-tab="suggestions">Suggestions</button>
     <button data-tab="singles">Singles</button>
+    <button data-tab="types">Types</button>
     <button data-tab="covers">Covers</button>
     <button data-tab="unmerge">Unmerge</button>
     <button data-tab="duplicates">Duplicates</button>
@@ -90,15 +106,27 @@
 
   <!-- Singles filed as albums (singles.py) ------------------------------------------------ -->
   <section data-panel="singles" hidden>
-    <p class="meta" style="margin:0 0 10px">Lead singles that became their own “album” (Spotify and Last.fm treat a single as a release): an album named after one of its tracks, whose every track is also on a bigger album of the same artist. Folding one moves its plays to that album, merges any copy of a song it has into the album's, and points the single's title and editions at the album so future plays land there. <b>High</b> ones have nothing against them and can be queued together; <b>Review</b> ones have a reason shown.</p>
+    <p class="meta" style="margin:0 0 10px">Lead singles that became their own “album” (Spotify and Last.fm treat a single as a release): an album named after one of its tracks, whose every track is also on a bigger album of the same artist. Folding one moves its plays to that album, merges any copy of a song it has into the album's, and points the single's title and editions at the album so future plays land there. A track counts as on the album when a song is filed there <i>or</i> the album's tracklist lists it. A single with B-sides isn't folded: only the tracks the album has move there, and the single keeps the rest (future plays from it still land on the single, so it can come back here). <b>High</b> ones have nothing against them and can be queued together; <b>Review</b> ones have a reason shown.</p>
     <div class="toolbar">
       <div class="chips" id="sg-tiers"></div>
       <input type="search" id="sg-find" placeholder="Filter artists…" />
       <span class="spacer"></span>
       <button class="small good" id="sg-queue-all">Queue every one shown</button>
     </div>
-    <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> fold into album</span><span><kbd>d</kbd> not a single</span><span><kbd>s</kbd> skip</span></div>
+    <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> fold / move tracks</span><span><kbd>d</kbd> not a single / leave</span><span><kbd>s</kbd> skip</span></div>
     <div id="sg-list"><div class="status-line">Loading…</div></div>
+  </section>
+
+  <!-- Types: what kind of release each album is (release_types.py) ------------------------------ -->
+  <section data-panel="types" hidden>
+    <p class="meta" style="margin:0 0 10px">What kind of release each album is, from MusicBrainz's release-group type. The site's artist page shows <b>albums, EPs and live albums</b> as the discography and folds <b>singles, compilations and everything else</b> away — untyped ones (no MusicBrainz id, or not looked up yet) fold away too until they're typed. Nothing changes until you Apply; one batch, undo it any time. A type set by hand is never touched by the fill.</p>
+    <div class="card" id="ty-fill"><div class="meta">Loading the dry run…</div></div>
+    <div class="card">
+      <h2>One artist</h2>
+      <p class="meta">Their albums as the artist page will split them — green edge = discography, grey = folded. Change one by hand here.</p>
+      <div class="ty-pick"><input type="search" id="ty-artist-q" placeholder="Find an artist…" /></div>
+      <div id="ty-artist"><div class="empty">Pick an artist.</div></div>
+    </div>
   </section>
 
   <!-- Covers: at least one picture per artist -------------------------------------------------- -->
@@ -298,6 +326,7 @@ document.addEventListener("mc:undone", () => {
   else if (t === "missing") loadMissing();
   else if (t === "suggestions") loadAlbumSuggestions();
   else if (t === "singles") loadSingles();
+  else if (t === "types") { loadTypes(); if (tyArtistId) openTypesArtist(tyArtistId); }
   else if (t === "verify") loadVerify();
 });
 
@@ -557,16 +586,13 @@ async function loadVerify() {
 function renderFlag(f) {
   const item = document.createElement("div");
   item.className = "review-item";
-  const rg = f.mb;
-  const mbLine = rg ? `MusicBrainz: <b>${esc(rg.title)}</b> by ${esc(rg.artistCredit)} <span class="meta">${esc([rg.primaryType, ...(rg.secondaryTypes || [])].filter(Boolean).join("/"))}${rg.firstReleaseDate ? ` · ${esc(rg.firstReleaseDate)}` : ""}</span>` : "";
   const notRg = f.flags.some((x) => x.code === "not_a_release_group");
   item.innerHTML = `
     <div class="row">
       <div>
         <span class="meta">${esc(f.artistName)}</span><br />
         <span class="title">${esc(f.title)}</span> ${f.year ? `<span class="meta">(${f.year})</span>` : ""} ${mbLink("album", f.mbid, f.mbid)}
-        <span class="meta">${plural(f.scrobbleCount, "play")}</span> ${f.vinylCount ? `<span class="badge vinyl">vinyl</span>` : ""}
-        <div class="meta" style="margin-top:2px">${mbLine}</div>
+        ${flagSidesHtml(f)}
         <ul class="evidence">${f.flags.map((x) => `<li><span class="badge ${x.severity === "high" ? "bad" : x.severity === "medium" ? "warn" : ""}">${esc(x.code.replace(/_/g, " "))}</span> ${esc(x.text)}${x.credit ? ` ${creditAliasButton(x.credit)}` : ""}</li>`).join("")}</ul>
       </div>
       <div class="actions">${keyBtn("v", "Looks right", "good")}${notRg ? `<button class="small" data-role="audit">Audit identity</button>` : ""}${keyBtn("f", "Fix")}</div>
@@ -806,6 +832,98 @@ mountTypeahead(document.getElementById("cv-artist-q"), {
 });
 document.getElementById("cv-first").addEventListener("click", () => { cvOffset = 0; loadCovers(); });
 
+// ---- Types: what kind of release each album is (release_types.py) -----------------------------------
+const TY_LABEL = { album: "Album", ep: "EP", live: "Live album", single: "Single", compilation: "Compilation", other: "Other" };
+const TY_MAIN = new Set(["album", "ep", "live"]);
+let tyKind = "album", tyData = null, tyArtistId = null;
+const tyMbText = (r) => r.mbTypes ? esc(r.mbTypes.filter(Boolean).join(" + ") || "no type") : `<span class="meta">—</span>`;
+const tyAlbum = (r) => `<a href="#discography/${r.artistId}" title="Open in Discography">${esc(r.artist)}</a> — ${esc(r.title)}${r.year ? ` <span class="meta">(${r.year})</span>` : ""}${r.vinyl ? ` <span class="badge vinyl">vinyl</span>` : ""}`;
+function tySelect(r) {
+  const mine = r.status === "manual";
+  return `<select data-ty="${r.albumId}" title="Set by hand">
+    <option value=""${mine ? "" : " selected"}>MusicBrainz's${r.kind ? `: ${TY_LABEL[r.kind]}` : ""}</option>
+    ${Object.entries(TY_LABEL).map(([k, l]) => `<option value="${k}"${mine && r.current === k ? " selected" : ""}>${l} (by hand)</option>`).join("")}</select>`;
+}
+async function setReleaseType(albumId, kind, onDone) {
+  const { ok, data } = await api("/api/batch/apply", { actions: [{ type: "setReleaseType", albumId, kind: kind || null }], label: "Release type" });
+  if (!ok) { toast(esc(data.message), { error: true }); return; }
+  toast(kind ? `Set by hand: ${TY_LABEL[kind]}` : "Back to MusicBrainz's type", { undo: { ...data.undo, onUndone: onDone } });
+  onDone?.();
+}
+function wireTySelects(root, onDone) {
+  root.querySelectorAll("select[data-ty]").forEach((sel) => sel.addEventListener("change", () => { sel.disabled = true; setReleaseType(+sel.dataset.ty, sel.value, onDone); }));
+}
+async function loadTypes() {
+  const box = document.getElementById("ty-fill");
+  const { ok, data } = await api("/api/albums/types-preview");
+  if (!ok) { box.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  tyData = data;
+  const st = data.status, todo = (st.set || 0) + (st.change || 0);
+  tabs.setCount("types", todo || null);
+  const stat = (n, l) => `<div><div class="n">${fmtNum(n || 0)}</div><div class="l">${l}</div></div>`;
+  box.innerHTML = `<h2>MusicBrainz fill — dry run</h2>
+    <div class="ty-stats">${stat(st.set, "albums would get a type")}${stat(st.change, "would change")}${stat(st.same, "already right")}${stat(st.manual, "set by hand")}${stat((data.check || []).length, "to check first")}${stat(data.pendingUsed, "played/owned, not looked up")}${stat(data.nombUsed, "played/owned, no MusicBrainz id")}</div>
+    <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="good" data-act="apply"${todo ? "" : " disabled"}>Apply — ${fmtNum(todo)} albums</button>
+      <span class="meta">${Object.entries(data.kinds).filter(([, n]) => n).map(([k, n]) => `${TY_LABEL[k]} ${fmtNum(n)}`).join(" · ")}</span>
+      <span style="flex:1"></span>
+      ${data.pendingUsed ? `<button class="small" data-act="lookup">Look up ${fmtNum(data.pendingUsed)} on MusicBrainz</button>` : ""}
+    </div>
+    <div id="ty-sweep" style="margin-top:8px"></div>
+    ${data.check.length ? `<h3 style="margin-top:16px">Check these first <span class="meta">— MusicBrainz says single/EP, but there are too many songs for one</span></h3>
+      <p class="meta">Most likely the album's id is its title track's single. Fix the id in Discography (the artist link), or set the type by hand if it really is that. The fill leaves these untyped.</p>
+      <table class="ty-table"><thead><tr><th>Album</th><th class="num">Songs</th><th class="num">Plays</th><th>MusicBrainz</th><th>Type</th></tr></thead><tbody>
+      ${data.check.map((r) => `<tr><td>${tyAlbum(r)}</td><td class="num">${r.songs}</td><td class="num">${fmtNum(r.plays)}</td><td>${tyMbText(r)}</td><td>${tySelect(r)}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${data.changes.length ? `<h3 style="margin-top:16px">Would change</h3><table class="ty-table"><tbody>
+      ${data.changes.map((r) => `<tr><td>${tyAlbum(r)}</td><td>${TY_LABEL[r.current]} → <b>${TY_LABEL[r.kind]}</b></td><td>${tyMbText(r)}</td></tr>`).join("")}</tbody></table>` : ""}
+    <h3 style="margin-top:16px">Most played in each <span class="meta">— once applied</span></h3>
+    <div class="chips" id="ty-kinds">${Object.keys(TY_LABEL).map((k) => `<button class="chip filter-chip" data-kind="${k}" aria-pressed="${k === tyKind}">${TY_LABEL[k]} <span class="meta">${fmtNum(data.totals[k])}</span></button>`).join("")}${data.pending.length ? `<button class="chip filter-chip" data-kind="pending" aria-pressed="${tyKind === "pending"}">Not looked up <span class="meta">${fmtNum(data.pendingUsed)}</span></button>` : ""}</div>
+    <div id="ty-kind-list"></div>`;
+  wireTySelects(box, loadTypes);
+  paintTypeKind();
+  box.querySelector("#ty-kinds").addEventListener("click", (e) => { const b = e.target.closest("[data-kind]"); if (b) { tyKind = b.dataset.kind; box.querySelectorAll("#ty-kinds [data-kind]").forEach((x) => x.setAttribute("aria-pressed", x === b)); paintTypeKind(); } });
+  box.querySelector("[data-act='lookup']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    await runSweep(document.getElementById("ty-sweep"), "album-types", Math.min(1000, data.pendingUsed));
+    loadTypes();
+  });
+  box.querySelector("[data-act='apply']").addEventListener("click", async (e) => {
+    if (!confirm(`Give ${todo} albums their MusicBrainz release type? One batch — undo it any time from the toast or Activity.`)) return;
+    e.target.disabled = true; e.target.textContent = "Applying…";
+    const { ok, data: res } = await api("/api/batch/apply", { actions: [{ type: "releaseTypeFill" }], label: "MusicBrainz release types" });
+    if (!ok) { toast(esc(res.message), { error: true, timeout: 12000 }); e.target.disabled = false; return; }
+    toast(`Applied — ${esc(res.summaries[0].text)}`, { undo: { ...res.undo, onUndone: loadTypes }, timeout: 30000 });
+    notifyChanged(); loadTypes();
+    if (tyArtistId) openTypesArtist(tyArtistId);
+  });
+}
+function paintTypeKind() {
+  const rows = tyKind === "pending" ? tyData.pending : tyData.byKind[tyKind] || [];
+  document.getElementById("ty-kind-list").innerHTML = rows.length
+    ? `<table class="ty-table"><tbody>${rows.map((r) => `<tr><td>${tyAlbum(r)}</td><td class="num">${fmtNum(r.plays)} plays</td><td>${tyMbText(r)}${r.status === "manual" ? ` <span class="badge accent">by hand</span>` : ""}</td><td>${tySelect(r)}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty">Nothing here.</div>`;
+  wireTySelects(document.getElementById("ty-kind-list"), loadTypes);
+}
+async function openTypesArtist(artistId) {
+  tyArtistId = artistId;
+  const box = document.getElementById("ty-artist");
+  const { ok, data } = await api(`/api/albums/types-artist?artistId=${artistId}`);
+  if (!ok) { box.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
+  const typeText = (r) => r.current ? `${TY_LABEL[r.current]}${r.status === "manual" ? ` <span class="badge accent">by hand</span>` : ""}`
+    : `<span class="meta">${{ nomb: "no MusicBrainz id", pending: "not looked up", check: "check the id" }[r.status] || "not applied yet"}</span>`;
+  box.innerHTML = `<h3>${esc(data.name)}</h3>${data.albums.length ? `<table class="ty-table"><thead><tr><th>Album</th><th class="num">Plays</th><th>Now</th><th>MusicBrainz</th><th>Set</th></tr></thead><tbody>
+    ${data.albums.map((r) => `<tr class="${TY_MAIN.has(r.current) ? "main" : "folded"}"><td>${esc(r.title)}${r.year ? ` <span class="meta">(${r.year})</span>` : ""}${r.vinyl ? ` <span class="badge vinyl">vinyl</span>` : ""}</td>
+      <td class="num">${fmtNum(r.plays)}</td><td>${typeText(r)}</td><td>${tyMbText(r)}${r.kind && r.kind !== r.current ? ` <span class="meta">→ ${TY_LABEL[r.kind]}</span>` : ""}</td><td>${tySelect(r)}</td></tr>`).join("")}</tbody></table>`
+    : `<div class="empty">No played or owned albums.</div>`}`;
+  wireTySelects(box, () => { openTypesArtist(artistId); loadTypes(); });
+}
+mountTypeahead(document.getElementById("ty-artist-q"), {
+  minChars: 2,
+  fetchItems: async (q) => ((await api(`/api/albums/search?q=${encodeURIComponent(q)}`)).data.artists || []),
+  renderItem: (x) => `<span>${esc(x.name)}</span><span class="meta">pick</span>`,
+  onPick: (x) => { const q = document.getElementById("ty-artist-q"); q.value = ""; q.blur(); openTypesArtist(x.artistId); },
+});
+
 // ---- Unmerge -------------------------------------------------------------------------------------------
 const umBody = document.getElementById("um-body");
 let umView = null; // {artistId} or {albumId}
@@ -923,6 +1041,7 @@ const tabs = mountTabs(document.getElementById("tabs"), {
   missing: loadMissing,
   suggestions: loadAlbumSuggestions,
   singles: loadSingles,
+  types: loadTypes,
   covers: loadCovers,
   unmerge: () => {},
   duplicates: runDupScan,
@@ -932,6 +1051,8 @@ const tabs = mountTabs(document.getElementById("tabs"), {
 }, {
   // #discography/<artistId> (e.g. "Open in Albums" from the Vinyl page) opens that artist.
   onSubpath: (tab, sub) => {
+    // #types/<artistId>: that artist, plus the dry run (a sub-path skips the tab's own loader; deferred past mountTabs)
+    if (tab === "types" && /^\d+$/.test(sub)) { setTimeout(() => { if (!tyData) loadTypes(); openTypesArtist(parseInt(sub, 10)); }); return; }
     if (tab !== "discography" || !/^\d+$/.test(sub)) return;
     if (!queueItems.length) loadQueue();
     if (parseInt(sub, 10) !== currentArtistId) openArtist(parseInt(sub, 10));

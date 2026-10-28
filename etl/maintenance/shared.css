@@ -454,3 +454,9 @@ body:has(.basket-bar:not([hidden])) main { padding-bottom: 80px; }
 .artist-links { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 2px; font-size: 0.85rem; }
 .artist-links .link-chip { display: inline-flex; gap: 6px; align-items: center; }
 .artist-links .link-q { width: 200px; padding: 3px 8px; font-size: 0.82rem; }
+
+/* A MusicBrainz flag's two sides: what the album is here vs what its id is on MusicBrainz (flagSidesHtml) */
+.flag-sides { border-collapse: collapse; margin: 6px 0 4px; font-size: .84rem; background: var(--surface-2); border: 1px solid var(--edge); }
+.flag-sides th { text-align: left; vertical-align: top; padding: 5px 10px; font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); white-space: nowrap; }
+.flag-sides td { padding: 5px 10px 5px 0; vertical-align: top; }
+.flag-sides tr + tr th, .flag-sides tr + tr td { border-top: 1px solid var(--edge); }
