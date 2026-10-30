@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Music Companion — Workbench</title>
+<link rel="stylesheet" href="shared.css" />
+<script src="theme-init.js"></script>
+<style>
+  main.wide { max-width: 1340px; }
+  .q-counts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .q-counts .badge { white-space: nowrap; }
+  tr.wb-row { cursor: pointer; }
+  tr.wb-row:hover td { background: var(--accent-wash); }
+  .chip-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+  .chip-rows .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .chip-rows .lbl { font-size: .78rem; color: var(--text-dim); min-width: 74px; }
+  .rv-frac.full { color: var(--ok); }
+  .rv-frac.part { color: var(--warn); }
+
+  /* One artist */
+  .bench-head { display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+  .bench-head h1 { margin: 0; }
+  .bench-head .spacer { flex: 1; }
+  .jump { display: flex; gap: 14px; flex-wrap: wrap; font-size: .85rem; margin: 10px 0 0; padding: 6px 10px; background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius-sm); }
+  .jump .meta { margin-left: 2px; }
+  .sec { margin: 26px 0 8px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .sec h2 { margin: 0; font-size: 1.15rem; }
+  .sec .spacer { flex: 1; }
+  .sub { margin: 18px 0 6px; font-size: 0.95rem; color: var(--text-dim); }
+  .sec-note { font-size: 0.8rem; color: var(--text-dim); margin: 0 0 8px; }
+  .batches li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--edge); font-size: 0.86rem; }
+  .batches li .spacer { flex: 1; }
+  .ck-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 4px 0 8px; font-size: .9rem; }
+  .ck-facts b { font-family: var(--font-mono); }
+  .ck-songs { columns: 2 320px; font-size: .86rem; margin: 0; padding-left: 22px; }
+  .ck-songs li { break-inside: avoid; padding: 2px 0; }
+
+  /* Discography: album cards, and the edit panel that opens under a card's row */
+  .ck-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .ck-card { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius-sm); min-width: 0; font-size: .85rem; cursor: pointer; text-align: left; color: inherit; }
+  .ck-card:hover { border-color: var(--edge-strong); }
+  .ck-card.open { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .ck-card.queued { border-color: color-mix(in srgb, var(--ok) 55%, transparent); }
+  .ck-card.queued .t::after { content: " · queued"; font-family: var(--font-mono); font-size: .68rem; font-weight: 400; color: var(--ok); }
+  .ck-art { aspect-ratio: 1; background: var(--surface-2); border: 1px dashed var(--edge); display: grid; place-items: center; overflow: hidden; color: var(--text-dim); font-size: .78rem; margin-bottom: 4px; }
+  .ck-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .ck-card .t { font-weight: 600; font-size: .92rem; line-height: 1.25; }
+  .ck-card .g { display: flex; flex-wrap: wrap; gap: 3px; }
+  .ck-card .g span { font-size: .7rem; padding: 0 6px; border: 1px solid var(--edge); border-radius: 999px; color: var(--text-dim); background: var(--surface-2); }
+  .ck-card .ids { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .folded { margin-top: 18px; }
+  .folded > summary { cursor: pointer; color: var(--text-dim); font-size: .95rem; margin-bottom: 10px; }
+  .folded .ck-card { opacity: .85; }
+  .ck-card .for { font-size: .78rem; color: var(--text-dim); }
+  .ck-card .for b { color: var(--text); font-weight: 600; }
+  .wb-panel { grid-column: 1 / -1; background: var(--surface-2); border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 12px 14px; }
+  .wb-panel-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 10px; }
+  .wb-panel-head .spacer { flex: 1; }
+  .wb-panel-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px 22px; }
+  .wb-panel-grid .full { grid-column: 1 / -1; }
+  .wb-panel h3 { margin: 0 0 6px; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); }
+  .wb-panel .cover-now { width: 96px; height: 96px; object-fit: cover; border: 1px solid var(--edge); display: block; }
+  .wb-panel ul.pressings { margin: 0; padding-left: 18px; font-size: .85rem; }
+
+  .wb-fixes { background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius-sm); padding: 10px 12px; margin: 0 0 16px; }
+  .wb-fixes-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+  .wb-fixes-head h3 { margin: 0; font-size: .95rem; }
+  .wb-fixes-head .spacer { flex: 1; }
+  .wb-fixes table.data td { vertical-align: top; }
+  .wb-fixes tr.queued td { opacity: .55; }
+  .wb-fixes .gpick { display: block; margin: 1px 0; font-weight: 400; }
+  .about-ed { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: start; }
+  .about-ed img { width: 120px; max-height: 160px; object-fit: cover; border: 1px solid var(--edge); }
+  .about-ed textarea { width: 100%; font: inherit; font-size: .9rem; line-height: 1.5; resize: vertical; padding: 8px 10px;
+                       background: var(--surface); color: var(--text); border: 1px solid var(--edge); border-radius: var(--radius-sm); }
+  .about-ed .row, #about .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+  .about-ed .spacer { flex: 1; }
+  .about-results { list-style: none; padding: 0; margin: 8px 0 0; font-size: .86rem; }
+  .about-results li { padding: 5px 0; border-bottom: 1px solid var(--edge); }
+  .about-card { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 0 0 12px; }
+</style>
+</head>
+<body>
+<header id="topnav"></header>
+<main class="wide">
+
+<section id="list" hidden>
+  <div class="page-head">
+    <h1>Workbench</h1>
+    <p class="subtitle">Every artist, most played first. Open one to see it all on one page: what needs sorting out, every album (fix a title, year, type, id, genres or cover right there), the most played songs, the shows and the About text. Changes queue up in a basket, get a dry run, then apply as one undoable batch. <b>Mark reviewed</b> records that you've looked them over. If their albums change afterwards they show as <b>Changed since</b>, and anything new to sort out puts them back in <b>Needs work</b>.</p>
+  </div>
+  <div class="card about-card" id="about-sweep"></div>
+  <div id="about-sweep-run" style="margin:-4px 0 14px"></div>
+  <div class="chip-rows">
+    <div class="chips" id="l-status"></div>
+    <div class="chips" id="l-issues" hidden></div>
+    <div class="chips" id="l-gaps"></div>
+  </div>
+  <div class="toolbar"><input type="search" id="l-find" placeholder="Find an artist…" style="min-width:260px" /></div>
+  <div class="status-line" id="l-status-line">Loading…</div>
+  <div class="table-scroll"><table class="data"><thead><tr><th>Artist</th><th class="num">Plays</th><th class="num">Albums</th><th class="num">Covers</th><th class="num">Ids</th><th class="num">Genres</th><th class="num">Types</th><th class="num">Vinyl</th><th class="num">Shows</th><th>Status</th></tr></thead><tbody id="l-rows"></tbody></table></div>
+  <div class="status-line" id="l-more" hidden></div>
+</section>
+
+<section id="artist" hidden>
+  <div class="bench-head">
+    <a class="back-link" href="/workbench.html">← All artists</a>
+    <h1 id="a-name"></h1><span id="a-status"></span>
+    <span class="spacer"></span>
+    <button class="small" id="a-prev">← Previous</button>
+    <button class="small good" id="a-review">✓ Mark reviewed</button>
+    <button class="small" id="a-next">Next →</button>
+  </div>
+  <div class="ck-facts" id="a-facts"></div>
+  <div id="a-note"></div>
+  <div id="a-artist-id"></div>
+  <div class="artist-links" id="a-links"></div>
+  <nav class="jump" id="a-jump"></nav>
+
+  <div id="s-todo">
+    <div class="sec"><h2>To sort out</h2><span class="meta" id="todo-meta"></span></div>
+    <div class="kbd-help" id="todo-keys"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> queue merge / fold / move</span><span><kbd>d</kbd> not the same / not a single / keep separate</span><span><kbd>a</kbd> queue selected id</span><span><kbd>r</kbd> none of these</span><span><kbd>f</kbd> find on MusicBrainz</span><span><kbd>x</kbd> not on MusicBrainz</span><span><kbd>o</kbd> fine as it is</span><span><kbd>s</kbd> skip</span></div>
+    <div id="todo-lookup"></div>
+    <div id="d-fixes"></div>
+    <div id="a-todo"></div>
+  </div>
+
+  <div id="s-disco">
+    <div class="sec"><h2>Discography</h2><span id="d-meta"></span><span class="spacer"></span>
+      <div class="chips" id="d-sort"></div><a class="meta" id="d-albums-link">Albums › Discography →</a></div>
+    <p class="sec-note">Album, EP and live album are the discography on the site's artist page. Singles, compilations, other and untyped releases are folded away. Click an album to fix it.</p>
+    <div class="ck-grid" id="d-main"></div>
+    <details class="folded" id="d-folded"><summary></summary><div class="ck-grid" id="d-rest"></div></details>
+    <details class="folded" id="d-unused"><summary></summary>
+      <p class="sec-note">Albums you've neither played nor own. Live sets adds one when a song you've only seen live is only on that album on MusicBrainz, so check it's the right home for the song. A live album or a compilation picked over the studio album is the usual mistake. Open one to move its song to another album.</p>
+      <div class="ck-grid" id="d-unused-grid"></div></details>
+  </div>
+
+  <div id="s-songs">
+    <div class="sec"><h2>Most played songs</h2><span class="meta" id="songs-meta"></span></div>
+    <ol class="ck-songs" id="a-songs"></ol>
+  </div>
+
+  <div id="s-live">
+    <div class="sec"><h2>Live</h2></div>
+    <p class="sec-note" id="a-live"></p>
+  </div>
+
+  <div id="s-about"><div id="about"></div></div>
+  <div id="s-history"></div>
+</section>
+
+</main>
+<script src="shared.js"></script>
+<script src="album-ui.js"></script>
+<script src="artist-ui.js"></script>
+<script src="workbench-ui.js"></script>
+<script>
+mountNav("Workbench");
+const params = new URLSearchParams(location.search);
+const artistId = parseInt(params.get("id") || "", 10);
+const LIST_KEY = "workbench-list";        // the list as last filtered: Previous / Next walk it
+const PREFS_KEY = "workbench-filters";
+
+const COUNT_LABELS = { albumGroups: ["album group", "album groups", "warn"], singles: ["single filed as an album", "singles filed as albums", "warn"], missing: ["album without an id", "albums without an id", ""],
+  flags: ["MusicBrainz flag", "MusicBrainz flags", "bad"], songEdition: ["same-recording song group", "same-recording song groups", "ok"],
+  songVariant: ["version group", "version groups", ""], songPossible: ["possible duplicate", "possible duplicates", "accent"],
+  placement: ["song on the wrong album", "songs on the wrong album", "warn"] };
+const ISSUES = [["songs", "Song duplicates", ["songEdition", "songVariant", "songPossible"]], ["albums", "Albums to merge", ["albumGroups"]], ["singles", "Singles filed as albums", ["singles"]],
+  ["missing", "Albums without an id", ["missing"]], ["placement", "Wrong album", ["placement"]], ["flags", "MusicBrainz flags", ["flags"]]];
+const STATUS_TEXT = { "needs-work": ["Needs work", "warn"], unreviewed: ["Not reviewed yet", ""], changed: ["Changed since", "accent"], reviewed: ["Reviewed", "ok"] };
+// gap -> [chip label, "N albums …" wording]
+const GAP_TEXT = { noCover: ["No covers", "without a cover"], noGenres: ["No genres", "without genres"], noYear: ["No year", "without a year"],
+  untyped: ["Untyped", "without a release type"], typeCheck: ["Type to check", "with a type to check"],
+  noArtistMbid: ["No artist id", "no artist MusicBrainz id"], liveToSettle: ["Live to settle", "live songs to settle"] };
+
+const frac = (n, d) => `<span class="rv-frac ${d && n === d ? "full" : n ? "part" : ""}">${fmtNum(n)}/${fmtNum(d)}</span>`;
+const statusBadge = (s) => { const [label, cls] = STATUS_TEXT[s]; return `<span class="badge ${cls}">${label}</span>`; };
+function countBadges(counts) {
+  return Object.entries(COUNT_LABELS).filter(([k]) => counts[k]).map(([k, [one, many, cls]]) =>
+    `<span class="badge ${cls}">${plural(counts[k], one, many)}</span>`).join("");
+}
+function gapText(k, n) {
+  if (k === "noArtistMbid") return GAP_TEXT[k][1];
+  if (k === "liveToSettle") return plural(n, "live song") + " to settle";
+  return `${plural(n, "album")} ${GAP_TEXT[k][1]}`;
+}
+
+// ---- The list ---------------------------------------------------------------------------------
+async function loadList() {
+  document.getElementById("list").hidden = false;
+  const line = document.getElementById("l-status-line");
+  const { ok, data } = await api("/api/workbench/artists");
+  if (!ok) { line.textContent = data.message; line.classList.add("error"); return; }
+  let prefs = { status: "all", issue: "", gap: "" };
+  try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") }; } catch { /* fine */ }
+  let find = "";
+  const chip = (attr, k, label, n, on) => `<button class="chip filter-chip" data-${attr}="${k}" aria-pressed="${on}">${label}${n == null ? "" : ` <span class="meta">${fmtNum(n)}</span>`}</button>`;
+  function paint() {
+    try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* fine */ }
+    const issueKeys = prefs.status === "needs-work" && prefs.issue ? ISSUES.find(([k]) => k === prefs.issue)?.[2] : null;
+    const byStatus = data.items.filter((r) => (prefs.status === "all" || r.status === prefs.status) && (!issueKeys || issueKeys.some((k) => r.counts[k])));
+    const rows = byStatus.filter((r) => (!prefs.gap || r.gaps[prefs.gap]) && (!find || (r.name || "").toLowerCase().includes(find)));
+    document.getElementById("l-status").innerHTML = `<span class="lbl">Status</span>` + chip("s", "all", "All", data.count, prefs.status === "all")
+      + Object.keys(STATUS_TEXT).map((k) => chip("s", k, STATUS_TEXT[k][0], data.statuses[k], prefs.status === k)).join("");
+    const issues = document.getElementById("l-issues");
+    issues.hidden = prefs.status !== "needs-work";
+    issues.innerHTML = `<span class="lbl">To sort out</span>` + chip("i", "", "Anything", null, !prefs.issue)
+      + ISSUES.map(([k, label, keys]) => chip("i", k, label, keys.reduce((n, x) => n + (data.totals[x] || 0), 0), prefs.issue === k)).join("");
+    // gap counts follow the status (and issue) picked, so they say how many a click would show
+    document.getElementById("l-gaps").innerHTML = `<span class="lbl">Missing</span>` + chip("g", "", "Anything", null, !prefs.gap)
+      + Object.keys(GAP_TEXT).map((k) => chip("g", k, GAP_TEXT[k][0], byStatus.filter((r) => r.gaps[k]).length, prefs.gap === k)).join("");
+    try { sessionStorage.setItem(LIST_KEY, JSON.stringify(rows.map((r) => r.artistId))); } catch { /* fine */ }
+    line.textContent = `${plural(rows.length, "artist")}, most played first`;
+    document.getElementById("l-rows").innerHTML = rows.slice(0, 400).map((r) => `<tr class="wb-row" data-id="${r.artistId}">
+      <td><a href="/workbench.html?id=${r.artistId}">${esc(r.name)}</a>${r.leftAsIs ? ` <span class="meta" title="Marked reviewed with ${plural(r.leftAsIs, "thing")} left as it is">· ${fmtNum(r.leftAsIs)} left as is</span>` : ""}</td>
+      <td class="num">${fmtNum(r.plays)}</td><td class="num">${fmtNum(r.albums)}</td><td class="num">${frac(r.covers, r.albums)}</td><td class="num">${frac(r.ids, r.albums)}</td>
+      <td class="num">${frac(r.genres, r.albums)}</td><td class="num">${frac(r.typed, r.albums)}</td><td class="num">${r.vinyl || ""}</td><td class="num">${r.shows || ""}</td>
+      <td><div class="q-counts">${statusBadge(r.status)}${r.reviewedAt ? `<span class="meta">${esc(r.reviewedAt.slice(0, 10))}</span>` : ""}${r.status === "needs-work" ? countBadges(r.counts) : ""}</div></td></tr>`).join("");
+    const more = document.getElementById("l-more");
+    more.hidden = rows.length <= 400;
+    more.textContent = `Showing the first 400 of ${fmtNum(rows.length)} — narrow it with the chips or the search box.`;
+  }
+  document.querySelector(".chip-rows").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-s], button[data-i], button[data-g]");
+    if (!b) return;
+    if (b.dataset.s != null) { prefs.status = b.dataset.s; prefs.issue = ""; }
+    if (b.dataset.i != null) prefs.issue = b.dataset.i;
+    if (b.dataset.g != null) prefs.gap = b.dataset.g;
+    paint();
+  });
+  document.getElementById("l-find").addEventListener("input", (e) => { find = e.target.value.trim().toLowerCase(); paint(); });
+  document.getElementById("l-rows").addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-id]");
+    if (tr && !e.target.closest("a")) location.href = `/workbench.html?id=${tr.dataset.id}`;
+  });
+  paint();
+}
+
+// the About sweep (about.py): fetch the artist page's About for artists that don't have one yet
+async function loadAboutSweep() {
+  const el = document.getElementById("about-sweep");
+  const { ok, data } = await api("/api/about/status");
+  if (!ok) { el.hidden = true; return; }
+  el.innerHTML = `<b>Artist About texts</b><span class="meta">${fmtNum(data.rows)} fetched (Wikipedia ${fmtNum(data.wikipedia)} · Last.fm ${fmtNum(data.lastfm)} · none ${fmtNum(data.noText)}) · ${fmtNum(data.edited)} edited by you${data.changedUpstream ? ` · <b>${fmtNum(data.changedUpstream)}</b> changed on Wikipedia since your edit` : ""} · ${fmtNum(data.toFetch)} still to fetch</span>
+    ${data.toFetch ? `<label class="meta">Fetch <select data-role="n"><option>100</option><option selected>500</option><option>1000</option></select></label><button class="small good" data-act="go">Fetch About texts</button>` : ""}
+    <span class="meta">— about 1–2 s each, most played first; each artist's own is edited on their workbench page (Publish to show them)</span>`;
+  el.querySelector("[data-act='go']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    await runSweep(document.getElementById("about-sweep-run"), "artist-about", +el.querySelector("[data-role='n']").value);
+    loadAboutSweep();
+  });
+}
+
+// ---- One artist ------------------------------------------------------------------------------
+let wb = null, loading = 0, openAlbum = null;
+let discoSort = (() => { try { return localStorage.getItem("workbench-disco-sort") || "plays"; } catch { return "plays"; } })();
+const keys = mountReviewKeys(document.getElementById("a-todo"));
+const basket = createBasket({ artistId, label: "", onApplied: () => loadArtist() });
+
+function neighbour(step) {
+  let list = [];
+  try { list = JSON.parse(sessionStorage.getItem(LIST_KEY) || "[]"); } catch { /* fine */ }
+  const i = list.indexOf(artistId);
+  return i >= 0 ? list[i + step] ?? null : null;
+}
+function goTo(id) {
+  if (basket.size && !confirm(`You have ${plural(basket.size, "queued change")} that haven't been applied. Leave them?`)) return;
+  basket.size && window.removeEventListener("beforeunload", warnUnapplied);
+  location.href = id ? `/workbench.html?id=${id}` : "/workbench.html";
+}
+
+const albumRow = (a, extra = "") => `${esc(a.title)} ${tagBadges(a)} ${a.year ? `<span class="meta">${a.year}</span>` : ""} ${a.mbid ? mbLink("album", a.mbid) : `<span class="badge">no id</span>`} ${vinylBadges(a)} ${extra}`;
+
+function albumGroupItem(g) {
+  const albums = g.albumIds.map((id) => wb.albums[id]).filter(Boolean);
+  const mbids = new Set(albums.map((a) => a.mbid).filter(Boolean));
+  const safe = mbids.size <= 1;   // pre-ticked only when they can't be two different MusicBrainz records
+  const el = document.createElement("div");
+  el.className = "review-item wb-item";
+  el.innerHTML = `<div class="row"><div><div class="title">${albums.length} versions of “${esc(albums[0].baseTitle)}”</div>
+      <div class="meta">${safe ? "Same title once edition words are set aside — pick the one to keep." : "<span class='warn-text'>They have different MusicBrainz ids — check these really are one record.</span>"}</div></div>
+      <div class="actions">${keyBtn("m", "Queue merge", "good")}${keyBtn("d", "Not the same")}${keyBtn("s", "Skip")}</div></div>
+    <div class="table-scroll"><table class="data"><thead><tr><th>Keep</th><th>Merge</th><th>Album</th><th class="num">Plays</th><th class="num">Songs</th><th>Played</th></tr></thead><tbody>
+    ${albums.map((a) => `<tr data-id="${a.albumId}" class="${a.albumId === g.primary ? "primary" : ""}"><td><input type="radio" name="p-${esc(g.key)}" value="${a.albumId}" ${a.albumId === g.primary ? "checked" : ""}></td>
+      <td><input type="checkbox" value="${a.albumId}" ${safe && a.albumId !== g.primary ? "checked" : ""}></td><td>${albumRow(a)}</td>
+      <td class="num">${fmtNum(a.scrobbleCount)}</td><td class="num">${fmtNum(a.songCount)}</td><td>${playedRange(a)}</td></tr>`).join("")}</tbody></table></div>`;
+  wireKeep(el);
+  el.querySelector("[data-key='m']").addEventListener("click", () => {
+    const keep = parseInt(el.querySelector("input[type=radio]:checked").value, 10);
+    const absorbed = [...el.querySelectorAll("input[type=checkbox]:checked")].map((c) => parseInt(c.value, 10)).filter((i) => i !== keep);
+    if (!absorbed.length) { toast("Tick at least one album to merge into the one you keep.", { error: true }); return; }
+    basket.add(g.key, { type: "mergeAlbums", canonicalId: keep, absorbedIds: absorbed },
+      `Merge ${absorbed.map((i) => `“${esc(wb.albums[i].title)}”`).join(", ")} into “<b>${esc(wb.albums[keep].title)}</b>”`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='d']").addEventListener("click", () => {
+    basket.add(g.key, { type: "dismiss", entityType: "album", ids: g.albumIds }, `Not the same: ${albums.map((a) => `“${esc(a.title)}”`).join(" / ")}`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='s']").addEventListener("click", () => keys.skip(el));
+  return el;
+}
+
+function flagItem(f) {
+  const album = wb.albums[f.albumId];
+  const el = document.createElement("div");
+  el.className = "review-item wb-item";
+  el.innerHTML = `<div class="row"><div><div class="title">${esc(f.title)} ${mbLink("album", f.mbid)}</div>
+      ${f.flags.map((x) => `<div class="meta"><span class="badge ${x.severity === "high" ? "bad" : x.severity === "medium" ? "warn" : ""}">${esc(x.severity)}</span> ${esc(x.text)}</div>`).join("")}
+      ${flagSidesHtml(f)}</div>
+      <div class="actions">${keyBtn("o", "Looks right")}${keyBtn("f", "Fix…")}${keyBtn("s", "Skip")}</div></div><div class="slot"></div>`;
+  el.querySelector("[data-key='o']").addEventListener("click", () => {
+    basket.add(`fl:${f.albumId}`, { type: "mark", entityType: "album", entityId: f.albumId, mark: "verified:album-mbid" }, `“${esc(f.title)}”'s MusicBrainz id is right`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='f']").addEventListener("click", () => {
+    renderAlbumResolve(el.querySelector(".slot"), album, { reason: "workbench fix", onDone: () => { el.classList.add("done"); keys.advance(el); loadArtist(); } });
+  });
+  el.querySelector("[data-key='s']").addEventListener("click", () => keys.skip(el));
+  return el;
+}
+
+function placementItem(p) {
+  const el = document.createElement("div");
+  el.className = "review-item wb-item";
+  const why = p.reason === "uncredited" ? `filed under “${esc(p.current.title)}”, which doesn't credit this artist`
+    : `filed under the compilation “${esc(p.current.title)}”`;
+  el.innerHTML = `<div class="row"><div><div class="title">${esc(p.title)}</div><div class="meta">${why}${p.suggested ? ` — you've played it ${plural(p.suggested.plays, "time")} from “${esc(p.suggested.title)}”` : ""}</div></div>
+    <div class="actions">${p.suggested ? keyBtn("m", `Move to “${esc(p.suggested.title)}”`, "good") : ""}${keyBtn("o", "Fine as it is")}${keyBtn("s", "Skip")}</div></div>`;
+  el.querySelector("[data-key='m']")?.addEventListener("click", () => {
+    basket.add(p.key, { type: "setSongAlbum", songId: p.songId, albumId: p.suggested.albumId }, `File “${esc(p.title)}” under “<b>${esc(p.suggested.title)}</b>”`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='o']").addEventListener("click", () => {
+    basket.add(p.key, { type: "mark", entityType: "song", entityId: p.songId, mark: "placement-ok" }, `“${esc(p.title)}” is fine on “${esc(p.current.title)}”`, el);
+    keys.advance(el);
+  });
+  el.querySelector("[data-key='s']").addEventListener("click", () => keys.skip(el));
+  return el;
+}
+
+// One group of review items. A redraw (after an instant fix) re-points anything already queued at
+// its new element, so it still shows as queued.
+function section(body, title, note, items, render, keyOf = (it) => it.key) {
+  const head = document.createElement("div");
+  head.innerHTML = `<div class="sub">${title} <span class="meta">${items.length}</span></div>${note ? `<p class="sec-note">${note}</p>` : ""}`;
+  body.appendChild(head);
+  const list = document.createElement("div");
+  items.forEach((it) => {
+    const el = list.appendChild(render(it));
+    if (basket.has(keyOf(it))) basket.attach(keyOf(it), el);
+  });
+  body.appendChild(list);
+  return list;
+}
+
+function paintTodo() {
+  const body = document.getElementById("a-todo"), items = wb.items;
+  body.innerHTML = "";
+  document.getElementById("todo-meta").textContent = wb.outstanding ? plural(wb.outstanding, "thing") : "";
+  document.getElementById("todo-keys").style.display = wb.outstanding ? "" : "none";   // .kbd-help sets display, so hidden alone does nothing
+  if (!wb.outstanding) { body.innerHTML = `<p class="sec-note" id="todo-none"${fixRows().length ? " hidden" : ""}>Nothing flagged — look over the discography below.</p>`; return; }
+  if (wb.leftAsIs) body.insertAdjacentHTML("beforeend", `<p class="sec-note">Marked reviewed with ${plural(wb.leftAsIs, "thing")} left as it is. Anything new turning up puts ${esc(wb.artist.name)} back in Needs work.</p>`);
+  const KIND_ORDER = { edition: 0, possible: 1, variant: 2 };
+  items.songGroups.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.plays - a.plays);
+  if (items.singles.length) section(body, "Singles filed as albums", "A lead single that became its own “album”. Folding one moves its plays to the album (its own copies of songs merge into the album's), and future plays of the single land there too.", items.singles, (x) => singleItem(x, { basket, keys }));
+  if (items.albumGroups.length) section(body, "Versions of the same record", "", items.albumGroups, albumGroupItem);
+  if (items.missing.length) section(body, "Albums with no MusicBrainz id", "Owned and most played first. Suggestions come from the album-id sweep (Albums › Suggestions) — only a strong one arrives selected; Find… searches MusicBrainz now.", items.missing, (m) => albumSuggestItem(m, { basket, keys, profile: wb.albums[m.albumId], onResolved: () => loadArtist() }));
+  if (items.flags.length) section(body, "MusicBrainz says something's off", "", items.flags, flagItem, (f) => `fl:${f.albumId}`);
+  if (items.songGroups.length) {
+    const head = document.createElement("div");
+    head.innerHTML = `<div class="chips" data-role="kinds" style="margin-top:14px">${["all", "edition", "variant", "possible"].map((k) => `<button class="chip filter-chip" data-k="${k}" aria-pressed="${k === "all"}">${k === "all" ? "All songs" : KIND_TEXT[k][0]} <span class="meta">${k === "all" ? items.songGroups.length : items.songGroups.filter((g) => g.kind === k).length}</span></button>`).join("")}</div>`;
+    body.appendChild(head);
+    const groupList = section(body, "Song duplicates", "Ticked only where it's the same recording on the same album. Merging keeps every play, show and spelling; any merge can be undone.", items.songGroups, (g) => songGroupItem(g, { basket, keys }));
+    head.querySelectorAll("[data-k]").forEach((b) => b.addEventListener("click", () => {
+      head.querySelectorAll("[data-k]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+      groupList.querySelectorAll(".review-item").forEach((el) => { el.hidden = b.dataset.k !== "all" && el.dataset.kind !== b.dataset.k; });
+    }));
+  }
+  if (items.placement.length) section(body, "Songs filed under the wrong album", "", items.placement, placementItem);
+}
+
+// -- Discography: every album as a card; clicking one opens its edit panel under that row --------
+function typeBadge(x) {
+  if (x.type) return `<span class="badge${TY_MAIN.has(x.type) ? "" : " accent"}">${TY_LABEL[x.type]}${x.typeSource === "manual" ? " · by hand" : ""}</span>`;
+  if (x.typeStatus === "check") return `<span class="badge warn" title="MusicBrainz says single/EP but it has too many songs for one — the id is probably wrong">type: check the id</span>`;
+  return `<span class="badge">untyped</span>`;
+}
+function albumCard(x) {
+  return `<div class="ck-card${openAlbum === x.albumId ? " open" : ""}" data-album="${x.albumId}" role="button" tabindex="0" aria-label="Edit ${esc(x.title)}">
+    <div class="ck-art">${x.coverStatus === "ok" ? `<img src="/covers/${x.albumId}.jpg" alt="" loading="lazy" />` : x.coverStatus === "none" ? "nothing on the archive" : "no cover"}</div>
+    <div class="t">${esc(x.title)}</div>
+    <div class="meta">${x.year || `<span class="warn-text">no year</span>`} · ${plural(x.plays, "play")}${x.vinyl ? ` · <span class="badge vinyl">vinyl${x.vinyl > 1 ? ` ×${x.vinyl}` : ""}</span>` : ""}</div>
+    <div class="ids">${typeBadge(x)} ${x.mbid ? `<span class="badge ok">id</span>` : `<span class="badge warn">no id</span>`}</div>
+    <div class="g">${x.genres.length ? x.genres.slice(0, 5).map((g) => `<span>${esc(g)}</span>`).join("") : `<span class="warn-text" style="border:0;background:none;padding:0">no genres</span>`}</div>
+    ${x.filedSongs ? `<div class="for">${x.filedSongs.length ? `for ${x.filedSongs.map((f) => `<b>${esc(f.title)}</b>${f.shows ? ` (seen live ${f.shows === 1 ? "once" : `${f.shows} times`})` : ""}`).join(", ")}`
+      : `<span class="warn-text">no songs filed here any more</span>`}</div>` : ""}
+  </div>`;
+}
+const coversLink = () => `/albums.html#covers/${artistId}`;   // Albums › Covers, By artist, on this artist
+function paintDisco() {
+  const al = wb.discography;
+  const sorted = discoSort === "year" ? [...al].sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999) || b.plays - a.plays) : al;
+  const unused = (x) => !x.plays && !x.vinyl;   // there only for a song seen live (filedSongs)
+  const main = sorted.filter((x) => !unused(x) && TY_MAIN.has(x.type)), rest = sorted.filter((x) => !unused(x) && !TY_MAIN.has(x.type)), spare = sorted.filter(unused);
+  document.getElementById("d-meta").innerHTML = `<span class="meta">${plural(al.length, "album")}</span> ` + ["noCover", "noGenres", "noYear", "untyped", "typeCheck"]
+    .filter((k) => wb.gaps[k]).map((k) => k === "noCover"
+      ? `<a class="badge warn" href="${coversLink()}" title="Find covers for ${esc(wb.artist.name)} in Albums › Covers">${gapText(k, wb.gaps[k])} →</a>`
+      : `<span class="badge warn">${gapText(k, wb.gaps[k])}</span>`).join(" ");
+  document.getElementById("d-sort").innerHTML = [["plays", "Most played"], ["year", "By year"]].map(([k, l]) =>
+    `<button class="chip filter-chip" data-sort="${k}" aria-pressed="${k === discoSort}">${l}</button>`).join("");
+  document.getElementById("d-albums-link").href = `/albums.html#discography/${artistId}`;
+  document.getElementById("d-main").innerHTML = main.map(albumCard).join("") || `<div class="empty">${al.length ? "No played or owned album, EP or live album yet — see below." : `No albums credited to ${esc(wb.artist.name)}.`}</div>`;
+  const folded = document.getElementById("d-folded");
+  folded.hidden = !rest.length;
+  folded.querySelector("summary").textContent = `Singles, compilations, other and untyped — ${rest.length}`;
+  if (!main.length && rest.length) folded.open = true;
+  document.getElementById("d-rest").innerHTML = rest.map(albumCard).join("");
+  const unusedEl = document.getElementById("d-unused");
+  unusedEl.hidden = !spare.length;
+  unusedEl.querySelector("summary").textContent = `Not played or owned — added for songs seen live — ${spare.length}`;
+  document.getElementById("d-unused-grid").innerHTML = spare.map(albumCard).join("");
+  document.querySelectorAll("#s-disco .ck-card").forEach((card) => {
+    const id = +card.dataset.album;
+    const x = al.find((o) => o.albumId === id);
+    for (const k of [`ed:${id}`, `ty:${id}`, `yr:${id}`, `gn:${id}`, ...(x.filedSongs || []).map((f) => `mv:${f.songId}`)]) if (basket.has(k)) basket.attach(k, card);
+  });
+  if (openAlbum && !al.some((x) => x.albumId === openAlbum)) openAlbum = null;   // merged away
+  if (openAlbum) placePanel(openAlbum);
+  paintFixes();
+  lookUpGenres();
+}
+
+// -- Suggested fixes: what MusicBrainz already knows, as rows to tick and queue in one go -----------
+// type   untyped, and MusicBrainz has one (the Types fill, not applied yet) -- ticked; MusicBrainz now
+//        says something else than the type it gave before -- unticked
+// year   none, and MusicBrainz's first release is cached -- ticked
+// genres none: the Genres page's suggestions (api/genres/suggest), looked up one album at a time
+//        (MusicBrainz is 1 request a second, cached after) -- ticked when MusicBrainz has the album's
+//        own; the artist's genres as a stand-in arrive unticked
+const mbTypePending = (x) => x.typeSource !== "manual" && ["set", "change"].includes(x.typeStatus) && !!x.mbKind;
+const typeText = (x, kind) => `“${esc(x.title)}”: ${kind ? `type <b>${TY_LABEL[kind]}</b> (by hand)` : `type <b>${x.mbKind ? TY_LABEL[x.mbKind] : "MusicBrainz's"}</b> (MusicBrainz's)`}`;
+const genreSugg = new Map();      // albumId -> /api/genres/suggest data (kept across redraws)
+const fixTicks = new Map();       // row key -> ticked, once you've changed it
+const genrePicks = new Map();     // albumId -> genre names picked to put back (removed before)
+let genreLookup = null;
+
+function fixRows() {
+  const rows = [];
+  for (const x of wb.discography) {
+    if (mbTypePending(x)) {
+      const fresh = x.typeStatus === "set";
+      rows.push({ key: `ty:${x.albumId}`, x, tick: fresh, action: { type: "setReleaseType", albumId: x.albumId, kind: null }, text: typeText(x, null),
+        what: fresh ? `type → <b>${TY_LABEL[x.mbKind]}</b>` : `type ${TY_LABEL[x.type]} → <b>${TY_LABEL[x.mbKind]}</b>`,
+        why: `MusicBrainz: ${esc((x.mbTypes || []).filter(Boolean).join(" + ") || "no type")}${fresh ? "" : " — it said something else before; check before changing"}` });
+    }
+    if (x.mbYear && !x.year) rows.push({ key: `yr:${x.albumId}`, x, tick: true, action: { type: "editAlbum", albumId: x.albumId, year: x.mbYear },
+      text: `“${esc(x.title)}”: year <b>${x.mbYear}</b>`, what: `year → <b>${x.mbYear}</b>`, why: "MusicBrainz's first release" });
+    const g = genreSugg.get(x.albumId);
+    if (!x.genres.length && g) {
+      const keep = g.suggestions.filter((s) => s.tick);
+      const own = keep.some((s) => s.from !== "artist");
+      if (!own && g.removed?.length) {   // nothing on it, and its own MusicBrainz genres were all removed before: offer them back
+        if (!genrePicks.has(x.albumId)) genrePicks.set(x.albumId, new Set(g.removed.filter((r) => r.removedBy === "review" && !r.umbrella).map((r) => r.name)));
+        const picks = genrePicks.get(x.albumId), back = g.removed.filter((r) => picks.has(r.name));
+        rows.push({ key: `gn:${x.albumId}`, x, tick: false, blocked: !back.length,
+          action: { type: "albumGenres", albumId: x.albumId, keep: back.map((r) => ({ name: r.name, mbid: r.mbid || null, source: "musicbrainz", votes: r.votes || null })), drop: [], reject: [] },
+          text: `“${esc(x.title)}”: genres back <b>${back.map((r) => esc(r.name)).join(", ")}</b>`,
+          what: `genres → ${g.removed.map((r) => `<label class="gpick"><input type="checkbox" data-gpick="${x.albumId}" value="${esc(r.name)}"${picks.has(r.name) ? " checked" : ""}> <b>${esc(r.name)}</b>
+            <span class="meta">${plural(r.votes, "vote")} · ${r.removedBy === "review" ? "left unticked in a review" : r.removedBy === "hand" ? "removed by hand" : "removed"}${r.removedAt ? ` ${esc(r.removedAt)}` : ""}</span></label>`).join("")}`,
+          why: "It has no genres left. These are MusicBrainz's for the album, but each was removed before — tick any to put back (umbrellas like metal and rock, and ones you removed by hand, arrive unticked)." });
+        continue;
+      }
+      if (!keep.length) continue;
+      rows.push({ key: `gn:${x.albumId}`, x, tick: own,
+        action: { type: "albumGenres", albumId: x.albumId, keep: keep.map((s) => ({ name: s.name, mbid: s.mbid || null, source: s.source, votes: s.votes || null })), drop: [], reject: [] },
+        text: `“${esc(x.title)}”: genres <b>${keep.map((s) => esc(s.name)).join(", ")}</b>`, what: `genres → <b>${keep.map((s) => esc(s.name)).join(", ")}</b>`,
+        why: own ? esc(g.notes.join(" · ")) : "nothing of its own on MusicBrainz — these are the artist's top genres" });
+    }
+  }
+  return rows;
+}
+function paintFixes() {
+  const host = document.getElementById("d-fixes");
+  const rows = fixRows();
+  const waiting = wb.discography.filter((x) => !x.genres.length && !genreSugg.has(x.albumId)).length;
+  const none = document.getElementById("todo-none");
+  if (none) none.hidden = !!rows.length;
+  const jump = document.querySelector('#a-jump a[href="#s-todo"]');
+  if (jump) jump.innerHTML = `To sort out${wb.outstanding + rows.length ? `<span class="meta"> ${fmtNum(wb.outstanding + rows.length)}</span>` : ""}`;
+  if (!rows.length && !waiting) { host.innerHTML = ""; return; }
+  const ticked = (r) => !r.blocked && (fixTicks.has(r.key) ? fixTicks.get(r.key) : r.tick);
+  const open = rows.filter((r) => !basket.has(r.key));
+  host.innerHTML = `<div class="wb-fixes">
+    <div class="wb-fixes-head"><h3>Suggested fixes</h3><span class="meta">${plural(rows.length, "suggestion")} from MusicBrainz — the safe ones arrive ticked; queuing puts them in the basket, nothing changes until you apply</span>
+      <span class="spacer"></span><button class="small good" data-act="queue-fixes"${open.some(ticked) ? "" : " disabled"}>Queue ticked (${open.filter(ticked).length})</button></div>
+    ${rows.length ? `<div class="table-scroll"><table class="data"><thead><tr><th></th><th>Album</th><th>Change</th><th>Why</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr class="${basket.has(r.key) ? "queued" : ""}"><td><input type="checkbox" data-fix="${r.key}"${ticked(r) ? " checked" : ""}${basket.has(r.key) || r.blocked ? " disabled" : ""}></td>
+        <td>${esc(r.x.title)}${r.x.year ? ` <span class="meta">${r.x.year}</span>` : ""}</td><td>${r.what}${basket.has(r.key) ? ` <span class="badge ok">queued</span>` : ""}</td><td class="meta">${r.why}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${waiting ? `<div class="meta" style="margin-top:6px">Looking up genres for ${plural(waiting, "album")}…</div>` : ""}</div>`;
+  host.querySelectorAll("[data-fix]").forEach((cb) => cb.addEventListener("change", () => { fixTicks.set(cb.dataset.fix, cb.checked); paintFixes(); }));
+  host.querySelectorAll("[data-gpick]").forEach((cb) => cb.addEventListener("change", () => {
+    const picks = genrePicks.get(+cb.dataset.gpick);
+    if (cb.checked) picks.add(cb.value); else picks.delete(cb.value);
+    if (cb.checked) fixTicks.set(`gn:${cb.dataset.gpick}`, true);   // picking a genre means you want the row
+    paintFixes();
+  }));
+  host.querySelector("[data-act='queue-fixes']").addEventListener("click", () => {
+    for (const r of open.filter(ticked)) basket.add(r.key, r.action, r.text, document.querySelector(`#s-disco .ck-card[data-album="${r.x.albumId}"]`));
+    paintFixes();
+  });
+}
+// Genre suggestions for the albums with none, one after another; each fills its row as it arrives.
+async function lookUpGenres() {
+  if (genreLookup || lookupRunning) return;   // the artist lookup fetches genres too -- ask the cache after it
+  genreLookup = (async () => {
+    for (;;) {
+      const x = wb.discography.find((a) => !a.genres.length && !genreSugg.has(a.albumId));
+      if (!x) break;
+      const { ok, data } = await api(`/api/genres/suggest?albumId=${x.albumId}`);
+      genreSugg.set(x.albumId, ok ? data : { suggestions: [], notes: [] });
+      paintFixes();
+    }
+  })();
+  await genreLookup;
+  genreLookup = null;
+}
+document.addEventListener("mc:basket", () => { if (wb) paintFixes(); });
+document.getElementById("d-sort").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-sort]");
+  if (!b || b.dataset.sort === discoSort) return;
+  discoSort = b.dataset.sort;
+  try { localStorage.setItem("workbench-disco-sort", discoSort); } catch { /* fine */ }
+  paintDisco();
+});
+document.getElementById("s-disco").addEventListener("click", (e) => {
+  const card = e.target.closest(".ck-card");
+  if (!card || e.target.closest("a")) return;
+  const id = +card.dataset.album;
+  openAlbum = openAlbum === id ? null : id;
+  document.querySelectorAll("#s-disco .ck-card").forEach((c) => c.classList.toggle("open", +c.dataset.album === openAlbum));
+  document.querySelector(".wb-panel")?.remove();
+  if (openAlbum) placePanel(openAlbum, true);
+});
+document.getElementById("s-disco").addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches(".ck-card")) { e.preventDefault(); e.target.click(); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && openAlbum && !document.querySelector(".modal-scrim")) {
+    openAlbum = null;
+    document.querySelector(".wb-panel")?.remove();
+    document.querySelectorAll("#s-disco .ck-card.open").forEach((c) => c.classList.remove("open"));
+  }
+});
+
+// The panel spans the grid under the last card of the clicked card's row.
+function placePanel(id, scroll = false) {
+  document.querySelector(".wb-panel")?.remove();
+  const card = document.querySelector(`#s-disco .ck-card[data-album="${id}"]`);
+  if (!card) return;
+  let last = card;
+  for (let n = card.nextElementSibling; n && n.offsetTop === card.offsetTop; n = n.nextElementSibling) last = n;
+  const panel = document.createElement("div");
+  panel.className = "wb-panel";
+  last.after(panel);
+  albumPanel(panel, wb.discography.find((x) => x.albumId === id), card);
+  if (scroll) panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+function albumPanel(panel, x, card) {
+  const profile = { albumId: x.albumId, title: x.title, baseTitle: x.title, artistName: wb.artist.name, artistMbid: wb.artist.mbid, mbid: x.mbid };
+  const mbTypes = x.mbTypes ? x.mbTypes.filter(Boolean).join(" + ") || "no type" : null;
+  panel.innerHTML = `
+    <div class="wb-panel-head"><b>${esc(x.title)}</b> ${x.mbid ? mbLink("album", x.mbid) : ""} <span class="meta">${plural(x.plays, "play")}${x.songs ? ` · ${plural(x.songs, "song")}` : ""}</span>
+      <span class="spacer"></span><a class="meta" href="/albums.html#discography/${artistId}">merge or split in Albums › Discography →</a><button class="small" data-act="close" title="Close (Esc)">✕</button></div>
+    <div class="wb-panel-grid">
+      <div><h3>Title and year</h3>
+        <div class="inline-form"><input type="text" data-role="title" value="${esc(x.title)}" style="flex:1;min-width:180px" />
+          <input type="number" data-role="year" value="${x.year || ""}" placeholder="year" min="1900" max="2100" style="width:90px" />
+          <button class="small good" data-act="edit">Queue</button></div>
+        <div class="meta" style="margin-top:4px">The original release year. Old titles keep routing to it after a rename.</div></div>
+      <div><h3>Release type</h3>
+        <div class="inline-form">${tySelect({ albumId: x.albumId, current: x.type, kind: x.mbKind, status: x.typeSource === "manual" ? "manual" : x.typeStatus })}
+          ${mbTypePending(x) ? `<button class="small good" data-act="mb-type">Use MusicBrainz's: ${TY_LABEL[x.mbKind]}</button>` : ""}</div>
+        <div class="meta" style="margin-top:4px">MusicBrainz: ${mbTypes ? esc(mbTypes) : x.mbid ? "not looked up yet (Albums › Types)" : "needs an id first"}${x.typeStatus === "check" ? ` — <span class="warn-text">held back: too many songs for that, so the id is probably the single's</span>` : ""}. Changing it queues in the basket.</div></div>
+      <div><h3>Genres</h3><div data-role="genres" class="meta">Loading…</div></div>
+      <div><h3>Cover</h3><div data-role="cover"></div></div>
+      <div class="full"><h3>MusicBrainz id</h3>
+        <div class="inline-form">${x.mbid ? `${mbLink("album", x.mbid, x.mbid)}` : `<span class="badge warn">no id</span>`}<button class="small" data-act="resolve">${x.mbid ? "Change…" : "Find…"}</button></div>
+        <div data-role="resolve"></div></div>
+      ${x.filedSongs?.length ? `<div class="full"><h3>Songs filed here</h3>${x.filedSongs.map((f) => `<div class="inline-form" style="margin-bottom:4px">
+          <span>${esc(f.title)}${f.shows ? ` <span class="meta">seen live ${f.shows === 1 ? "once" : `${f.shows} times`}</span>` : ""}</span>
+          <select data-move="${f.songId}"><option value="">Move to…</option>${wb.discography.filter((o) => o.albumId !== x.albumId && (o.plays || o.vinyl))
+            .map((o) => `<option value="${o.albumId}">${esc(o.title)}${o.year ? ` (${o.year})` : ""}</option>`).join("")}</select></div>`).join("")}
+        <div class="meta">Moving a song queues in the basket. The album stays, with nothing filed under it.</div></div>` : ""}
+      ${x.pressings.length ? `<div class="full"><h3>On your shelf</h3><ul class="pressings">${x.pressings.map((p) => `<li>${esc(p.title || x.title)}${p.format ? ` <span class="meta">${esc(p.format)}</span>` : ""} ${p.discogsReleaseId ? discogsLink(p.discogsReleaseId) : ""}</li>`).join("")}</ul>
+        <div class="meta">Discogs owns the record details — change them on Discogs, or open the <a href="/vinyl.html">Vinyl page</a>.</div></div>` : ""}
+    </div>`;
+  panel.querySelector("[data-act='close']").addEventListener("click", () => card.click());
+  // title / year -> basket
+  panel.querySelector("[data-act='edit']").addEventListener("click", () => {
+    const title = panel.querySelector("[data-role='title']").value.trim(), year = panel.querySelector("[data-role='year']").value.trim();
+    const action = { type: "editAlbum", albumId: x.albumId };
+    const said = [];
+    if (title && title !== x.title) { action.title = title; said.push(`rename it “<b>${esc(title)}</b>”`); }
+    if (year && +year !== x.year) { action.year = +year; said.push(`year <b>${esc(year)}</b>`); }
+    if (!said.length) { basket.remove(`ed:${x.albumId}`); toast("Nothing changed."); return; }
+    basket.add(`ed:${x.albumId}`, action, `“${esc(x.title)}”: ${said.join(", ")}`, card);
+  });
+  // type -> basket (back to what it is = nothing queued)
+  // "MusicBrainz's" is a change too when its type hasn't been applied yet (the Types fill) or the album is set by hand
+  panel.querySelector("select[data-ty]").addEventListener("change", (e) => {
+    const kind = e.target.value || null;
+    const isNow = kind ? x.typeSource === "manual" && kind === x.type : !(x.typeSource === "manual" || mbTypePending(x));
+    if (isNow) { basket.remove(`ty:${x.albumId}`); return; }
+    basket.add(`ty:${x.albumId}`, { type: "setReleaseType", albumId: x.albumId, kind }, typeText(x, kind), card);
+  });
+  panel.querySelector("[data-act='mb-type']")?.addEventListener("click", () =>
+    basket.add(`ty:${x.albumId}`, { type: "setReleaseType", albumId: x.albumId, kind: null }, typeText(x, null), card));
+  // a song filed here -> another of the artist's albums (basket setSongAlbum)
+  panel.querySelectorAll("select[data-move]").forEach((sel) => sel.addEventListener("change", () => {
+    const f = x.filedSongs.find((s) => s.songId === +sel.dataset.move), key = `mv:${f.songId}`;
+    if (!sel.value) { basket.remove(key); return; }
+    const to = wb.discography.find((o) => o.albumId === +sel.value);
+    basket.add(key, { type: "setSongAlbum", songId: f.songId, albumId: to.albumId }, `File “${esc(f.title)}” under “<b>${esc(to.title)}</b>” (was “${esc(x.title)}”)`, card);
+  }));
+  // genres: applied at once, as on the Genres page (toast Undo)
+  const genresEl = panel.querySelector("[data-role='genres']");
+  const loadGenres = async () => {
+    const { ok, data } = await api(`/api/genres/album?albumId=${x.albumId}`);
+    if (!ok) { genresEl.textContent = data.message; return; }
+    genresEl.classList.remove("meta");
+    mountGenreChips(genresEl, x.albumId, data.genres, { onChange: () => refresh() });
+  };
+  loadGenres();
+  // cover: only for albums without one (saving a cover over another can't be undone)
+  const coverEl = panel.querySelector("[data-role='cover']");
+  if (x.coverStatus === "ok") coverEl.innerHTML = `<img class="cover-now" src="/covers/${x.albumId}.jpg?${Date.now()}" alt="" /><div class="meta" style="margin-top:4px">To swap it for another, use <a href="${coversLink()}">Albums › Covers</a>.</div>`;
+  else {
+    coverEl.innerHTML = `<div class="inline-form"><button class="small" data-act="caa" ${x.mbid ? "" : 'disabled title="Needs a MusicBrainz id first"'}>Fetch from the Cover Art Archive</button></div>
+      <div class="inline-form" style="margin-top:6px"><input type="url" data-role="url" placeholder="or paste an image link" style="flex:1;min-width:180px" /><button class="small" data-act="url">Use</button></div>
+      <div class="meta" style="margin-top:4px">${x.coverStatus === "none" ? "The archive had nothing last time. " : ""}Or do all ${esc(wb.artist.name)}'s at once in <a href="${coversLink()}">Albums › Covers</a>.</div>`;
+    const save = async (body, url) => {
+      coverEl.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+      const res = await api(url, { albumId: x.albumId, ...body });
+      if (!res.ok) { toast(esc(res.data.message), { error: true, timeout: 9000 }); coverEl.querySelectorAll("button").forEach((b) => { b.disabled = false; }); return; }
+      if (res.data.coverStatus !== "ok") { toast(`The Cover Art Archive has nothing for “${esc(x.title)}” — paste a link instead.`); refresh(); return; }
+      // not journaled like the rest: Undo moves the file aside again (covers.remove_cover), as on Albums › Covers
+      const before = x.coverStatus || null;
+      const t = toast(`Cover saved for <b>${esc(x.title)}</b> — it reaches the site at the next Publish`, { timeout: 12000 });
+      const undo = Object.assign(document.createElement("button"), { className: "small", textContent: "Undo" });
+      t.querySelector(".msg").after(undo);
+      undo.addEventListener("click", async () => {
+        undo.disabled = true;
+        const r = await api("/api/albums/clear-cover", { albumId: x.albumId, status: before });
+        if (!r.ok) { toast(esc(r.data.message), { error: true }); undo.disabled = false; return; }
+        t.remove();
+        toast(`Cover taken back for <b>${esc(x.title)}</b>`);
+        refresh();
+      });
+      refresh();
+    };
+    coverEl.querySelector("[data-act='caa']").addEventListener("click", () => save({}, "/api/albums/fetch-cover"));
+    coverEl.querySelector("[data-act='url']").addEventListener("click", () => {
+      const url = coverEl.querySelector("[data-role='url']").value.trim();
+      if (url) save({ url }, "/api/albums/set-cover");
+    });
+  }
+  // MusicBrainz id: the Albums page's identity toolkit, applied at once (toast Undo)
+  panel.querySelector("[data-act='resolve']").addEventListener("click", () =>
+    renderAlbumResolve(panel.querySelector("[data-role='resolve']"), profile, { reason: "workbench fix", onDone: () => loadArtist() }));
+}
+
+function paintHead() {
+  const a = wb.artist;
+  document.title = `Workbench — ${a.name}`;
+  basket.label = a.name;
+  document.getElementById("a-name").innerHTML = `${esc(a.name)} ${a.mbid ? mbLink("artist", a.mbid) : ""}`;
+  document.getElementById("a-status").innerHTML = `${statusBadge(wb.status)}${wb.reviewedAt ? ` <span class="meta">${wb.status === "reviewed" ? "" : "last reviewed "}${esc(wb.reviewedAt.slice(0, 10))}</span>` : ""}`;
+  const review = document.getElementById("a-review");
+  review.disabled = wb.status === "reviewed";
+  review.textContent = wb.status === "reviewed" ? "✓ Reviewed" : wb.outstanding && wb.status === "needs-work" ? "✓ Mark reviewed (leave the rest)" : "✓ Mark reviewed";
+  document.getElementById("a-prev").disabled = !neighbour(-1);
+  document.getElementById("a-next").disabled = !neighbour(1);
+  const L = wb.live, al = wb.discography;
+  document.getElementById("a-facts").innerHTML = [
+    `<span><b>${fmtNum(a.plays)}</b> plays</span>`, `<span><b>${fmtNum(a.songs)}</b> songs</span>`, `<span><b>${fmtNum(al.length)}</b> albums</span>`,
+    `<span><b>${fmtNum(al.reduce((n, x) => n + x.vinyl, 0))}</b> on vinyl</span>`,
+    L.shows ? `<span><b>${fmtNum(L.shows)}</b> show${L.shows === 1 ? "" : "s"}</span>` : `<span class="meta">no shows</span>`,
+  ].join("");
+  document.getElementById("a-note").innerHTML = wb.status === "changed"
+    ? `<div class="notice warn">Something on ${esc(a.name)}'s albums has changed since you reviewed them (a title, id, cover, year or type). Look them over and mark reviewed again.</div>` : "";
+  const idEl = document.getElementById("a-artist-id");
+  idEl.innerHTML = a.mbid ? "" : a.noMbidOk ? `<p class="meta">Marked as not on MusicBrainz.</p>`
+    : `<div class="notice warn"><div class="headline">${esc(a.name)} has no MusicBrainz id</div><div class="meta">Album ids can't be browsed from their discography without one. <button class="small" data-act="find-artist">Find on MusicBrainz…</button></div><div data-role="slot"></div></div>`;
+  idEl.querySelector("[data-act='find-artist']")?.addEventListener("click", () =>
+    renderArtistResolve(idEl.querySelector("[data-role='slot']"), { artistId: a.artistId, name: a.name }, { onDone: () => loadArtist() }));
+  const jumps = [["s-todo", "To sort out", wb.outstanding], ["s-disco", "Discography", al.length], ["s-songs", "Songs", null], ["s-live", "Live", L.shows || null], ["s-about", "About", null],
+    ...(wb.batches.length ? [["s-history", "History", null]] : [])];
+  document.getElementById("a-jump").innerHTML = jumps.map(([id, label, n]) => `<a href="#${id}">${label}${n ? `<span class="meta"> ${fmtNum(n)}</span>` : ""}</a>`).join("");
+}
+
+function paintRest() {
+  const a = wb.artist, L = wb.live;
+  document.getElementById("songs-meta").textContent = wb.songs.length ? `of ${plural(a.songs, "song")}` : "";
+  document.getElementById("a-songs").innerHTML = wb.songs.map((x) => `<li>${esc(x.title)} <span class="meta">— ${x.album ? esc(x.album) : "no album"} · ${fmtNum(x.plays)}</span></li>`).join("") || `<li class="meta">No plays.</li>`;
+  document.getElementById("a-live").innerHTML = L.shows
+    ? `${plural(L.shows, "show")} at ${plural(L.venues, "venue")}, ${esc(L.first.slice(0, 4))}${L.last.slice(0, 4) !== L.first.slice(0, 4) ? `–${esc(L.last.slice(0, 4))}` : ""}, last at ${esc(L.lastVenue || "?")}.
+       ${L.songs ? `${plural(L.songs, "live song")}: ${L.done} settled, ${L.todo} with a suggestion waiting, ${L.unchecked} not looked up yet.` : ""} <a href="/songs.html#live/${artistId}">Open in Live sets →</a>`
+    : "No live shows recorded.";
+  const hist = document.getElementById("s-history");
+  hist.innerHTML = wb.batches.length ? `<div class="sec"><h2>History</h2><span class="meta">batches for ${esc(a.name)}</span></div><ul class="batches">${wb.batches.map((b) =>
+    `<li><time>${esc(b.at.slice(5, 16))}</time><span>${esc(b.label || "")}</span><span class="meta">${plural(b.actions || 0, "change")}</span><span class="spacer"></span>${b.undoneAt ? '<span class="badge">undone</span>' : `<button class="small" data-batch="${b.batchId}">Undo</button>`}</li>`).join("")}</ul>` : "";
+  hist.querySelectorAll("[data-batch]").forEach((btn) => btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    if (!(await undoAction("batchv2", parseInt(btn.dataset.batch, 10)))) btn.disabled = false;   // success reloads via mc:undone
+  }));
+}
+
+async function fetchArtist() {
+  const mine = ++loading;   // an undo toast and the mc:undone event can both ask -- only the latest paints
+  const { ok, data } = await api(`/api/workbench?artistId=${artistId}`);
+  if (mine !== loading) return null;
+  if (!ok) { document.getElementById("a-todo").innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return null; }
+  wb = data;
+  return data;
+}
+// Everything again (after a batch, an undo, an id assigned).
+async function loadArtist() {
+  document.getElementById("artist").hidden = false;
+  if (!(await fetchArtist())) return;
+  api(`/api/artists/links?artistId=${artistId}`).then(({ ok, data: l }) => {
+    if (ok) mountArtistLinks(document.getElementById("a-links"), artistId, l.links, () => loadArtist());
+  });
+  const about = document.getElementById("about");
+  if (!about.dataset.mounted) { about.dataset.mounted = "1"; mountAboutEditor(about, artistId); }
+  paintHead(); paintTodo(); paintDisco(); paintRest();
+  if (wb.lookupPending && !lookupRan) lookUpArtist();
+  keys.reset();
+  keys.first();   // the first item is live straight away -- shortcuts work without a click
+}
+// On open: what MusicBrainz knows about this artist that isn't cached yet -- years, types, where a
+// single's song is, genres (artist_lookup.py; only warms the cache, about one request a second).
+// Once per visit; then everything reloads from the cache.
+let lookupRan = false, lookupRunning = false;
+async function lookUpArtist() {
+  lookupRan = lookupRunning = true;
+  const box = document.getElementById("todo-lookup");
+  box.innerHTML = `<p class="sec-note">Looking ${esc(wb.artist.name)} up on MusicBrainz — ${plural(wb.lookupPending, "thing")} to ask, about one a second. You can carry on meanwhile.</p><div data-role="job"></div>`;
+  const ok = await runSweep(box.querySelector("[data-role='job']"), "artist-lookup", 60, { artistId });
+  lookupRunning = false;
+  if (ok) { box.innerHTML = ""; genreSugg.clear(); loadArtist(); }
+  else box.insertAdjacentHTML("afterbegin", `<p class="sec-note">MusicBrainz lookup didn't run (another lookup may be going) — reload later to try again.</p>`);
+}
+
+// After an instant fix in the album panel (genres, a cover): the header and the discography only,
+// so the To sort out list keeps its place.
+async function refresh() {
+  if (!(await fetchArtist())) return;
+  paintHead(); paintDisco();
+}
+
+document.getElementById("a-prev").addEventListener("click", () => goTo(neighbour(-1)));
+document.getElementById("a-next").addEventListener("click", () => goTo(neighbour(1)));
+document.getElementById("a-review").addEventListener("click", async () => {
+  if (basket.size) { toast("Apply (or clear) your queued changes first.", { error: true }); return; }
+  const actions = wb.reviewMarks.map((mark) => ({ type: "mark", entityType: "artist", entityId: artistId, mark }));
+  const res = await api("/api/batch/apply", { actions, label: `Reviewed ${wb.artist.name}`, artistId });
+  if (!res.ok) { toast(esc(res.data.message), { error: true }); return; }
+  toast(`<b>${esc(wb.artist.name)}</b> marked reviewed${neighbour(1) ? " — Next → when you're ready" : ""}`, { undo: { kind: "batchv2", id: res.data.batchId } });
+  loadArtist();
+});
+document.addEventListener("mc:undone", () => { if (artistId) loadArtist(); });
+function warnUnapplied(e) { if (basket.size) { e.preventDefault(); e.returnValue = ""; } }
+window.addEventListener("beforeunload", warnUnapplied);
+
+if (artistId) loadArtist();
+else { loadList(); loadAboutSweep(); }
+</script>
+</body>
+</html>

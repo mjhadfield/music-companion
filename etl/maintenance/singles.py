@@ -13,7 +13,11 @@ its plays filed there, sometimes its own copy of the song. This finds them from 
 
 "On L" means a song filed under L, or a line of L's tracklist (your pressing's Discogs tracklist,
 or the MusicBrainz one in album_tracklists) -- a single's song is often filed only under the single
-(Ghost's Hunter's Moon), so L's own songs alone can't see it. Tracklist-only evidence is always Review.
+(Ghost's Hunter's Moon), so L's own songs alone can't see it. Or MusicBrainz says so: its recording
+search (mbcache.recording_release_groups, cached -- only read here, the "single-lookups" sweep and
+the workbench's artist lookup fetch it) lists the release groups a recording of that title is on,
+bonus tracks of one edition included (Sabaton's In the Army Now is on Carolus Rex). Tracklist-only
+and MusicBrainz-only evidence is always Review.
 
 Two kinds of item:
   fold     every track of S is on L. Folding (batch action "foldSingle"): S's own songs merge into
@@ -32,6 +36,7 @@ import json
 import re
 from collections import defaultdict
 
+from common import artist_mbid_sets
 from titles import base_key, split_title, track_key, variant_tags
 
 MAX_TRACKS = 6
@@ -47,6 +52,23 @@ def _in(ids) -> str:
 def _track(title: str) -> tuple[str, frozenset]:
     """What makes two song rows one track here: the title without edition words, and its version tags."""
     return track_key(title) or base_key(title), frozenset(variant_tags(title))
+
+
+RECORDING_RGS = "search:recording-rgs:"   # + artist mbid + ":" + lowercased title (mbcache.recording_release_groups_key)
+
+
+def _recording_rgs(c, artist_mbids: set[str]) -> dict[tuple[str, str], list[dict]]:
+    """(artist mbid, lowercased title) -> the release groups MusicBrainz has that recording on, for
+    whatever is cached."""
+    out = {}
+    for key, payload in c.execute("SELECT key, payload_json FROM mb_cache WHERE key LIKE ?", (RECORDING_RGS + "%",)):
+        mbid, _, title = key[len(RECORDING_RGS):].partition(":")
+        if mbid in artist_mbids:
+            try:
+                out[(mbid, title)] = json.loads(payload) or []
+            except ValueError:
+                continue
+    return out
 
 
 def _mb_types(c) -> dict[str, tuple[str | None, list]]:
@@ -109,6 +131,26 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
         for k in keys:
             if album_id in albums:
                 holds[albums[album_id]["artistId"]][k].add(album_id)
+    # MusicBrainz's word for it (cached recording searches): release group -> this artist's albums
+    mbids_of = artist_mbid_sets(c, artists)
+    rec_rgs = _recording_rgs(c, set().union(*mbids_of.values()) if mbids_of else set())
+    resolved = {k.split(":", 2)[2]: json.loads(p) for k, p in c.execute("SELECT key, payload_json FROM mb_cache WHERE key LIKE 'resolve:release-group:%'")} if rec_rgs else {}
+    rg_albums = defaultdict(set)
+    for a in albums.values():
+        if a["mbid"]:
+            rg_albums[resolved.get(a["mbid"]) if isinstance(resolved.get(a["mbid"]), str) else a["mbid"]].add(a["albumId"])
+    mb_on = defaultdict(set)                                           # (artist, track) -> albums MusicBrainz has it on
+
+    def musicbrainz_homes(artist: int, title: str, k) -> None:
+        if (artist, k) in mb_on:
+            return
+        found = set()
+        for m in mbids_of.get(artist, ()):
+            for rg in rec_rgs.get((m, title.strip().lower()), []):
+                found |= {a for a in rg_albums.get(rg.get("mbid"), ()) if albums[a]["artistId"] == artist}
+        mb_on[(artist, k)] = found
+        holds[artist][k] |= found
+
     vinyl = dict(c.execute("SELECT album_id, count(*) FROM vinyl_holdings GROUP BY album_id").fetchall())
     mb = _mb_types(c)
     sizes = {a: max(len(filed.get(a, [])), len(listed.get(a, ()))) for a in set(filed) | set(listed)}
@@ -148,6 +190,8 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
         lead = [k for k in lead if not k[1]] or lead                   # the plain one when there is one, not its remixes (Pendulum's Halo)
         if not lead:
             continue
+        for k, t in tracks.items():
+            musicbrainz_homes(artist, t["title"], k)
         holders = lambda k: {a for a in holds[artist].get(k, set())  # noqa: E731
                              if a != s["albumId"] and artist in credited.get(a, set()) and a in albums}
         # albums (of this artist, other than S) that have the title track -- a fold needs every track there too
@@ -168,7 +212,7 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
         rows = []
         for k, t in tracks.items():
             twin = target_songs.get(k)
-            via = None if k not in on_target else "song" if twin else "tracklist"
+            via = None if k not in on_target else "song" if twin else "tracklist" if k in listed.get(target["albumId"], ()) else "musicbrainz"
             rows.append({"title": t["title"], "plays": t["plays"], "songIds": t["songIds"], "ownIds": t["ownIds"], "filedHere": bool(t["ownIds"]),
                          "twin": {"songId": twin[0], "title": twin[1]} if twin else None, "onTarget": via is not None, "via": via})
         mb_type = mb.get(s["mbid"] or "", (None, []))
@@ -179,6 +223,10 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
                            f"(B-sides?) -- {'it stays' if len(stay) == 1 else 'they stay'} on the single; only the tracks {target['title']} has move")
         if any(r["via"] == "tracklist" for r in rows):
             reasons.append(f"{target['title']}'s tracklist lists {'it' if len(on_target) == 1 else 'them'}, but no song is filed there yet -- the single's song moves there")
+        if any(r["via"] == "musicbrainz" for r in rows):
+            n = sum(r["via"] == "musicbrainz" for r in rows)
+            reasons.append(f"MusicBrainz lists {'it' if n == 1 else 'them'} on {target['title']} (on at least one edition, maybe as a bonus track), "
+                           f"but no song of {'it' if n == 1 else 'them'} is filed there yet -- the single's song moves there")
         if vinyl.get(s["albumId"]):
             reasons.append(f"you own {vinyl[s['albumId']]} copy of it on vinyl -- a real single in your collection")
         if mb_type[0] == "Album":
@@ -196,4 +244,45 @@ def find_singles(c, artist_ids: list[int] | None = None, album_ids: list[int] | 
                     "songsToMerge": sum(1 for r in moving if r["filedHere"] and r["twin"]), "titleTrack": True,
                     "mbType": mb_type[0], "vinyl": vinyl.get(s["albumId"], 0), "tier": "review" if reasons else "high", "reasons": reasons})
     out.sort(key=lambda x: (x["tier"] != "high", -x["plays"], x["singleId"]))
+    return out
+
+
+def lookup_candidates(c, artist_ids: list[int] | None = None) -> list[dict]:
+    """Possible singles whose title track MusicBrainz hasn't been asked about yet (no cached recording
+    search under the artist's own MusicBrainz id), most played first -- what the "single-lookups" sweep
+    and the workbench's artist lookup fetch, one request each. A possible single: at most MAX_TRACKS
+    tracks, one of them its title (the plain version), and MusicBrainz doesn't call it an Album."""
+    where, args = "", []
+    if artist_ids is not None:
+        if not artist_ids:
+            return []
+        where, args = f"AND al.artist_id IN ({_in(artist_ids)})", list(artist_ids)
+    rows = c.execute(f"""
+        SELECT al.id, al.title, al.mbid, ar.mbid, (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays
+        FROM albums al JOIN artists ar ON ar.id = al.artist_id
+        WHERE ar.mbid IS NOT NULL {where}""", args).fetchall()
+    if not rows:
+        return []
+    ids = [r[0] for r in rows]
+    tracks = defaultdict(set)
+    for album_id, title in c.execute(f"SELECT album_id, title FROM songs WHERE album_id IN ({_in(ids)})", ids):
+        tracks[album_id].add(title)
+    for album_id, title in c.execute(f"""SELECT DISTINCT sc.album_id, s.title FROM scrobbles sc JOIN songs s ON s.id = sc.song_id
+                                        WHERE sc.album_id IN ({_in(ids)})""", ids):
+        tracks[album_id].add(title)
+    cached = {k for (k,) in c.execute("SELECT key FROM mb_cache WHERE key LIKE ?", (RECORDING_RGS + "%",))}
+    mb = _mb_types(c)
+    out = []
+    for aid, title, mbid, artist_mbid, plays in rows:
+        mine = tracks.get(aid, set())
+        if not mine or len({_track(t) for t in mine}) > MAX_TRACKS or mb.get(mbid or "", (None, []))[0] == "Album":
+            continue
+        key = _track(title)[0]
+        lead = sorted(t for t in mine if _track(t) == (key, frozenset()))
+        if not lead:
+            continue
+        if f"{RECORDING_RGS}{artist_mbid}:{lead[0].strip().lower()}" in cached:
+            continue
+        out.append({"albumId": aid, "title": lead[0], "artistMbid": artist_mbid, "plays": plays})
+    out.sort(key=lambda x: (-x["plays"], x["albumId"]))
     return out

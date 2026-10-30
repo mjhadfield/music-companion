@@ -59,7 +59,7 @@ PAGES = {
     "/albums.html": "albums.html",
     "/vinyl.html": "vinyl.html",
     "/songs.html": "songs.html",
-    "/artist.html": "artist.html",
+    "/workbench.html": "workbench.html",
     "/inbox.html": "inbox.html",
     "/genres.html": "genres.html",
 }
@@ -67,6 +67,7 @@ PAGES = {
 REDIRECTS = {
     "/duplicates.html": "/artists.html#duplicates",
     "/album-duplicates.html": "/albums.html#duplicates",
+    "/artist.html": "/workbench.html",   # the workbench's old name (?id=… is kept)
 }
 STATIC = {"/shared.js": ("shared.js", "application/javascript; charset=utf-8"),
           "/album-ui.js": ("album-ui.js", "application/javascript; charset=utf-8"),
@@ -213,7 +214,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_file(PAGE_DIR / PAGES[path], "text/html; charset=utf-8")
         if path in REDIRECTS:
             self.send_response(301)
-            self.send_header("Location", REDIRECTS[path])
+            target = REDIRECTS[path]
+            self.send_header("Location", f"{target}?{parts.query}" if parts.query and "#" not in target else target)
             self.send_header("Content-Length", "0")
             return self.end_headers()
         if path in STATIC:

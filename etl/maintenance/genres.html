@@ -194,7 +194,7 @@ function albumLinks(a) {
     if (p.discogsReleaseId) out.push(discogsLink(p.discogsReleaseId, a.pressings.length > 1 ? `Discogs ${i + 1}` : "Discogs"));
     out.push(`<a href="${COMPANION_URL}#/vinyl/${p.holdingId}" target="_blank" rel="noopener">your record${a.pressings.length > 1 ? ` ${i + 1}` : ""} ↗</a>`);
   });
-  out.push(`<a href="/artist.html?id=${a.artistId}">Workbench</a>`);
+  out.push(`<a href="/workbench.html?id=${a.artistId}">Workbench</a>`);
   return out.join("");
 }
 // votes per source, e.g. "melodic death metal  edition 1 · artist 13" (the first is what the tick is based on)
@@ -335,7 +335,7 @@ async function openArtist(id) {
   if (!ok || gen !== aGen) return;
   const todo = data.albums.filter((a) => !a.genres.length).length;
   view.innerHTML = `<div class="g-head" style="margin-bottom:10px"><h2>${esc(data.name)}</h2><span class="meta">${plural(data.albums.length, "album")} · ${todo} without a genre</span>
-      <span class="spacer" style="flex:1"></span><a href="/artist.html?id=${id}">Workbench</a>
+      <span class="spacer" style="flex:1"></span><a href="/workbench.html?id=${id}">Workbench</a>
       <button class="small" data-role="fetch">Suggest genres for all ${data.albums.length}</button></div>
     <div class="inherit" style="margin-bottom:10px"><span class="meta">${esc(data.name)} inherits:</span> <span class="genre-chips" style="display:inline-flex">${data.inherited.map((g) => `<span class="gchip" style="padding-right:8px">${esc(g.name)} <span class="meta">&nbsp;${g.albums}</span></span>`).join("") || `<span class="meta">nothing yet</span>`}</span></div>
     <div data-role="tiles"></div>`;
@@ -500,7 +500,7 @@ async function loadFillPreview(seed = 0) {
   const stat = (n, l) => `<div><div class="n">${fmtNum(n)}</div><div class="l">${l}</div></div>`;
   const chips = (r) => (r.genres || []).map((g) => `<span class="gk${g.votes >= 2 ? "" : " weak"}">${esc(g.name)} <span class="meta">${g.votes}</span></span>`).join("");
   const allOf = (r) => `<div class="all">MusicBrainz: ${(r.all || []).map((g) => `${esc(g.name)} ${g.votes}`).join(" · ")}</div>`;
-  const albumRows = (rows) => rows.map((r) => `<tr><td><a href="/artist.html?id=${r.artistId}">${esc(r.artist)}</a> — ${esc(r.title)}<div class="meta">${plural(r.plays, "play")}${r.vinyl ? " · vinyl" : ""} · from ${FILL_FROM[r.from] || r.from}</div></td><td>${chips(r)}${allOf(r)}</td></tr>`).join("");
+  const albumRows = (rows) => rows.map((r) => `<tr><td><a href="/workbench.html?id=${r.artistId}">${esc(r.artist)}</a> — ${esc(r.title)}<div class="meta">${plural(r.plays, "play")}${r.vinyl ? " · vinyl" : ""} · from ${FILL_FROM[r.from] || r.from}</div></td><td>${chips(r)}${allOf(r)}</td></tr>`).join("");
   box.innerHTML = `<h2>Dry run</h2>
     <p class="meta">Worked out from what's been gathered so far — nothing has changed. Solid chips have 2+ votes; dashed ones are a single vote (they stay in the low-confidence queue after applying). Umbrella genres (rock, metal, pop, punk) give way to a more specific one.</p>
     <div class="fill-stats">${stat(al.tagged, "albums would get genres")}${stat(al.weak, "…of them on 1 vote")}${stat(al.none, "albums MusicBrainz has nothing for")}${stat(al.pending, "albums not gathered yet")}${stat(al.nomb, "albums with no MusicBrainz id")}${stat(ar.tagged, "artists would get genres")}${stat(ar.pending, "artists not gathered yet")}</div>
@@ -508,8 +508,8 @@ async function loadFillPreview(seed = 0) {
       <button class="small" data-act="shuffle">Another random sample</button><span class="meta">${fmtNum(data.albumPlays)} plays on the albums it would tag</span></div>
     <h3 style="margin-top:16px">Most played albums it would tag</h3><table class="fill-table"><tbody>${albumRows(data.mostPlayed)}</tbody></table>
     <h3>40 random albums</h3><table class="fill-table"><tbody>${albumRows(data.sampleAlbums)}</tbody></table>
-    <h3>20 random artists</h3><table class="fill-table"><tbody>${data.sampleArtists.map((r) => `<tr><td><a href="/artist.html?id=${r.artistId}">${esc(r.name)}</a><div class="meta">${plural(r.plays, "play")}</div></td><td>${chips(r)}${allOf(r)}</td></tr>`).join("")}</tbody></table>
-    ${data.sampleUntagged.length ? `<h3>Some that would stay untagged</h3><table class="fill-table"><tbody>${data.sampleUntagged.map((r) => `<tr><td><a href="/artist.html?id=${r.artistId}">${esc(r.artist)}</a> — ${esc(r.title)}</td><td class="meta">${r.status === "none" ? "MusicBrainz has no genres for it" : "not gathered yet"}</td></tr>`).join("")}</tbody></table>` : ""}
+    <h3>20 random artists</h3><table class="fill-table"><tbody>${data.sampleArtists.map((r) => `<tr><td><a href="/workbench.html?id=${r.artistId}">${esc(r.name)}</a><div class="meta">${plural(r.plays, "play")}</div></td><td>${chips(r)}${allOf(r)}</td></tr>`).join("")}</tbody></table>
+    ${data.sampleUntagged.length ? `<h3>Some that would stay untagged</h3><table class="fill-table"><tbody>${data.sampleUntagged.map((r) => `<tr><td><a href="/workbench.html?id=${r.artistId}">${esc(r.artist)}</a> — ${esc(r.title)}</td><td class="meta">${r.status === "none" ? "MusicBrainz has no genres for it" : "not gathered yet"}</td></tr>`).join("")}</tbody></table>` : ""}
     <h3>Genres it would use most</h3><p class="meta">${data.topGenres.map(([n, c]) => `${esc(n)} ${fmtNum(c)}`).join(" · ")}</p>`;
   box.querySelector("[data-act='shuffle']").addEventListener("click", () => loadFillPreview(1 + Math.floor(Math.random() * 1e6)));
   box.querySelector("[data-act='apply']").addEventListener("click", async (e) => {

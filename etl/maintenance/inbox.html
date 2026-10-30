@@ -165,9 +165,10 @@ function body(it) {
 // "Possibly the same as" for a new song can also be a near-match (dupes.near_titles), not just the same base title.
 const HINT_WHY = { spacing: "spaced differently", article: "differs only by “the” / “a”", suffix: "adds a number or year", spelling: "a near spelling", contains: "one title contains the other" };
 // Everything else outstanding for that artist, on one page.
+const benchArtist = (it) => it.entityType === "artist" ? it.entityId : it.entity?.artistId;
 function benchLink(it) {
-  const artistId = it.entityType === "artist" ? it.entityId : it.entity?.artistId;
-  return artistId ? ` · <a href="/artist.html?id=${artistId}" style="text-transform:none; letter-spacing:0">open the artist in the Workbench →</a>` : "";
+  const artistId = benchArtist(it);
+  return artistId ? ` · <a href="/workbench.html?id=${artistId}" style="text-transform:none; letter-spacing:0">open the artist in the Workbench →</a>` : "";
 }
 
 const fmtKB = (bytes) => bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
@@ -217,6 +218,7 @@ function itemHtml(it, i) {
           ${b.why ? `<div class="ev-why">${b.why}</div>` : ""}
           ${it.warning ? `<div class="ev-why">⚠ ${esc(it.warning)}</div>` : ""}
           ${b.note ? `<div class="ev-note">${b.note}</div>` : ""}
+          ${!hints.length && benchArtist(it) ? `<div class="ev-note"><a href="/workbench.html?id=${benchArtist(it)}">Open the artist in the Workbench →</a></div>` : ""}
           ${b.table ? `<div class="table-scroll" style="margin-top:6px">${b.table}</div>` : ""}
         </div>
         <div class="actions">

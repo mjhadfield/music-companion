@@ -35,6 +35,8 @@ Action types (all ids are ints):
                                         one album's reviewed genres (Maintenance > Genres); marks it reviewed
   genreFill        {}                   the MusicBrainz genre fill (genre_fill.py), worked out again from the
                                         cache right here -- every untagged album / artist it has genres for
+  yearFill         {}                   years from MusicBrainz (album_years.py) for every album with an id and
+                                        no year that the cache has a first-release year for -- never one set
   releaseTypeFill  {}                   release types from MusicBrainz (release_types.py) for every album the
                                         cache can type -- never one set by hand
   setReleaseType   {albumId, kind}      by hand: album | ep | live | single | compilation | other, or null
@@ -160,6 +162,9 @@ def run_action(c, it: dict) -> tuple[list[dict], dict]:
     if t == "releaseTypeFill":
         import release_types
         return release_types.apply(c)
+    if t == "yearFill":
+        import album_years
+        return album_years.apply(c)
     if t == "setReleaseType":
         import release_types
         album_id, kind = _int(it, "albumId"), it.get("kind") or None
@@ -439,7 +444,7 @@ def apply(req):
     actions = _actions(req)
     label = str(req.body.get("label") or "")[:120]
     artist_id = int(req.body["artistId"]) if str(req.body.get("artistId") or "").isdigit() else None
-    big = len(actions) > BIG_BATCH or any(a.get("type") in ("genreFill", "releaseTypeFill") for a in actions)  # the fills touch thousands of albums
+    big = len(actions) > BIG_BATCH or any(a.get("type") in ("genreFill", "releaseTypeFill", "yearFill") for a in actions)  # the fills touch thousands of albums
     snapshot = merge.labelled_snapshot(label or "batch") if big else None
     c = db_connect()
     try:

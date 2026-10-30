@@ -310,7 +310,7 @@ function mountThemeToggle(btn) {
 
 function mountNav(active) {
   const header = document.getElementById("topnav");
-  const links = [["/", "Home"], ["/artist.html", "Workbench"], ["/artists.html", "Artists"], ["/vinyl.html", "Vinyl"], ["/albums.html", "Albums"], ["/songs.html", "Songs"], ["/genres.html", "Genres"], ["/inbox.html", "Inbox"]];
+  const links = [["/", "Home"], ["/workbench.html", "Workbench"], ["/artists.html", "Artists"], ["/vinyl.html", "Vinyl"], ["/albums.html", "Albums"], ["/songs.html", "Songs"], ["/genres.html", "Genres"], ["/inbox.html", "Inbox"]];
   header.className = "topnav";
   header.innerHTML = `
     <a class="brand" href="/">Music <b>Maintenance</b></a>
@@ -751,6 +751,6 @@ function mountSearch(input) {
     },
     renderItem: (i) => i.kind === "artist" ? `<b>${esc(i.name)}</b> <span class="meta">artist</span>`
       : `${esc(i.kind === "album" ? i.title : i.title)} <span class="meta">${i.kind} · ${esc(i.artistName || "")}</span>`,
-    onPick: (i) => { location.href = `/artist.html?id=${i.artistId}`; },
+    onPick: (i) => { location.href = `/workbench.html?id=${i.artistId}`; },
   });
 }

@@ -1,6 +1,7 @@
 """Singles filed as albums (singles.py) and folding them in (batch action foldSingle): what counts
 as a single and what never may, and that a fold is exactly undoable. Throwaway database built from
 schema.sql."""
+import json
 import os
 import sqlite3
 import sys
@@ -142,6 +143,66 @@ class SinglesTests(unittest.TestCase):
         batch.undo_batch(out["batchId"])
         self.assertEqual(checksum(self.conn), before)
 
+
+
+class MusicBrainzEvidenceTests(unittest.TestCase):
+    """A single whose song is filed nowhere else, but MusicBrainz's recording search (cached) has it
+    on the studio album -- a bonus track of one edition (Sabaton's In the Army Now on Carolus Rex)."""
+    ARTIST_MBID = "39a31de6-0000-0000-0000-000000000001"
+
+    def setUp(self):
+        if DB_PATH.exists():
+            DB_PATH.unlink()
+        conn = sqlite3.connect(DB_PATH)
+        conn.executescript((HERE.parent.parent.parent / "schema.sql").read_text())
+        migrate(conn)
+        conn.execute("INSERT INTO artists (id, name, mbid) VALUES (1, 'Band', ?)", (self.ARTIST_MBID,))
+        conn.executemany("INSERT INTO albums (id, artist_id, title, mbid) VALUES (?, 1, ?, ?)", [
+            (30, "Carolus Rex", "rg-carolus"), (31, "In the Army Now", "rg-army"), (32, "Steel Commanders", "rg-steel"), (33, "Defence of Moscow", "rg-moscow")])
+        conn.executemany("INSERT INTO album_artists VALUES (?, 1, 0)", [(30,), (31,), (32,), (33,)])
+        conn.executemany("INSERT INTO songs (id, artist_id, album_id, title) VALUES (?, 1, ?, ?)", [
+            (300, 30, "Carolus Rex"), (301, 30, "Gott Mit Uns"), (302, 30, "The Lion from the North"), (303, 30, "A Lifetime of War"),
+            (304, 30, "1648"), (305, 30, "The Carolean's Prayer"), (306, 30, "Poltava"), (310, 31, "In the Army Now"),
+            (320, 32, "Steel Commanders"), (321, 32, "Panzerkampf"), (322, 32, "Night Witches"), (330, 33, "Defence of Moscow")])
+        conn.executemany("INSERT INTO scrobbles (song_id, artist_id, album_id, played_at, raw_artist_text, raw_track_text) VALUES (?, 1, ?, '2020-01-01', 'Band', 'x')",
+                         [(310, 31), (310, 31), (330, 33), (300, 30)])
+        def rgs(*groups):
+            return json.dumps([{"mbid": m, "title": t, "primaryType": "Album", "secondaryTypes": sec, "firstDate": None} for m, t, sec in groups])
+        conn.executemany("INSERT INTO mb_cache (key, payload_json, fetched_at) VALUES (?, ?, datetime('now'))", [
+            (f"search:recording-rgs:{self.ARTIST_MBID}:in the army now", rgs(("rg-carolus", "Carolus Rex", []), ("rg-army", "In the Army Now", []))),
+            (f"search:recording-rgs:{self.ARTIST_MBID}:defence of moscow", rgs(("rg-steel", "Steel Commanders", ["Compilation"]))),
+            ("lookup:release-group:rg-steel", json.dumps({"mbid": "rg-steel", "title": "Steel Commanders", "primaryType": "Album", "secondaryTypes": ["Compilation"]})),
+        ])
+        conn.commit()
+        conn.close()
+        self.conn = connect()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def test_musicbrainz_puts_the_single_on_the_album(self):
+        f = {x["singleId"]: x for x in singles.find_singles(self.conn)}
+        self.assertEqual(f[31]["target"]["albumId"], 30)
+        self.assertEqual(f[31]["kind"], "fold")
+        self.assertEqual(f[31]["tier"], "review")                         # MusicBrainz-only evidence is never pre-ticked
+        self.assertEqual(f[31]["tracks"][0]["via"], "musicbrainz")
+        self.assertTrue(any("MusicBrainz lists it on Carolus Rex" in r for r in f[31]["reasons"]))
+        self.assertNotIn(33, f)                                           # only on a compilation: stays a single
+
+    def test_lookup_candidates_skip_what_is_cached(self):
+        self.assertEqual([x["albumId"] for x in singles.lookup_candidates(self.conn)], [])   # both singles already asked
+        self.conn.execute("DELETE FROM mb_cache WHERE key LIKE 'search:recording-rgs:%in the army now'")
+        self.assertEqual([(x["albumId"], x["title"]) for x in singles.lookup_candidates(self.conn, [1])], [(31, "In the Army Now")])
+
+    def test_fold_by_musicbrainz_applies_and_undoes(self):
+        before = checksum(self.conn)
+        out = batch.apply(Req({}, {"actions": [{"type": "foldSingle", "singleId": 31, "albumId": 30}]}))
+        q = self.conn.execute
+        self.assertIsNone(q("SELECT 1 FROM albums WHERE id = 31").fetchone())
+        self.assertEqual(q("SELECT album_id FROM songs WHERE id = 310").fetchone()[0], 30)   # no twin: the song moves with it
+        self.assertEqual(q("SELECT count(*) FROM scrobbles WHERE song_id = 310 AND album_id = 30").fetchone()[0], 2)
+        batch.undo_batch(out["batchId"])
+        self.assertEqual(checksum(self.conn), before)
 
 if __name__ == "__main__":
     unittest.main()

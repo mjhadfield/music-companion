@@ -435,7 +435,7 @@ body:has(.basket-bar:not([hidden])) main { padding-bottom: 80px; }
 .basket-list li.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .basket-list li.bad { border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
 
-/* -- Workbench review items (artist.html, Songs > Duplicates > Whole library; workbench-ui.js) -- */
+/* -- Workbench review items (workbench.html, Songs > Duplicates > Whole library; workbench-ui.js) -- */
 .wb-item { margin-bottom: 10px; }
 .wb-item table.data td, .wb-item table.data th { padding: 5px 8px; font-size: 0.84rem; vertical-align: middle; }
 .wb-item table.data tr.primary td { background: color-mix(in srgb, var(--ok) 7%, transparent); }

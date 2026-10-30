@@ -55,3 +55,6 @@ data/.snapshots/
 # (turned down / undone) -- never published, so never committed either (etl/covers.py).
 data/covers/.pending/
 data/covers/.removed/
+
+# Ad-hoc SQL queries (explorer scratch work) -- personal, not part of the project.
+docs/queries/

@@ -887,6 +887,44 @@ def _album_types(limit: int, log, progress, cancelled) -> None:
     release_types.sweep(limit, log, progress, cancelled)
 
 
+def _album_years(limit: int, log, progress, cancelled, artist_id: int | None = None) -> None:
+    """Years for albums with an id and none: artist discography browses (album_years.sweep)."""
+    import album_years
+    album_years.sweep(limit, log, progress, cancelled, artist_id=artist_id)
+
+
+def _single_lookups(limit: int, log, progress, cancelled, artist_id: int | None = None) -> None:
+    """Which albums MusicBrainz has each possible single's title track on (singles.lookup_candidates),
+    most played first -- one recording search each. Albums > Singles then shows what it found."""
+    import singles
+    conn = db_connect()
+    try:
+        todo = singles.lookup_candidates(conn, [artist_id] if artist_id else None)[:limit]
+    finally:
+        conn.close()
+    log(f"Looking up {len(todo)} possible single(s) on MusicBrainz — most played first (about {len(todo)} seconds).")
+    for i, x in enumerate(todo):
+        if cancelled():
+            log("Cancelled.")
+            return
+        progress(i, len(todo))
+        try:
+            homes = mbcache.recording_release_groups(x["title"], x["artistMbid"])
+            albums = [g["title"] for g in homes if g.get("primaryType") == "Album" and not g.get("secondaryTypes")]
+            if albums:
+                log(f"  · {x['title']}: on {', '.join(albums[:3])}")
+        except Exception as exc:  # one failed search shouldn't end the sweep
+            log(f"  ! {x['title']}: {exc}")
+    progress(len(todo), len(todo))
+    log("Done — see Albums › Singles.")
+
+
+def _artist_lookup(limit: int, log, progress, cancelled, artist_id: int | None = None) -> None:
+    """One artist's page, on open: years, types, singles and genres (artist_lookup.py)."""
+    import artist_lookup
+    artist_lookup.run(limit, log, progress, cancelled, artist_id=artist_id)
+
+
 def _artist_about(limit: int, log, progress, cancelled) -> None:
     """The artist page's About for artists that don't have one yet (about.sweep)."""
     import about
@@ -903,6 +941,9 @@ SWEEPS = {
     "song-recordings": _song_recordings,
     "album-editions": _album_editions,
     "album-types": _album_types,
+    "album-years": _album_years,
+    "single-lookups": _single_lookups,
+    "artist-lookup": _artist_lookup,
     "live-albums": _live_albums,
     "artist-suggest": _artist_suggest,
     "album-suggest": _album_suggest,

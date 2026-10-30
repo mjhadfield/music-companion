@@ -113,6 +113,7 @@
       <span class="spacer"></span>
       <button class="small good" id="sg-queue-all">Queue every one shown</button>
     </div>
+    <div id="sg-lookup" class="meta" style="margin:6px 0"></div><div id="sg-sweep"></div>
     <div class="kbd-help"><span><kbd>j</kbd>/<kbd>k</kbd> move</span><span><kbd>m</kbd> fold / move tracks</span><span><kbd>d</kbd> not a single / leave</span><span><kbd>s</kbd> skip</span></div>
     <div id="sg-list"><div class="status-line">Loading…</div></div>
   </section>
@@ -121,6 +122,7 @@
   <section data-panel="types" hidden>
     <p class="meta" style="margin:0 0 10px">What kind of release each album is, from MusicBrainz's release-group type. The site's artist page shows <b>albums, EPs and live albums</b> as the discography and folds <b>singles, compilations and everything else</b> away — untyped ones (no MusicBrainz id, or not looked up yet) fold away too until they're typed. Nothing changes until you Apply; one batch, undo it any time. A type set by hand is never touched by the fill.</p>
     <div class="card" id="ty-fill"><div class="meta">Loading the dry run…</div></div>
+    <div class="card" id="yr-fill" hidden></div>
     <div class="card">
       <h2>One artist</h2>
       <p class="meta">Their albums as the artist page will split them — green edge = discography, grey = folded. Change one by hand here.</p>
@@ -432,6 +434,15 @@ async function loadSingles() {
   if (!ok) { sgList.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
   sgData = data;
   tabs.setCount("singles", data.count);
+  // possible singles MusicBrainz hasn't been asked about: which albums it has their title track on (bonus tracks too)
+  const look = document.getElementById("sg-lookup");
+  look.innerHTML = data.toLookUp ? `${plural(data.toLookUp, "possible single")} not looked up on MusicBrainz yet — it can say which album a single's song is on, bonus tracks of one edition included.
+    <label>Look up <select data-role="n"><option>100</option><option selected>300</option><option>1000</option></select></label> <button class="small" data-act="look">Look up on MusicBrainz</button> <span>— about one a second, most played first</span>` : "";
+  look.querySelector("[data-act='look']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    await runSweep(document.getElementById("sg-sweep"), "single-lookups", Math.min(data.toLookUp, +look.querySelector("[data-role='n']").value));
+    loadSingles();
+  });
   paintSingles();
 }
 function paintSingles() {
@@ -694,8 +705,8 @@ function coverCard(it) {
     <div class="cv-art"></div>
     ${it.albumMode
       ? `<div class="cv-name"><div><b>${esc(it.albums[0].title)}</b>${it.sub != null ? `<span class="cv-sub">${esc(it.sub) || "&nbsp;"}</span>`
-          : `<a class="cv-sub" href="artist.html?id=${it.artistId}" title="Open in the workbench">${esc(it.artistName)}</a>`}</div><span class="meta">${fmtNum(it.plays)} plays</span></div>`
-      : `<div class="cv-name"><a href="artist.html?id=${it.artistId}" title="Open in the workbench">${esc(it.artistName)}</a><span class="meta">${fmtNum(it.plays)} plays</span></div>`}
+          : `<a class="cv-sub" href="workbench.html?id=${it.artistId}" title="Open in the workbench">${esc(it.artistName)}</a>`}</div><span class="meta">${fmtNum(it.plays)} plays</span></div>`
+      : `<div class="cv-name"><a href="workbench.html?id=${it.artistId}" title="Open in the workbench">${esc(it.artistName)}</a><span class="meta">${fmtNum(it.plays)} plays</span></div>`}
     <select aria-label="Album for ${esc(it.artistName)}"${it.albumMode ? " hidden" : ""}>${it.albums.map((a) =>
       `<option value="${a.albumId}"${a.albumId === start ? " selected" : ""}>${esc(a.title)} — ${fmtNum(a.plays)}${esc(why(a))}</option>`).join("")}</select>
     <input type="url" placeholder="…or paste an image link" aria-label="Image link for ${esc(it.artistName)}" />
@@ -833,17 +844,9 @@ mountTypeahead(document.getElementById("cv-artist-q"), {
 document.getElementById("cv-first").addEventListener("click", () => { cvOffset = 0; loadCovers(); });
 
 // ---- Types: what kind of release each album is (release_types.py) -----------------------------------
-const TY_LABEL = { album: "Album", ep: "EP", live: "Live album", single: "Single", compilation: "Compilation", other: "Other" };
-const TY_MAIN = new Set(["album", "ep", "live"]);
 let tyKind = "album", tyData = null, tyArtistId = null;
 const tyMbText = (r) => r.mbTypes ? esc(r.mbTypes.filter(Boolean).join(" + ") || "no type") : `<span class="meta">—</span>`;
 const tyAlbum = (r) => `<a href="#discography/${r.artistId}" title="Open in Discography">${esc(r.artist)}</a> — ${esc(r.title)}${r.year ? ` <span class="meta">(${r.year})</span>` : ""}${r.vinyl ? ` <span class="badge vinyl">vinyl</span>` : ""}`;
-function tySelect(r) {
-  const mine = r.status === "manual";
-  return `<select data-ty="${r.albumId}" title="Set by hand">
-    <option value=""${mine ? "" : " selected"}>MusicBrainz's${r.kind ? `: ${TY_LABEL[r.kind]}` : ""}</option>
-    ${Object.entries(TY_LABEL).map(([k, l]) => `<option value="${k}"${mine && r.current === k ? " selected" : ""}>${l} (by hand)</option>`).join("")}</select>`;
-}
 async function setReleaseType(albumId, kind, onDone) {
   const { ok, data } = await api("/api/batch/apply", { actions: [{ type: "setReleaseType", albumId, kind: kind || null }], label: "Release type" });
   if (!ok) { toast(esc(data.message), { error: true }); return; }
@@ -853,7 +856,41 @@ async function setReleaseType(albumId, kind, onDone) {
 function wireTySelects(root, onDone) {
   root.querySelectorAll("select[data-ty]").forEach((sel) => sel.addEventListener("change", () => { sel.disabled = true; setReleaseType(+sel.dataset.ty, sel.value, onDone); }));
 }
+// ---- Years: the MusicBrainz year fill (album_years.py) -- only albums with an id and no year --------------
+async function loadYears() {
+  const box = document.getElementById("yr-fill");
+  const { ok, data } = await api("/api/albums/years-preview");
+  box.hidden = !ok;                 // (the server needs a restart for this before it answers)
+  if (!ok) return;
+  const stat = (n, l) => `<div><div class="n">${fmtNum(n || 0)}</div><div class="l">${l}</div></div>`;
+  box.innerHTML = `<h2>Years from MusicBrainz — dry run</h2>
+    <p class="meta">An album with a MusicBrainz id but no year gets the year its release group first came out (the original, not a reissue). An album that has a year keeps it. Nothing changes until you Apply; one batch, undo it any time.</p>
+    <div class="ty-stats">${stat(data.yearless, "albums with an id and no year")}${stat(data.count, "would get a year")}${stat(data.used, "of them played or owned")}${stat(data.artistsToLookUp, "artists still to look up")}</div>
+    <div class="row" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button class="good" data-act="apply"${data.count ? "" : " disabled"}>Apply — ${fmtNum(data.count)} years</button>
+      <span style="flex:1"></span>
+      ${data.artistsToLookUp ? `<label class="meta">Look up <select data-role="n"><option>100</option><option selected>500</option><option>1000</option></select> artists</label><button class="small" data-act="lookup">Look up on MusicBrainz</button><span class="meta">one request an artist — their whole discography</span>` : ""}
+    </div>
+    <div id="yr-sweep"></div>
+    ${data.sample.length ? `<h3 style="margin-top:16px">Most played that would get a year</h3><table class="ty-table"><tbody>
+      ${data.sample.map((r) => `<tr><td>${tyAlbum({ ...r, year: null })}</td><td><b>${r.year}</b></td><td class="num">${fmtNum(r.plays)}</td></tr>`).join("")}</tbody></table>` : ""}`;
+  box.querySelector("[data-act='lookup']")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    await runSweep(document.getElementById("yr-sweep"), "album-years", Math.min(data.artistsToLookUp, +box.querySelector("[data-role='n']").value));
+    loadYears(); loadTypes();   // the browses bring release types too
+  });
+  box.querySelector("[data-act='apply']").addEventListener("click", async (e) => {
+    if (!confirm(`Give ${data.count} albums their MusicBrainz year? One batch — undo it any time from the toast or Activity.`)) return;
+    e.target.disabled = true; e.target.textContent = "Applying…";
+    const { ok: done, data: res } = await api("/api/batch/apply", { actions: [{ type: "yearFill" }], label: "MusicBrainz years" });
+    if (!done) { toast(esc(res.message), { error: true, timeout: 12000 }); e.target.disabled = false; return; }
+    toast(`Applied — ${esc(res.summaries[0].text)}`, { undo: { ...res.undo, onUndone: loadYears }, timeout: 30000 });
+    notifyChanged(); loadYears();
+  });
+}
+
 async function loadTypes() {
+  loadYears();
   const box = document.getElementById("ty-fill");
   const { ok, data } = await api("/api/albums/types-preview");
   if (!ok) { box.innerHTML = `<div class="status-line error">${esc(data.message)}</div>`; return; }
@@ -1053,6 +1090,8 @@ const tabs = mountTabs(document.getElementById("tabs"), {
   onSubpath: (tab, sub) => {
     // #types/<artistId>: that artist, plus the dry run (a sub-path skips the tab's own loader; deferred past mountTabs)
     if (tab === "types" && /^\d+$/.test(sub)) { setTimeout(() => { if (!tyData) loadTypes(); openTypesArtist(parseInt(sub, 10)); }); return; }
+    // #covers/<artistId>: By artist, on that artist (e.g. the workbench's "without a cover" link)
+    if (tab === "covers" && /^\d+$/.test(sub)) { setTimeout(() => { cvMode = "artist"; cvArtistId = parseInt(sub, 10); cvOffset = 0; loadCovers(); }); return; }
     if (tab !== "discography" || !/^\d+$/.test(sub)) return;
     if (!queueItems.length) loadQueue();
     if (parseInt(sub, 10) !== currentArtistId) openArtist(parseInt(sub, 10));

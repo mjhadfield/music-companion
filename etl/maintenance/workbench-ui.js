@@ -1,5 +1,5 @@
 /*
- * Song duplicate groups as review items -- shared by the artist workbench (artist.html) and the
+ * Song duplicate groups as review items -- shared by the artist workbench (workbench.html) and the
  * whole-library queue (Songs > Duplicates). A group never changes anything by itself: Queue merge
  * and Not the same / Keep separate add an action to the page's basket (shared.js createBasket),
  * which dry-runs the lot before anything is applied as one undoable batch. Needs shared.js and
@@ -39,7 +39,7 @@ function songGroupItem(g, { basket, keys, showArtist = false }) {
   const note = g.kind === "variant" ? "A live / remix / edit / demo version next to the song. Versions are kept as their own songs unless you merge one here (it can be split back out later)."
     : g.kind === "possible" ? `Titles that look like one song — ${esc(REASON_TEXT[g.reason] || g.reason)}. Check before merging.${tagged.length ? ` <span class="warn-text">One is a ${esc(tagged.join("/"))} version — versions stay separate unless you merge them.</span>` : ""}`
     : g.include.length ? "The same recording spelled differently, on the same album — ticked for you." : "The same recording spelled differently.";
-  el.innerHTML = `<div class="row"><div><div class="title">${showArtist ? `<a href="/artist.html?id=${g.artistId}" class="artist-link">${esc(g.artistName)}</a> — ` : ""}“${esc(primary.title)}” <span class="badge ${kindCls}">${kindLabel}</span>${g.split ? ' <span class="badge warn" title="Its live shows and its plays are on different rows">live split</span>' : ""}</div>
+  el.innerHTML = `<div class="row"><div><div class="title">${showArtist ? `<a href="/workbench.html?id=${g.artistId}" class="artist-link">${esc(g.artistName)}</a> — ` : ""}“${esc(primary.title)}” <span class="badge ${kindCls}">${kindLabel}</span>${g.split ? ' <span class="badge warn" title="Its live shows and its plays are on different rows">live split</span>' : ""}</div>
       <div class="meta">${note}</div></div>
       <div class="actions">${keyBtn("m", "Queue merge", "good")}${keyBtn("d", notSame)}${keyBtn("s", "Skip")}</div></div>
     <div class="table-scroll"><table class="data"><thead><tr><th>Keep</th><th>Merge</th><th>Title</th><th class="num">Plays</th><th>Album / played from</th><th>Played</th></tr></thead><tbody>
@@ -93,7 +93,7 @@ function albumSuggestItem(m, { basket, keys, profile, showArtist = false, onReso
   el.className = "review-item wb-item";
   const name = `as-${m.albumId}`;
   const pick = m.suggestions[0] && m.suggestions[0].tier === "high" && !m.suggestions[0].evidence?.alreadyLinkedTo ? m.suggestions[0].suggestionId : null;
-  el.innerHTML = `<div class="row"><div><div class="title">${showArtist ? `<a href="/artist.html?id=${m.artistId}">${esc(m.artistName)}</a> — ` : ""}${esc(m.title)}</div>
+  el.innerHTML = `<div class="row"><div><div class="title">${showArtist ? `<a href="/workbench.html?id=${m.artistId}">${esc(m.artistName)}</a> — ` : ""}${esc(m.title)}</div>
       <div class="meta">${plural(m.plays, "play")}${m.vinyl ? ` · ${plural(m.vinyl, "record")} owned` : ""} · no MusicBrainz id</div></div>
       <div class="actions">${m.suggestions.length ? keyBtn("a", "Queue selected", "good") + keyBtn("r", "None of these") : ""}${keyBtn("f", "Find…")}${keyBtn("x", "Not on MusicBrainz")}${keyBtn("s", "Skip")}</div></div>
     ${m.suggestions.map((s) => {
@@ -160,10 +160,10 @@ function singleItem(x, { basket, keys, showArtist = false }) {
   const moving = x.tracks.filter(on);
   const what = (t) => !on(t) ? "stays on the single"
     : t.filedHere && t.twin ? `its own copy merges into “${esc(t.twin.title)}” on ${esc(to.title)}`
-    : t.filedHere ? `its song moves to ${esc(to.title)} (on its tracklist)`
+    : t.filedHere ? `its song moves to ${esc(to.title)} (${t.via === "musicbrainz" ? "MusicBrainz has it there" : "on its tracklist"})`
     : `the plays move to ${esc(to.title)}`;
   el.innerHTML = `<div class="row"><div>
-      <div class="title">${showArtist ? `<a href="/artist.html?id=${x.artistId}">${esc(x.artistName)}</a> — ` : ""}“${esc(x.title)}” is a single from <b>${esc(to.title)}</b>${fold ? "" : " — with B-sides"}
+      <div class="title">${showArtist ? `<a href="/workbench.html?id=${x.artistId}">${esc(x.artistName)}</a> — ` : ""}“${esc(x.title)}” is a single from <b>${esc(to.title)}</b>${fold ? "" : " — with B-sides"}
         ${x.mbid ? mbLink("album", x.mbid) : ""} ${x.mbType ? `<span class="badge">MusicBrainz: ${esc(x.mbType)}</span>` : ""}</div>
       <div class="meta">${plural(x.plays, "play")} filed on the single${fold ? "" : `, ${fmtNum(x.movingPlays)} of them for ${esc(to.title)}`}${x.songsToMerge ? ` · ${plural(x.songsToMerge, "song")} of its own to merge` : ""} · ${esc(to.title)}${to.year ? ` (${to.year})` : ""} has ${plural(to.songs, "track")} ${to.mbid ? mbLink("album", to.mbid) : ""}</div>
       ${x.reasons.length ? `<div class="warn-text">Check: ${x.reasons.map(esc).join("; ")}</div>` : ""}</div>
@@ -192,7 +192,7 @@ function singleItem(x, { basket, keys, showArtist = false }) {
 // (undo from the toast or Activity). links: [{artistId, name}]; onChange() after a change or undo.
 function mountArtistLinks(el, artistId, links, onChange) {
   el.innerHTML = `<span class="meta">Linked artists:</span>
-    ${links.map((l) => `<span class="chip link-chip"><a href="/artist.html?id=${l.artistId}">${esc(l.name)}</a>
+    ${links.map((l) => `<span class="chip link-chip"><a href="/workbench.html?id=${l.artistId}">${esc(l.name)}</a>
       <button class="linkish" data-unlink="${l.artistId}" title="Unlink ${esc(l.name)}" aria-label="Unlink ${esc(l.name)}">✕</button></span>`).join("") || `<span class="meta">none</span>`}
     <input type="search" class="link-q" placeholder="+ Link an artist…" />`;
   const apply = async (action, text) => {

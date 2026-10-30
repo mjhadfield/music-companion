@@ -321,3 +321,14 @@ function mergeTable(albums, { checkedAll, primary, mergeKey, compact, highlight,
   paint();
   return wrap;
 }
+
+// -- Release types (release_types.py): labels, and the by-hand select. r: {albumId, current, kind, status}
+// as release_types.plan gives them -- the Albums > Types tab and the workbench's album panel.
+const TY_LABEL = { album: "Album", ep: "EP", live: "Live album", single: "Single", compilation: "Compilation", other: "Other" };
+const TY_MAIN = new Set(["album", "ep", "live"]);
+function tySelect(r) {
+  const mine = r.status === "manual";
+  return `<select data-ty="${r.albumId}" title="Set by hand">
+    <option value=""${mine ? "" : " selected"}>MusicBrainz's${r.kind ? `: ${TY_LABEL[r.kind]}` : ""}</option>
+    ${Object.entries(TY_LABEL).map(([k, l]) => `<option value="${k}"${mine && r.current === k ? " selected" : ""}>${l} (by hand)</option>`).join("")}</select>`;
+}

@@ -1,5 +1,6 @@
-"""The artist workbench: everything outstanding for one artist on one page, and the queue of
-artists that have something outstanding. Read-only -- every change goes through api/batch.py.
+"""The artist workbench (workbench.html): one page per artist -- what's outstanding, every album to
+look over and fix in place, the most played songs, the shows -- and the list of every artist with
+their review status. Read-only -- every change goes through api/batch.py.
 
 What counts as outstanding:
   albums   versions of one record still separate (discography groups), albums with no
@@ -8,21 +9,24 @@ What counts as outstanding:
   songs    duplicate groups and near-matches (dupes.py), and placement: a song filed under an
            album that doesn't credit its artist, or under a compilation when it's also been
            played from a studio album of the artist's
-  live     live songs still to settle (the Live sets tab does that work; summarised here)
 
-An artist marked done (review mark "workbench-reviewed:<signature>") leaves the queue until
-something new turns up -- the signature is a hash of exactly what was outstanding.
+Gaps are shown but never outstanding: albums without a cover / genres / a year / a release type (or
+held back as "check"), no artist MusicBrainz id, live songs still to settle (the Live sets tab).
 
-Reviewed: the artists with nothing left (all clear, or marked done), for a second look by eye --
-an overview of every album (cover, id, genres, vinyl), the most played songs and the shows. "Looks
-right" is review mark "artist-checked:<signature>", a hash of the albums as they were checked (titles,
-ids, covers, years), so an artist whose albums change afterwards shows as "changed since".
+Mark reviewed is one stamp made of two review marks, applied as one batch:
+  "workbench-reviewed:<signature>"  what was outstanding, left as it is (only when anything was) --
+                                    the artist is back to Needs work if something new turns up
+  "artist-checked:<signature>"      the albums as they were (titles, ids, covers, years, types) --
+                                    an artist whose albums change afterwards shows as Changed since
+Status: needs-work / unreviewed / changed / reviewed (review_status).
 """
 import hashlib
 import json
 import re
 from collections import defaultdict
 
+import album_years
+import artist_lookup
 import dupes
 import singles
 from api.albums import _dismissed_pairs, album_profiles, default_primary, discography_groups
@@ -177,15 +181,90 @@ def _counts(items: dict) -> dict:
             "placement": len(items["placement"]), "singles": len(items["singles"])}
 
 
+# ---- Review status: one stamp per artist ------------------------------------------------------------
+def _artist_albums(c, artist_ids: list[int] | None = None) -> dict[int, list[dict]]:
+    """Every album credited to each artist (album_artists), most played first, with its release type
+    as it is now and what MusicBrainz makes it (release_types.plan)."""
+    import release_types
+    where = f"WHERE aa.artist_id IN ({_in(artist_ids)})" if artist_ids is not None else ""
+    plan = {r["albumId"]: r for r in release_types.plan(c, artist_ids[0] if artist_ids and len(artist_ids) == 1 else None)}
+    out = defaultdict(list)
+    for r in c.execute(f"""
+            SELECT aa.artist_id, al.id, al.title, al.mbid, al.cover_status, al.year, al.release_type, al.release_type_source,
+                   (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays,
+                   (SELECT count(*) FROM vinyl_holdings v WHERE v.album_id = al.id) AS vinyl,
+                   (SELECT group_concat(ge.name, '|') FROM album_genres ag JOIN genres ge ON ge.id = ag.genre_id WHERE ag.album_id = al.id) AS genres
+            FROM album_artists aa JOIN albums al ON al.id = aa.album_id {where}
+            ORDER BY plays DESC, al.year, al.title""", artist_ids or []):
+        p = plan.get(r[1], {})
+        out[r[0]].append({"albumId": r[1], "title": r[2], "mbid": r[3], "coverStatus": r[4], "year": r[5], "type": r[6], "typeSource": r[7],
+                          "mbKind": p.get("kind"), "mbTypes": p.get("mbTypes"), "typeStatus": p.get("status"), "songs": p.get("songs", 0),
+                          "plays": r[8], "vinyl": r[9], "genres": r[10].split("|") if r[10] else []})
+    return out
+
+
+def check_signature(albums: list[dict]) -> str:
+    """What a review vouched for: each album's title, id, cover, year and release type."""
+    keys = sorted(f"{a['albumId']}:{a['mbid'] or ''}:{a['title']}:{a['coverStatus'] or ''}:{a['year'] or ''}:{a.get('type') or ''}" for a in albums)
+    return hashlib.sha1("|".join(keys).encode()).hexdigest()[:16]
+
+
+def _check_marks(c) -> dict[int, dict[str, str]]:
+    out = defaultdict(dict)
+    for artist_id, mark, at in c.execute("SELECT entity_id, mark, created_at FROM review_marks WHERE entity_type = 'artist' AND mark LIKE ?", (CHECK_MARK + "%",)):
+        out[artist_id][mark] = at
+    return out
+
+
+def review_status(total: int, marked: bool, albums: list[dict], marks: dict[str, str]) -> tuple[str, str | None]:
+    """-> (status, when last reviewed). needs-work: something outstanding that wasn't left as it is;
+    reviewed: Mark reviewed vouched for the albums as they are now; changed: reviewed, but the albums
+    have changed since; unreviewed: never marked."""
+    last = max(marks.values()) if marks else None
+    if total and not marked:
+        return "needs-work", last
+    if not marks:
+        return "unreviewed", None
+    at = marks.get(CHECK_MARK + check_signature(albums))
+    return ("reviewed", at) if at else ("changed", last)
+
+
+GAP_KEYS = ("noCover", "noGenres", "noYear", "untyped", "typeCheck", "noArtistMbid", "liveToSettle")
+
+
+def gaps(albums: list[dict], *, artist_mbid: str | None, no_mbid_ok: bool, live_to_settle: int) -> dict:
+    """What's missing -- shown, never counted as outstanding."""
+    return {"noCover": sum(a["coverStatus"] != "ok" for a in albums), "noGenres": sum(not a["genres"] for a in albums),
+            "noYear": sum(not a["year"] for a in albums), "untyped": sum(not a["type"] and a["typeStatus"] != "check" for a in albums),
+            "typeCheck": sum(a["typeStatus"] == "check" for a in albums),
+            "noArtistMbid": int(not artist_mbid and not no_mbid_ok), "liveToSettle": live_to_settle}
+
+
+def _live_to_settle(c, artist_ids: list[int] | None = None) -> dict[int, int]:
+    """artist -> live songs with a suggestion waiting or not looked up yet."""
+    _rows, _prof, statuses = live_pairs(c, artist_ids)
+    out = defaultdict(int)
+    for (performer, _sid), v in statuses.items():
+        if v["status"] in TODO or v["status"] == "unchecked":
+            out[performer] += 1
+    return out
+
+
+def _no_mbid_ok(c) -> set[int]:
+    return {r[0] for r in c.execute("SELECT entity_id FROM review_marks WHERE entity_type = 'artist' AND mark = 'no-mbid'")}
+
+
 @route("GET", "/api/workbench")
 def workbench(req):
+    """One artist, whatever their state: what's outstanding, every album (to look over and fix in
+    place), the most played songs, the shows, and the review status."""
+    from merge import linked_artists
     artist_id = req.int("artistId", required=True)
     with read_conn() as c:
         artist = c.execute("SELECT id, name, mbid FROM artists WHERE id = ?", (artist_id,)).fetchone()
         if not artist:
             raise ApiError("artist not found", 404)
-        flags = _flags_by_artist(c)
-        items = outstanding(c, [artist_id], with_flags=flags)[artist_id]
+        items = outstanding(c, [artist_id], with_flags=_flags_by_artist(c))[artist_id]
         album_ids = sorted({i for g in items["albumGroups"] for i in g["albumIds"]} | {i for s in items["similar"].values() for i in s}
                            | set(map(int, items["similar"])) | {m["albumId"] for m in items["missing"]} | {f["albumId"] for f in items["flags"]})
         profiles = album_profiles(c, album_ids)
@@ -194,19 +273,57 @@ def workbench(req):
         suggestions = _album_suggestions(c, [m["albumId"] for m in items["missing"]])
         for m in items["missing"]:
             m["suggestions"] = suggestions.get(m["albumId"], [])
-        rows, _prof, statuses = live_pairs(c, [artist_id])
+        _rows, _prof, statuses = live_pairs(c, [artist_id])
         st = [v["status"] for (p, _sid), v in statuses.items() if p == artist_id]
         plays = c.execute("SELECT count(*) FROM scrobbles WHERE artist_id = ?", (artist_id,)).fetchone()[0]
         sig = signature(items)
-        done = c.execute("SELECT 1 FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark = ?",
-                         (artist_id, DONE_MARK + sig)).fetchone() is not None
+        marked = c.execute("SELECT 1 FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark = ?",
+                           (artist_id, DONE_MARK + sig)).fetchone() is not None
         batches = [{"batchId": r[0], "label": r[1], "at": r[2], "undoneAt": r[3], **json.loads(r[4] or "{}")} for r in c.execute(
             "SELECT id, label, created_at, undone_at, summary_json FROM batches WHERE json_extract(summary_json, '$.artistId') = ? ORDER BY id DESC LIMIT 15",
             (artist_id,))]
-    return {"artist": {"artistId": artist[0], "name": artist[1], "mbid": artist[2], "plays": plays},
-            "items": items, "albums": profiles, "counts": _counts(items), "signature": sig, "done": done, "doneMark": DONE_MARK + sig,
-            "live": {"songs": len(st), "todo": sum(x in TODO for x in st), "done": sum(x in DONE for x in st), "unchecked": st.count("unchecked")},
-            "batches": batches}
+        albums = _artist_albums(c, [artist_id]).get(artist_id, [])
+        vinyl = defaultdict(list)
+        for aid, vid, title, fmt, rel in c.execute(
+                f"SELECT album_id, id, raw_title_text, format, discogs_release_id FROM vinyl_holdings WHERE album_id IN ({_in([a['albumId'] for a in albums])})",
+                [a["albumId"] for a in albums]):
+            vinyl[aid].append({"vinylId": vid, "title": title, "format": fmt, "discogsReleaseId": rel})
+        # an album neither played nor owned is there for the songs filed under it -- almost always one
+        # Live sets added for a song only ever seen live, so the page lists them to check it's their right home
+        unused = [a["albumId"] for a in albums if not a["plays"] and not a["vinyl"]]
+        filed = defaultdict(list)
+        for aid, sid, title, shows in c.execute(
+                f"""SELECT so.album_id, so.id, so.title, (SELECT count(DISTINCT ss.setlist_id) FROM setlist_songs ss WHERE ss.song_id = so.id)
+                    FROM songs so WHERE so.album_id IN ({_in(unused)}) ORDER BY so.title""", unused):
+            filed[aid].append({"songId": sid, "title": title, "shows": shows})
+        mb_years = album_years.mb_years(c, [a["mbid"] for a in albums if a["mbid"] and not a["year"]])
+        lookup_pending = artist_lookup.pending(c, artist_id)
+        for a in albums:
+            a["pressings"] = vinyl.get(a["albumId"], [])
+            if a["mbid"] in mb_years and not a["year"]:
+                a["mbYear"] = mb_years[a["mbid"]]   # for Suggested fixes
+            if not a["plays"] and not a["vinyl"]:
+                a["filedSongs"] = filed.get(a["albumId"], [])
+        songs = [{"songId": r[0], "title": r[1], "album": r[2], "plays": r[3]} for r in c.execute("""
+            SELECT so.id, so.title, al.title, count(*) AS n FROM scrobbles s JOIN songs so ON so.id = s.song_id LEFT JOIN albums al ON al.id = so.album_id
+            WHERE s.artist_id = ? GROUP BY so.id ORDER BY n DESC, so.title LIMIT 15""", (artist_id,))]
+        song_count = c.execute("SELECT count(*) FROM songs WHERE artist_id = ?", (artist_id,)).fetchone()[0]
+        shows = c.execute("SELECT count(*), min(event_date), max(event_date), count(DISTINCT venue_id) FROM setlists WHERE artist_id = ?", (artist_id,)).fetchone()
+        last = c.execute("SELECT v.name FROM setlists st LEFT JOIN venues v ON v.id = st.venue_id WHERE st.artist_id = ? ORDER BY st.event_date DESC LIMIT 1", (artist_id,)).fetchone()
+        links = [{"artistId": i, "name": c.execute("SELECT name FROM artists WHERE id = ?", (i,)).fetchone()[0]} for i in linked_artists(c, artist_id)]
+        marks = {r[0]: r[1] for r in c.execute("SELECT mark, created_at FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark LIKE ?", (artist_id, CHECK_MARK + "%"))}
+        no_mbid_ok = artist_id in _no_mbid_ok(c)
+    counts = _counts(items)
+    total = sum(counts.values())
+    status, at = review_status(total, marked, albums, marks)
+    live = {"songs": len(st), "todo": sum(x in TODO for x in st), "done": sum(x in DONE for x in st), "unchecked": st.count("unchecked"),
+            "shows": shows[0], "first": shows[1], "last": shows[2], "venues": shows[3], "lastVenue": last[0] if last else None}
+    return {"artist": {"artistId": artist[0], "name": artist[1], "mbid": artist[2], "plays": plays, "songs": song_count, "noMbidOk": no_mbid_ok},
+            "items": items, "albums": profiles, "counts": counts, "outstanding": total, "signature": sig,
+            "discography": albums, "songs": songs, "links": links, "live": live, "batches": batches,
+            "gaps": gaps(albums, artist_mbid=artist[2], no_mbid_ok=no_mbid_ok, live_to_settle=live["todo"] + live["unchecked"]),
+            "status": status, "reviewedAt": at, "leftAsIs": total if marked else 0, "lookupPending": lookup_pending,
+            "reviewMarks": ([DONE_MARK + sig] if total else []) + [CHECK_MARK + check_signature(albums)]}
 
 
 def _all_outstanding(c) -> tuple[dict, dict, dict, set]:
@@ -219,114 +336,41 @@ def _all_outstanding(c) -> tuple[dict, dict, dict, set]:
     return plays, names, all_items, marks
 
 
-@route("GET", "/api/workbench/queue")
-def queue(req):
-    """Artists with something outstanding, most-played first -- minus ones marked done whose
-    outstanding set hasn't changed since."""
-    with read_conn() as c:
-        plays, names, all_items, marks = _all_outstanding(c)
-    rows = []
-    for artist_id, items in all_items.items():
-        counts = _counts(items)
-        total = sum(counts.values())
-        if not total or (artist_id, DONE_MARK + signature(items)) in marks:
-            continue
-        rows.append({"artistId": artist_id, "name": names.get(artist_id), "plays": plays.get(artist_id, 0), "counts": counts, "total": total})
-    rows.sort(key=lambda r: (-r["plays"], r["name"] or ""))
-    return {"count": len(rows), "items": rows[: req.int("limit", 400)],
-            "totals": {k: sum(r["counts"][k] for r in rows) for k in ("albumGroups", "singles", "missing", "flags", "songEdition", "songVariant", "songPossible", "placement")}}
+STATUSES = ("needs-work", "unreviewed", "changed", "reviewed")
+COUNT_KEYS = ("albumGroups", "singles", "missing", "flags", "songEdition", "songVariant", "songPossible", "placement")
 
 
-# ---- Reviewed: a second look at the artists with nothing left ------------------------------------
-def _artist_albums(c, artist_ids: list[int] | None = None) -> dict[int, list[dict]]:
-    """Every album credited to each artist (album_artists), most played first."""
-    where = f"WHERE aa.artist_id IN ({_in(artist_ids)})" if artist_ids is not None else ""
-    out = defaultdict(list)
-    for r in c.execute(f"""
-            SELECT aa.artist_id, al.id, al.title, al.mbid, al.cover_status, al.year,
-                   (SELECT count(*) FROM scrobbles s WHERE s.album_id = al.id) AS plays,
-                   (SELECT count(*) FROM vinyl_holdings v WHERE v.album_id = al.id) AS vinyl,
-                   (SELECT group_concat(ge.name, '|') FROM album_genres ag JOIN genres ge ON ge.id = ag.genre_id WHERE ag.album_id = al.id) AS genres
-            FROM album_artists aa JOIN albums al ON al.id = aa.album_id {where}
-            ORDER BY plays DESC, al.year, al.title""", artist_ids or []):
-        out[r[0]].append({"albumId": r[1], "title": r[2], "mbid": r[3], "coverStatus": r[4], "year": r[5], "plays": r[6], "vinyl": r[7],
-                          "genres": r[8].split("|") if r[8] else []})
-    return out
-
-
-def check_signature(albums: list[dict]) -> str:
-    """What a double-check vouched for: each album's title, id, cover and year."""
-    keys = sorted(f"{a['albumId']}:{a['mbid'] or ''}:{a['title']}:{a['coverStatus'] or ''}:{a['year'] or ''}" for a in albums)
-    return hashlib.sha1("|".join(keys).encode()).hexdigest()[:16]
-
-
-def _check_marks(c) -> dict[int, dict[str, str]]:
-    out = defaultdict(dict)
-    for artist_id, mark, at in c.execute("SELECT entity_id, mark, created_at FROM review_marks WHERE entity_type = 'artist' AND mark LIKE ?", (CHECK_MARK + "%",)):
-        out[artist_id][mark] = at
-    return out
-
-
-def check_status(albums: list[dict], marks: dict[str, str]) -> tuple[str, str | None]:
-    """-> ("checked" | "changed" | "unchecked", when it was last checked)."""
-    if not marks:
-        return "unchecked", None
-    at = marks.get(CHECK_MARK + check_signature(albums))
-    return ("checked", at) if at else ("changed", max(marks.values()))
-
-
-@route("GET", "/api/workbench/reviewed")
-def reviewed(req):
-    """The artists with nothing outstanding (never had anything, sorted out, or marked done as they
-    are), most played first, with what their albums look like and whether they've been double-checked."""
+@route("GET", "/api/workbench/artists")
+def artists(req):
+    """Every artist with plays or albums, most played first: review status, what's outstanding,
+    what their albums look like and what's missing (counts and gaps leave out the zeros)."""
     with read_conn() as c:
         plays, names, all_items, marks = _all_outstanding(c)
         albums = _artist_albums(c)
         checks = _check_marks(c)
         shows = dict(c.execute("SELECT artist_id, count(*) FROM setlists GROUP BY artist_id").fetchall())
+        mbids = dict(c.execute("SELECT id, mbid FROM artists").fetchall())
+        no_mbid_ok = _no_mbid_ok(c)
+        live = _live_to_settle(c)
     rows = []
     for artist_id, items in all_items.items():
-        total = sum(_counts(items).values())
+        counts = _counts(items)
+        total = sum(counts.values())
         marked = (artist_id, DONE_MARK + signature(items)) in marks
-        if total and not marked:
-            continue
         al = albums.get(artist_id, [])
-        status, at = check_status(al, checks.get(artist_id, {}))
+        status, at = review_status(total, marked, al, checks.get(artist_id, {}))
         rows.append({"artistId": artist_id, "name": names.get(artist_id), "plays": plays.get(artist_id, 0), "shows": shows.get(artist_id, 0),
                      "albums": len(al), "covers": sum(a["coverStatus"] == "ok" for a in al), "ids": sum(bool(a["mbid"]) for a in al),
-                     "genres": sum(bool(a["genres"]) for a in al), "vinyl": sum(a["vinyl"] for a in al),
-                     "leftAsIs": total if marked else 0, "check": status, "checkedAt": at})
+                     "genres": sum(bool(a["genres"]) for a in al), "typed": sum(bool(a["type"]) for a in al), "vinyl": sum(a["vinyl"] for a in al),
+                     "counts": {k: v for k, v in counts.items() if v}, "outstanding": total, "leftAsIs": total if marked else 0, "status": status, "reviewedAt": at,
+                     "gaps": {k: v for k, v in gaps(al, artist_mbid=mbids.get(artist_id), no_mbid_ok=artist_id in no_mbid_ok,
+                                                    live_to_settle=live.get(artist_id, 0)).items() if v}})
     rows.sort(key=lambda r: (-r["plays"], r["name"] or ""))
-    return {"count": len(rows), "items": rows, "statuses": {k: sum(r["check"] == k for r in rows) for k in ("unchecked", "changed", "checked")}}
-
-
-@route("GET", "/api/workbench/check")
-def check(req):
-    """One artist laid out for a double-check: every album, the most played songs, the shows."""
-    from merge import linked_artists
-    artist_id = req.int("artistId", required=True)
-    with read_conn() as c:
-        artist = c.execute("SELECT id, name, mbid FROM artists WHERE id = ?", (artist_id,)).fetchone()
-        if not artist:
-            raise ApiError("artist not found", 404)
-        albums = _artist_albums(c, [artist_id]).get(artist_id, [])
-        items = outstanding(c, [artist_id], with_flags=_flags_by_artist(c))[artist_id]
-        total = sum(_counts(items).values())
-        marked = c.execute("SELECT 1 FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark = ?", (artist_id, DONE_MARK + signature(items))).fetchone() is not None
-        plays = c.execute("SELECT count(*) FROM scrobbles WHERE artist_id = ?", (artist_id,)).fetchone()[0]
-        songs = [{"songId": r[0], "title": r[1], "album": r[2], "plays": r[3]} for r in c.execute("""
-            SELECT so.id, so.title, al.title, count(*) AS n FROM scrobbles s JOIN songs so ON so.id = s.song_id LEFT JOIN albums al ON al.id = so.album_id
-            WHERE s.artist_id = ? GROUP BY so.id ORDER BY n DESC, so.title LIMIT 15""", (artist_id,))]
-        song_count = c.execute("SELECT count(*) FROM songs WHERE artist_id = ?", (artist_id,)).fetchone()[0]
-        live = c.execute("""SELECT count(*), min(st.event_date), max(st.event_date), count(DISTINCT st.venue_id) FROM setlists st WHERE st.artist_id = ?""", (artist_id,)).fetchone()
-        last = c.execute("""SELECT st.event_date, v.name FROM setlists st LEFT JOIN venues v ON v.id = st.venue_id WHERE st.artist_id = ? ORDER BY st.event_date DESC LIMIT 1""", (artist_id,)).fetchone()
-        links = [{"artistId": i, "name": c.execute("SELECT name FROM artists WHERE id = ?", (i,)).fetchone()[0]} for i in linked_artists(c, artist_id)]
-        marks = {r[0]: r[1] for r in c.execute("SELECT mark, created_at FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark LIKE ?", (artist_id, CHECK_MARK + "%"))}
-    status, at = check_status(albums, marks)
-    return {"artist": {"artistId": artist[0], "name": artist[1], "mbid": artist[2], "plays": plays, "songs": song_count},
-            "albums": albums, "songs": songs, "links": links,
-            "live": {"shows": live[0], "first": live[1], "last": live[2], "venues": live[3], "lastVenue": last[1] if last else None},
-            "outstanding": total, "markedReviewed": marked, "check": status, "checkedAt": at, "checkMark": CHECK_MARK + check_signature(albums)}
+    work = [r for r in rows if r["status"] == "needs-work"]
+    return {"count": len(rows), "items": rows,
+            "statuses": {k: sum(r["status"] == k for r in rows) for k in STATUSES},
+            "totals": {k: sum(r["counts"].get(k, 0) for r in work) for k in COUNT_KEYS},
+            "gaps": {k: sum(k in r["gaps"] for r in rows) for k in GAP_KEYS}}
 
 
 @route("GET", "/api/search")
@@ -409,12 +453,13 @@ def album_singles(req):
     with read_conn() as c:
         names = dict(c.execute("SELECT id, name FROM artists").fetchall())
         items = singles.find_singles(c)
+        to_look_up = len(singles.lookup_candidates(c))
     counts = {t: sum(x["tier"] == t for x in items) for t in ("high", "review")}
     if tier in counts:
         items = [x for x in items if x["tier"] == tier]
     for x in items:
         x["artistName"] = names.get(x["artistId"])
-    return {"counts": counts, "count": len(items), "items": items}
+    return {"counts": counts, "count": len(items), "items": items, "toLookUp": to_look_up}
 
 
 @route("GET", "/api/artists/links")

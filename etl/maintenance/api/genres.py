@@ -284,7 +284,8 @@ def suggest(req):
     """Suggested genres for one album, for review -- nothing is saved here. Ticked: the album's own
     MusicBrainz genres (>= 2 votes, else its top one), else its releases' (editions are often tagged
     when the album isn't), and the Discogs styles of a pressing you own. Unticked hints: the rest of
-    those, and the artist's MusicBrainz genres. Already on the album, or removed from it before: left out.
+    those, and the artist's MusicBrainz genres. Already on the album, or removed from it before: left out
+    (the removed ones come back apart as "removed", with how and when).
     MusicBrainz lookups are cached (about 3 requests for an album never looked at)."""
     import mbcache
     from common import artist_mbid_sets
@@ -359,7 +360,30 @@ def suggest(req):
             add(g["name"], g["id"], g["count"], "artist", "manual", tick)
         if fallback and ticked:
             notes.append("nothing of its own — the artist's top genres are ticked")
-    return {"albumId": album_id, "suggestions": list(out.values()), "notes": notes}
+        # the album's own MusicBrainz genres that were removed before (genre_hidden), kept apart -- so an album
+        # left with none can have one back. How each went: left unticked in a review ("review", the Genres page
+        # remembers those as "not this album") or taken off by hand ("hand").
+        how = {}
+        for reason, at, changes in c.execute("SELECT reason, created_at, changes_json FROM edit_log WHERE entity_type = 'album' AND entity_id = ? "
+                                             "AND changes_json LIKE '%hiddenAdded%' ORDER BY id", (album_id,)):
+            try:
+                g = json.loads(changes).get("_genres") or {}
+            except ValueError:
+                continue
+            dropped = {d[0] for d in g.get("deleted") or []}
+            for gid in g.get("hiddenAdded") or []:
+                how[gid] = {"by": "review" if reason == "genres reviewed" and gid not in dropped else "hand", "at": (at or "")[:10]}
+        hidden_ids = dict(c.execute("SELECT ge.name, ge.id FROM genre_hidden h JOIN genres ge ON ge.id = h.genre_id WHERE h.album_id = ?", (album_id,)).fetchall())
+        removed, seen = [], set()
+        for frm, src in (("album", group), ("editions", releases), ("edition", edition or [])):
+            for g in sorted(src, key=lambda g: -g["count"]):
+                n = _resolved_name(c, g["name"])
+                if n and n in hidden and n not in have and n not in seen:
+                    seen.add(n)
+                    h = how.get(hidden_ids.get(n), {})
+                    removed.append({"name": n, "mbid": g["id"], "votes": g["count"], "from": frm, "removedBy": h.get("by"), "removedAt": h.get("at"),
+                                    "umbrella": n in genre_tags.UMBRELLA_GENRES})
+    return {"albumId": album_id, "suggestions": list(out.values()), "notes": notes, "removed": removed}
 
 
 # -- MusicBrainz fill (genre_fill.py) --------------------------------------------------------

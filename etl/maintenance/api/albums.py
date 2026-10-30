@@ -946,6 +946,14 @@ def types_preview(req):
         return release_types.preview(c)
 
 
+@route("GET", "/api/albums/years-preview")
+def years_preview(req):
+    """The dry run of the MusicBrainz year fill -- nothing changes until it's applied (batch action yearFill)."""
+    import album_years
+    with read_conn() as c:
+        return album_years.preview(c)
+
+
 @route("GET", "/api/albums/types-artist")
 def types_artist(req):
     """One artist's albums (credited, played or owned -- the artist page's discography) with their
