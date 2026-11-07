@@ -19,9 +19,11 @@ import covers
 from rapidfuzz import fuzz, process
 
 import dupes
+import mbcache
 import merge
 import singles
 from api.core import ApiError, read_conn, route, write_tx
+from common import WRONG_MBID_MARK
 from titles import base_key, normalize_artist_name
 
 TABLE = {"artist": "artists", "album": "albums", "song": "songs"}
@@ -58,10 +60,16 @@ def settle_gone(c) -> None:
             covers.drop_pending(album_id)
 
 
+# A "Check" item that several imports raised is one question: counted and shown once (see _collapse_repeats).
+ITEM_KEY = ("CASE WHEN e.kind = 'suspect' AND json_extract(e.detail_json, '$.reason') = 'artist-mbid-differs' THEN 's:' || coalesce(e.entity_type, '') || ':' || coalesce(e.entity_id, '') || ':' "
+            "|| coalesce(json_extract(e.detail_json, '$.reason'), '') || ':' || coalesce(json_extract(e.detail_json, '$.mbid'), '') "
+            "ELSE e.id END")
+
+
 def pending_counts(c) -> dict:
     counts = {tab: 0 for tab in TABS}
     for tab, where in TABS.items():
-        counts[tab] = c.execute(f"SELECT count(*) FROM import_events e WHERE e.reviewed_at IS NULL AND {where}").fetchone()[0]
+        counts[tab] = c.execute(f"SELECT count(DISTINCT {ITEM_KEY}) FROM import_events e WHERE e.reviewed_at IS NULL AND {where}").fetchone()[0]
     return counts
 
 
@@ -212,6 +220,46 @@ def _flag_doubtful_artists(c, items) -> None:
                                      f"the MBID Last.fm gave this artist may be wrong (see the Check item).")
 
 
+def _collapse_repeats(items) -> list:
+    """The same "Check" raised by several imports (each Last.fm pull re-sees the same mismatch) is shown
+    once, newest first, carrying every event id in `sameIds` so one decision settles them all."""
+    out, seen = [], {}
+    for it in items:
+        d = it["detail"]
+        key = (it["entityType"], it["entityId"], d.get("reason"), d.get("mbid")) if it["kind"] == "suspect" and d.get("reason") == "artist-mbid-differs" else None
+        if key and key in seen:
+            first = seen[key]
+            first["sameIds"].append(it["id"])
+            first["sources"] = sorted(set(first["sources"]) | {it["source"]})
+            first["firstAt"] = it["at"]
+            continue
+        it["sameIds"], it["sources"], it["firstAt"] = [it["id"]], [it["source"]], it["at"]
+        if key:
+            seen[key] = it
+        out.append(it)
+    return out
+
+
+def _mb_artist_cached(mbid):
+    """MusicBrainz's name / disambiguation for an artist id, only if already cached (never fetches)."""
+    if not mbid:
+        return None
+    found, a = mbcache.peek(f"lookup:artist:{mbid}")
+    return _mb_artist_view(a) if found and a else None
+
+
+def _mb_artist_view(a) -> dict:
+    return {"mbid": a.get("mbid"), "name": a.get("name"), "disambiguation": a.get("disambiguation") or "",
+            "type": a.get("type"), "country": a.get("country")}
+
+
+def _artist_id_sides(items) -> None:
+    for it in items:
+        if it["kind"] == "suspect" and it["detail"].get("reason") == "artist-mbid-differs":
+            it["theirs"] = _mb_artist_cached(it["detail"].get("mbid"))
+            it["yours"] = _mb_artist_cached(it["entity"]["mbid"] if it["entity"] else it["detail"].get("localMbid"))
+
+
 def _is_clean(it) -> bool:
     """Pre-ticked for bulk accept: nothing here suggests it's anything but what it says."""
     if it["kind"] in ("new_artist", "new_album", "new_song"):
@@ -267,12 +315,14 @@ def inbox(req):
         _title_hints(c, items, "new_album", "albums")
         _title_hints(c, items, "new_song", "songs")
         _single_hints(c, items)
+        items = _collapse_repeats(items)
+        _artist_id_sides(items)
         for it in items:
             if it["kind"] == "new_cover":
                 it["hasFile"] = covers.pending_path(it["entityId"]).is_file() if not it["reviewedAt"] else covers.has_local_cover(it["entityId"])
             it["clean"] = _is_clean(it)
         items.sort(key=lambda it: (it["clean"], -it["id"]))  # the ones needing a decision first; bulk-tickable after
-        total = c.execute(f"SELECT count(*) FROM import_events e WHERE {TABS[tab]} AND e.reviewed_at IS {'NOT' if reviewed else ''} NULL").fetchone()[0]
+        total = c.execute(f"SELECT count(DISTINCT {ITEM_KEY}) FROM import_events e WHERE {TABS[tab]} AND e.reviewed_at IS {'NOT' if reviewed else ''} NULL").fetchone()[0]
         out = {"items": items, "total": total, "pending": pending_counts(c)}
         if tab == "covers":
             out["storage"] = {**covers.storage(), "small": covers.SMALL, "full": covers.FULL, "fullSizePlays": covers.FULL_SIZE_PLAYS}
@@ -371,18 +421,141 @@ def apply_holding(req):
 @route("POST", "/api/imports/merge", mutating=True)
 def merge_into(req):
     """Merge the item's artist/album/song into an existing one (a hint, or an mbid clash's holder),
-    and settle the item. Undoable as one batch from the toast."""
-    event_id, keep_id = req.int("eventId", required=True), req.int("keepId", required=True)
+    and settle the item. `otherId` instead keeps the item's own (new) one and merges that existing one
+    into it -- e.g. the new plain "Bathory Aria" absorbing "Bathory Aria - Remixed and Remastered".
+    Undoable as one batch from the toast."""
+    event_id = req.int("eventId", required=True)
+    keep_id, other_id = req.int("keepId"), req.int("otherId")
+    if bool(keep_id) == bool(other_id):
+        raise ApiError("give keepId (merge the new one into it) or otherId (merge it into the new one)")
     with write_tx() as c:
         row = c.execute("SELECT entity_type, entity_id FROM import_events WHERE id = ?", (event_id,)).fetchone()
         if not row or row[0] not in TABLE or not row[1]:
             raise ApiError("that item has nothing to merge", 404)
-        entity_type, absorbed_id = row
+        entity_type, item_id = row
+        absorbed_id, keep_id = (item_id, keep_id) if keep_id else (other_id, item_id)
         if absorbed_id == keep_id:
             raise ApiError("can't merge something into itself")
         fn = {"artist": merge.merge_artists, "album": merge.merge_albums, "song": merge.merge_songs}[entity_type]
         result = fn(c, absorbed_id, keep_id)
         settled = [r[0] for r in c.execute("SELECT id FROM import_events WHERE reviewed_at IS NULL AND entity_type = ? AND entity_id = ?",
                                            (entity_type, absorbed_id))]
+        if other_id:   # the item's own entity survives: this item is settled by the merge too
+            settled += [i for (i,) in c.execute("SELECT id FROM import_events WHERE id = ? AND reviewed_at IS NULL", (event_id,))]
         c.execute(f"UPDATE import_events SET reviewed_at = datetime('now') WHERE id IN ({_in(settled)})", settled)
     return {**result, "undo": {"kind": "batch", "id": [{"kind": "merge", "id": result["logId"]}, {"kind": "inbox", "id": settled}]}}
+
+
+# -- "Same name, different MusicBrainz artist" ----------------------------------------------------
+
+EVIDENCE_LIMIT = 300
+
+
+def _open_same(c, event_id: int):
+    """The item and every open copy of it (the same check raised by other imports)."""
+    row = c.execute("SELECT kind, entity_type, entity_id, detail_json FROM import_events WHERE id = ?", (event_id,)).fetchone()
+    if not row or row[0] != "suspect" or json.loads(row[3]).get("reason") != "artist-mbid-differs":
+        raise ApiError("that item isn't an artist id check", 404)
+    detail = json.loads(row[3])
+    ids = [r[0] for r in c.execute(
+        "SELECT id FROM import_events WHERE reviewed_at IS NULL AND kind = 'suspect' AND entity_type = 'artist' AND entity_id = ? "
+        "AND json_extract(detail_json, '$.reason') = 'artist-mbid-differs' AND json_extract(detail_json, '$.mbid') = ?",
+        (row[2], detail["mbid"]))]
+    return row[2], detail, ids
+
+
+@route("GET", "/api/imports/artist-id-evidence")
+def artist_id_evidence(req):
+    """What the other id was attached to: the Last.fm plays and setlist.fm gigs (as headliner, or as the
+    artist of a song covered) that carried it, from the raw import rows. Plus both ids as MusicBrainz
+    describes them -- a lookup each, cached, through the paced client."""
+    event_id = req.int("eventId", required=True)
+    with read_conn() as c:
+        artist_id, d, _ = _open_same(c, event_id)
+        me = c.execute("SELECT name, mbid FROM artists WHERE id = ?", (artist_id,)).fetchone()
+        if not me:
+            raise ApiError("that artist has since been merged or removed", 404)
+        mbid = d["mbid"]
+        plays, seen = [], set()
+        for raw in c.execute("SELECT raw_json FROM staging_lastfm_rows WHERE instr(raw_json, ?) > 0 ORDER BY id DESC", (mbid,)):
+            r = json.loads(raw[0])
+            uts = (r.get("date") or {}).get("uts")
+            if (r.get("artist") or {}).get("mbid") != mbid or not uts or uts in seen:
+                continue
+            seen.add(uts)
+            plays.append({"uts": int(uts), "track": r.get("name"), "album": (r.get("album") or {}).get("#text") or None})
+        plays.sort(key=lambda p: -p["uts"])
+        gigs, seen = [], set()
+        for raw in c.execute("SELECT raw_json FROM staging_setlistfm_rows WHERE instr(raw_json, ?) > 0 ORDER BY id DESC", (mbid,)):
+            r = json.loads(raw[0])
+            if r.get("id") in seen:
+                continue
+            seen.add(r.get("id"))
+            headliner = (r.get("artist") or {}).get("mbid") == mbid
+            songs, as_named = [], None
+            for st in ((r.get("sets") or {}).get("set") or []):
+                for song in st.get("song") or []:
+                    cover = song.get("cover") or {}
+                    if cover.get("mbid") == mbid:
+                        songs.append(song.get("name") + (" (tape)" if song.get("tape") else ""))
+                        as_named = as_named or cover.get("disambiguation")
+            if not headliner and not songs:
+                continue
+            dd, mm, yy = (r.get("eventDate") or "--").split("-")
+            venue = r.get("venue") or {}
+            gigs.append({"date": f"{yy}-{mm}-{dd}", "headliner": (r.get("artist") or {}).get("name"), "asHeadliner": headliner,
+                         "songs": songs, "venue": venue.get("name"), "city": (venue.get("city") or {}).get("name"),
+                         "url": r.get("url"), "setlistfmSays": (r.get("artist") or {}).get("disambiguation") if headliner else as_named})
+        gigs.sort(key=lambda g: g["date"], reverse=True)
+        your_plays = c.execute("SELECT count(*) FROM scrobbles WHERE artist_id = ?", (artist_id,)).fetchone()[0]
+    sides = {}
+    for side, m in (("theirs", mbid), ("yours", me[1])):
+        try:
+            a = mbcache.artist(m) if m else None
+            sides[side] = _mb_artist_view(a) if a else None
+        except Exception:   # MusicBrainz unreachable: the plays still help
+            sides[side] = _mb_artist_cached(m)
+    return {**sides, "artistName": me[0], "yourPlays": your_plays, "playCount": len(plays), "plays": plays[:EVIDENCE_LIMIT], "gigs": gigs}
+
+
+@route("POST", "/api/imports/artist-id", mutating=True)
+def decide_artist_id(req):
+    """Settle a "same name, different MusicBrainz artist" check one way or the other (all its copies):
+      keep   -- your id is right, the import's is wrong: remembered as wrong for this artist so imports
+                stop raising it. Nothing moves (those plays/gigs were filed under your artist already).
+      switch -- your id is wrong: the artist takes the import's id (journaled edit), and your old id is
+                remembered as wrong in turn, since a source may still send it.
+    "Both are this artist" is the existing MusicBrainz alias (/api/artists/mb-alias) + /review."""
+    event_id, decision = req.int("eventId", required=True), req.str("decision")
+    if decision not in ("keep", "switch"):
+        raise ApiError("decision must be keep or switch")
+    undo = []
+    with write_tx() as c:
+        artist_id, d, ids = _open_same(c, event_id)
+        if not ids:
+            raise ApiError("already decided", 409)
+        name, local = c.execute("SELECT name, mbid FROM artists WHERE id = ?", (artist_id,)).fetchone()
+        wrong = d["mbid"]
+        if decision == "switch":
+            if not local or local == d["mbid"]:
+                raise ApiError(f"{name} already has that id")
+            try:
+                edit = merge.edit_entity(c, "artist", artist_id, {"mbid": d["mbid"]}, f"inbox: {d.get('source') or 'import'}'s artist id was right")
+            except merge.MergeError as exc:
+                if exc.code == "mbid_conflict":
+                    raise ApiError(f"“{exc.conflict['name']}” in your library already has that id — merge the two artists instead.", 409)
+                raise
+            if edit["editId"]:
+                undo.append({"kind": "edit", "id": edit["editId"]})
+            c.execute("UPDATE suggestions SET status = CASE WHEN mbid = ? THEN 'accepted' ELSE 'rejected' END, decided_at = datetime('now') "
+                      "WHERE entity_type = 'artist' AND entity_id = ? AND status = 'pending'", (d["mbid"], artist_id))
+            c.execute("DELETE FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark IN ('verified:artist-mbid', ?)",
+                      (artist_id, WRONG_MBID_MARK + d["mbid"]))
+            wrong = local
+        cur = c.execute("INSERT OR IGNORE INTO review_marks (entity_type, entity_id, mark) VALUES ('artist', ?, ?)",
+                        (artist_id, WRONG_MBID_MARK + wrong))
+        if cur.rowcount:
+            undo.append({"kind": "mark", "id": cur.lastrowid})
+        c.execute(f"UPDATE import_events SET reviewed_at = datetime('now') WHERE id IN ({_in(ids)})", ids)
+        undo.append({"kind": "inbox", "id": ids})
+    return {"artistId": artist_id, "name": name, "mbid": d["mbid"] if decision == "switch" else local, "undo": {"kind": "batch", "id": undo}}

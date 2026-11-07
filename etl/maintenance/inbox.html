@@ -32,6 +32,20 @@
   .cv-meta { font-size: 0.76rem; color: var(--text-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cv-meta a { color: inherit; }
   .cover-grid .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+  /* "Same name, different MusicBrainz artist": the two ids side by side, then what carried the other one */
+  .id-sides { margin-top: 6px; display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; font-size: 0.84rem; }
+  .id-sides .who { color: var(--text-muted); }
+  .id-sides .dis { color: var(--text-dim); }
+  .inbox-list .review-item > div { min-width: 0; }   /* a wide evidence table scrolls inside, not the page */
+  .hints .candidate { flex-wrap: wrap; gap: 6px; }
+  .hints .candidate .actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 1; }
+  .hints .candidate > div { min-width: 0; }
+  .id-evidence { margin-top: 8px; }
+  .id-decide { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 10px; }
+  .id-decide .spacer { flex: 1; }
+  .id-evidence .ev-scroll { max-height: 320px; overflow: auto; background: var(--surface); margin-top: 6px; }
+  .id-evidence h4 { margin: 10px 0 0; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+  .id-evidence td.when { white-space: nowrap; font-family: var(--font-mono); font-size: 0.78rem; }
   .cv-storage { font-size: 0.78rem; color: var(--text-muted); padding: 10px 14px 0; }
 </style>
 </head>
@@ -81,7 +95,7 @@ const recordLink = (it) => `<a href="/vinyl.html#record/${it.entityId}">${esc(it
   + (it.detail.releaseId ? ` ${discogsLink(it.detail.releaseId, "discogs")}` : "");
 const fieldValue = (f, v) => (v == null || v === "" ? `<span class="meta">(empty)</span>` : f === "rating" ? "★".repeat(+v) : esc(String(v)).replace(/\n/g, "<br>"));
 const REASON = {
-  "artist-mbid-differs": "Last.fm tagged these scrobbles with a different MusicBrainz artist than yours — a different band with the same name, or a wrong id on either side.",
+  "artist-mbid-differs": "Same name, different MusicBrainz artist. Those plays or gigs were filed under your artist anyway — nothing has moved. Decide which id is right:",
   "release-credited-elsewhere": "MusicBrainz credits this edition to a different artist, so it wasn't used to identify the album.",
   "placeholder-artist": "A placeholder artist name — the scrobbling app didn't know who this was.",
   "implausible-date": "Dated before Last.fm existed or in the future (a device clock problem) — this scrobble was not imported.",
@@ -110,6 +124,31 @@ const creditFix = (it) => it.kind === "suspect" && it.detail.reason === "release
   && (it.detail.releaseGroup?.artistMbids || []).length === 1 ? it.detail.releaseGroup.artistMbids[0] : null;
 const hintId = (type, h) => h[{ artist: "artistId", album: "albumId", song: "songId" }[type]];
 
+const SRC_NAME = { lastfm: "Last.fm", setlistfm: "setlist.fm", discogs: "Discogs" };
+const srcNames = (it) => [...new Set((it.sources || [it.source]).map((s) => SRC_NAME[s] || "Last.fm"))].join(" and ");
+const isIdCheck = (it) => it.kind === "suspect" && it.detail.reason === "artist-mbid-differs" && it.entity;
+// Both MusicBrainz artists as MusicBrainz describes them -- the disambiguation usually settles it.
+function idSides(it, yours, theirs) {
+  const side = (who, mbid, a) => `<div class="who">${who}</div><div>${a ? `<b>${esc(a.name)}</b>${a.disambiguation ? ` <span class="dis">— ${esc(a.disambiguation)}</span>` : ""}`
+      + `${a.type || a.country ? ` <span class="meta">· ${[a.type, a.country].filter(Boolean).map(esc).join(", ")}</span>` : ""}` : `<span class="meta">${it.lookupFailed ? "MusicBrainz didn't answer — try “Show the plays and gigs”" : "looking it up on MusicBrainz…"}</span>`} ${mbLink("artist", mbid, "MusicBrainz")}</div>`;
+  return `<div class="id-sides">${side("Yours", it.entity?.mbid || it.detail.localMbid, yours)}${side(`${esc(srcNames(it))}’s`, it.detail.mbid, theirs)}</div>`;
+}
+const whenText = (uts) => new Date(uts * 1000).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+function evidenceHtml(it, ev) {
+  const name = esc(ev.artistName);
+  const plays = ev.playCount ? `<h4>Last.fm plays that carried their id — ${fmtNum(ev.playCount)} (you have ${fmtNum(ev.yourPlays)} ${name} plays in all)</h4>
+    <div class="ev-scroll"><table class="data compact"><thead><tr><th>Played</th><th>Track</th><th>Album</th></tr></thead><tbody>
+    ${ev.plays.map((p) => `<tr><td class="when">${whenText(p.uts)}</td><td>${esc(p.track || "")}</td><td>${p.album ? `<i>${esc(p.album)}</i>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>${ev.playCount > ev.plays.length ? `<div class="meta">showing the newest ${fmtNum(ev.plays.length)}</div>` : ""}` : "";
+  const gigs = ev.gigs.length ? `<h4>setlist.fm gigs that carried their id — ${ev.gigs.length}</h4>
+    <div class="ev-scroll"><table class="data compact"><thead><tr><th>Date</th><th>Gig</th><th>What used it</th><th>setlist.fm calls them</th><th></th></tr></thead><tbody>
+    ${ev.gigs.map((g) => `<tr><td class="when">${esc(g.date)}</td><td>${esc(g.headliner || "")} <span class="meta">at ${esc(g.venue || "")}${g.city ? `, ${esc(g.city)}` : ""}</span></td>
+      <td>${g.asHeadliner ? "the headliner" : `covered: ${g.songs.map(esc).join(", ")}`}</td><td class="meta">${esc(g.setlistfmSays || "")}</td>
+      <td>${g.url ? `<a class="mb" href="${esc(g.url)}" target="_blank" rel="noopener">setlist ↗</a>` : ""}</td></tr>`).join("")}
+    </tbody></table></div>` : "";
+  return idSides(it, ev.yours, ev.theirs) + (plays || gigs || `<div class="ev-note">No raw import rows carry that id any more.</div>`);
+}
+
 function body(it) {
   const d = it.detail, e = it.entity, src = { setlistfm: "setlist.fm", discogs: "Discogs" }[it.source] || "Last.fm";
   const gone = `<span class="meta">(since merged or removed)</span>`;
@@ -131,7 +170,7 @@ function body(it) {
                table: `<table class="data compact"><thead><tr><th></th><th>Yours</th><th>Discogs</th></tr></thead><tbody>${Object.entries(d.changes || {}).map(([f, [mine, theirs]]) =>
                  `<tr><td class="meta">${esc(HOLDING_FIELD[f] || f)}</td><td>${fieldValue(f, mine)}</td><td><b>${fieldValue(f, theirs)}</b></td></tr>`).join("")}</tbody></table>` };
     case "holding_missing":
-      return { title: recordLink(it), why: "This record isn't in the latest Discogs export — sold, given away, or in a folder that wasn't exported? Nothing was removed; OK just files this away." };
+      return { title: recordLink(it), why: "This record isn't in the latest Discogs export — sold, given away, or in a folder that wasn't exported? Nothing was removed; “Noted” just files this away." };
     case "edition_linked":
       return { title: `“${esc(d.title)}” ${releaseLink(d.release)} → ${e ? albumLine(e) : gone}`,
                sub: d.releaseGroup ? `MusicBrainz puts this edition in ${mbLink("release-group", d.releaseGroup)}`
@@ -150,7 +189,10 @@ function body(it) {
     }
     case "suspect":
       if (d.reason === "artist-mbid-differs")
-        return { title: artistLink(e), sub: `${src} says ${mbLink("artist", d.mbid, "this MusicBrainz artist")}; yours is ${mbLink("artist", d.localMbid)}`, why: REASON[d.reason] };
+        return { title: artistLink(e) + (e ? ` <span class="meta">· ${plural(e.plays, "play")}</span>` : ""),
+                 sub: `${srcNames(it)} filed something under a different MusicBrainz “${esc(d.name)}”`
+                   + (it.sameIds?.length > 1 ? ` <span class="meta">(flagged by ${it.sameIds.length} imports since ${fmtDate(it.firstAt)})</span>` : ""),
+                 why: REASON[d.reason], sides: idSides(it, it.yours, it.theirs) };
       if (d.reason === "release-credited-elsewhere")
         return { title: `“${esc(d.title)}” ${releaseLink(d.release)} · ${artistLink(it.artist)}`,
                  sub: d.releaseGroup ? `MusicBrainz: ${mbLink("release-group", d.releaseGroup.mbid, d.releaseGroup.title || "release group")} by ${esc(d.releaseGroup.artistCredit || "another artist")}` : "",
@@ -223,17 +265,24 @@ function itemHtml(it, i) {
         </div>
         <div class="actions">
           ${it.reviewedAt ? `<span class="meta">reviewed ${fmtDate(it.reviewedAt)}</span>` : `
-            ${it.kind === "suspect" && it.detail.reason === "artist-mbid-differs" && it.entity ? `<button class="small" data-role="alias" title="The same artist for this library's purposes: count that MusicBrainz artist as ${esc(it.entity.name)} everywhere">Same artist</button>` : ""}
             ${creditFix(it) ? `<button class="small" data-role="credit-fix" title="Last.fm's artist MBID was wrong: give ${esc(it.artist.name)} the MBID MusicBrainz credits this edition to (undoable)">Use as ${esc(it.artist.name)}’s MBID</button>` : ""}
             ${it.kind === "holding_changed" ? keyBtn("u", "Apply update", "good", 'data-role="apply"') : ""}
-            ${keyBtn("a", it.kind === "holding_changed" ? "Keep mine" : it.kind.startsWith("new_") ? "Looks right" : "OK", it.kind === "holding_changed" ? "" : "good", 'data-role="accept"')}
-            ${keyBtn("s", "Skip", "", 'data-role="skip"')}`}
+            ${isIdCheck(it) ? "" : keyBtn("a", it.kind === "holding_changed" ? "Keep mine" : it.kind.startsWith("new_") ? "Looks right" : it.kind === "holding_missing" ? "Noted" : "Leave as it is", it.kind === "holding_changed" ? "" : "good", 'data-role="accept"')}
+            ${keyBtn("s", isIdCheck(it) ? "Decide later" : "Skip", "", 'data-role="skip"')}`}
           <span class="meta">${fmtDate(it.at)}</span>
         </div>
       </div>
+      ${b.sides ? `<div data-role="sides">${b.sides}</div>` : ""}
+      ${isIdCheck(it) && !it.reviewedAt ? `<div class="id-evidence" data-role="evidence-box" hidden></div>
+        <div class="id-decide"><button class="small" data-role="evidence" data-key="e">Show the plays and gigs <kbd>e</kbd></button>
+          <span class="spacer"></span>
+          ${keyBtn("m", `Keep mine — ${esc(srcNames(it))} is wrong`, "good", `data-role="id-keep" title="Nothing changes. ${esc(srcNames(it))}’s id is remembered as wrong for ${esc(it.entity.name)}, so this stops coming back."`)}
+              ${keyBtn("t", `Use ${esc(srcNames(it))}’s — mine is wrong`, "", `data-role="id-switch" title="${esc(it.entity.name)} takes the MusicBrainz id ${esc(srcNames(it))} used (undoable). Your old id is remembered as wrong, so it isn't flagged when a source still sends it."`)}
+              ${keyBtn("b", `Both are ${esc(it.entity.name)}`, "", `data-role="alias" title="Two MusicBrainz entries for what is one act to you (a band and its earlier name, a solo name and its band): that id counts as ${esc(it.entity.name)} everywhere, lookups included."`)}</div>` : ""}
       ${hints.length ? `<div class="hints">${hintHead ? `<div class="h-head">${hintHead}${benchLink(it)}</div>` : ""}
         ${hints.map((h, n) => `<div class="candidate"><div>${hintLine(type, h)}${h.why ? ` <span class="meta">— ${esc(HINT_WHY[h.why] || h.why)}</span>` : ""}</div>
-          ${mergeable && !it.reviewedAt ? keyBtn(String(n + 1), "Merge into this", "", `data-role="merge" data-keep="${hintId(type, h)}"`) : ""}</div>`).join("")}</div>` : ""}
+          ${mergeable && !it.reviewedAt ? `<span class="actions">${keyBtn(String(n + 1), it.kind.startsWith("new_") ? "Merge, keep this one" : "Merge into this", "", `data-role="merge" data-keep="${hintId(type, h)}" title="The new one's plays move here; this one's name stays"`)}
+            ${it.kind.startsWith("new_") ? `<button class="small" data-role="merge-other" data-other="${hintId(type, h)}" title="This one's plays move to the new one; the new name${it.entity.mbid ? " and MusicBrainz id" : ""} stays (old name still routes to it)">Merge, keep the new one</button>` : ""}</span>` : ""}</div>`).join("")}</div>` : ""}
     </div>
   </div>`;
 }
@@ -257,6 +306,22 @@ function renderList(tab) {
   if (!st.reviewed) wireBulk(tab, root);
   root.querySelectorAll(".review-item").forEach((el) => wireItem(tab, el));
   st.keys?.reset();
+  fillIdSides(tab);
+}
+
+// The list only shows MusicBrainz descriptions already cached; fetch the missing ones one at a time
+// (the server paces MusicBrainz at 1 a second and caches each, so this happens once per id).
+async function fillIdSides(tab) {
+  const st = state[tab], items = st.items;
+  for (const [i, it] of items.entries()) {
+    if (!isIdCheck(it) || it.reviewedAt || (it.yours && it.theirs) || it.evidence) continue;
+    const { ok, data } = await api(`/api/imports/artist-id-evidence?eventId=${it.id}`);
+    if (st.items !== items) return;   // the list was reloaded meanwhile
+    if (ok) { it.evidence = data; it.yours = data.yours; it.theirs = data.theirs; }
+    it.lookupFailed = !ok || !data.yours || !data.theirs;
+    const sides = document.querySelector(`[data-list="${tab}"] .review-item[data-i="${i}"] [data-role='sides']`);
+    if (sides) sides.innerHTML = idSides(it, it.yours, it.theirs);
+  }
 }
 
 function wireBulk(tab, root) {
@@ -273,7 +338,7 @@ function wireBulk(tab, root) {
   root.addEventListener("change", (e) => { if (e.target.dataset.role === "tick") sync(); });
   root.querySelector("[data-role='bulk']").addEventListener("click", async (e) => {
     const picked = boxes().filter((b) => b.checked).map((b) => b.closest(".review-item"));
-    const ids = picked.map((el) => state[tab].items[+el.dataset.i].id);
+    const ids = picked.flatMap((el) => { const it = state[tab].items[+el.dataset.i]; return it.sameIds || [it.id]; });
     e.target.disabled = true;
     const { ok, data } = await api("/api/imports/accept", { ids });
     if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
@@ -290,7 +355,7 @@ function wireItem(tab, el) {
   el.querySelector("[data-role='accept']")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     const cover = it.kind === "new_cover";   // accepting a cover puts it in place, not just "reviewed"
-    const { ok, data } = await api(cover ? "/api/imports/accept" : "/api/imports/review", { ids: [it.id] });
+    const { ok, data } = await api(cover ? "/api/imports/accept" : "/api/imports/review", { ids: it.sameIds || [it.id] });
     if (!ok) { toast(esc(data.message), { error: true }); e.target.disabled = false; return; }
     toast(cover ? `Cover saved for <b>${esc(it.entity?.title || "")}</b> — on the site at the next Publish` : "Marked reviewed", { undo: data.undo, timeout: 5000 });
     if (cover) notifyChanged();
@@ -315,7 +380,7 @@ function wireItem(tab, el) {
   el.querySelector("[data-role='alias']")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     if (await addMbAlias(it.entity.artistId, it.detail.mbid)) {
-      await api("/api/imports/review", { ids: [it.id] });
+      await api("/api/imports/review", { ids: it.sameIds || [it.id] });
       done();
     } else e.target.disabled = false;
   });
@@ -331,6 +396,36 @@ function wireItem(tab, el) {
     notifyChanged();
     done();
   });
+  el.querySelector("[data-role='evidence']")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget, box = el.querySelector("[data-role='evidence-box']");
+    if (!box.hidden) { box.hidden = true; btn.firstChild.textContent = "Show the plays and gigs "; return; }
+    btn.disabled = true;
+    const { ok, data } = it.evidence ? { ok: true, data: it.evidence } : await api(`/api/imports/artist-id-evidence?eventId=${it.id}`);
+    btn.disabled = false;
+    if (!ok) { toast(esc(data.message), { error: true }); return; }
+    it.evidence = data;
+    el.querySelector("[data-role='sides']")?.remove();   // the evidence repeats both sides, now looked up
+    box.innerHTML = evidenceHtml(it, data); box.hidden = false;
+    btn.firstChild.textContent = "Hide the plays and gigs ";
+  });
+  ["keep", "switch"].forEach((decision) => el.querySelector(`[data-role='id-${decision}']`)?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const { ok, data } = await api("/api/imports/artist-id", { eventId: it.id, decision });
+    if (!ok) { toast(esc(data.message), { error: true, timeout: 9000 }); btn.disabled = false; return; }
+    toast(decision === "keep" ? `Kept <b>${esc(data.name)}</b>’s id — ${esc(srcNames(it))}’s won't be flagged again`
+      : `<b>${esc(data.name)}</b> now has MusicBrainz id ${mbLink("artist", data.mbid)} · <a href="/workbench.html?id=${data.artistId}">check it in the Workbench</a>`, { undo: data.undo, timeout: 8000 });
+    if (decision === "switch") notifyChanged();
+    done();
+  }));
+  el.querySelectorAll("[data-role='merge-other']").forEach((btn) => btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const { ok, data } = await api("/api/imports/merge", { eventId: it.id, otherId: +btn.dataset.other });
+    if (!ok) { toast(esc(data.message), { error: true, timeout: 9000 }); btn.disabled = false; return; }
+    toast(`Merged <b>${esc(data.absorbedName || data.absorbedTitle || "")}</b> into the new one`, { undo: data.undo });
+    notifyChanged();
+    done();
+  }));
   el.querySelectorAll("[data-role='merge']").forEach((btn) => btn.addEventListener("click", async () => {
     btn.disabled = true;
     const { ok, data } = await api("/api/imports/merge", { eventId: it.id, keepId: +btn.dataset.keep });

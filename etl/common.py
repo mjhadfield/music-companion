@@ -90,11 +90,28 @@ def record_event(conn: sqlite3.Connection, kind: str, entity_type: str | None, e
     if sig in _import_run["seen"]:
         return
     _import_run["seen"].add(sig)
+    # The same artist-id "Check" still waiting from an earlier run is the same question again -- don't stack copies.
+    if kind == "suspect" and (detail or {}).get("reason") == "artist-mbid-differs" and conn.execute(
+            "SELECT 1 FROM import_events WHERE reviewed_at IS NULL AND kind = ? AND entity_type IS ? AND entity_id IS ? "
+            "AND json_extract(detail_json, '$.reason') IS ? AND json_extract(detail_json, '$.mbid') IS ? LIMIT 1",
+            (kind, entity_type, entity_id, (detail or {}).get("reason"), (detail or {}).get("mbid"))).fetchone():
+        return
     # an exact MusicBrainz edition -> album link is for the record only; everything else awaits review
     informational = kind == "edition_linked" and (detail or {}).get("how") == "release group"
     conn.execute("INSERT INTO import_events (run_id, kind, entity_type, entity_id, detail_json, reviewed_at) "
                  "VALUES (?, ?, ?, ?, ?, CASE WHEN ? THEN datetime('now') END)",
                  (_import_run["id"], kind, entity_type, entity_id, json.dumps(detail or {}), informational))
+
+
+WRONG_MBID_MARK = "wrong-mbid:"   # review_marks: an outside artist id a human ruled out for this artist
+
+
+def is_wrong_artist_mbid(conn: sqlite3.Connection, artist_id: int, mbid: str) -> bool:
+    try:
+        return conn.execute("SELECT 1 FROM review_marks WHERE entity_type = 'artist' AND entity_id = ? AND mark = ?",
+                            (artist_id, WRONG_MBID_MARK + mbid)).fetchone() is not None
+    except sqlite3.OperationalError:  # pre-migration database
+        return False
 
 
 def _set_mbid_if_free(conn: sqlite3.Connection, table: str, row_id: int, mbid: str) -> None:
@@ -211,8 +228,10 @@ def get_or_create_artist(
         if held and held[0] and held[0] != mbid:
             # Same name, different MusicBrainz artist (two bands called Nirvana): filed under the
             # local one as before, but flagged -- artist mbids are trusted, so this needs a look.
-            record_event(conn, "suspect", "artist", artist_id,
-                         {"reason": "artist-mbid-differs", "name": name, "mbid": mbid, "localMbid": held[0], "source": source})
+            # Unless a human already said that id is wrong for this artist (Inbox "Keep mine").
+            if not is_wrong_artist_mbid(conn, artist_id, mbid):
+                record_event(conn, "suspect", "artist", artist_id,
+                             {"reason": "artist-mbid-differs", "name": name, "mbid": mbid, "localMbid": held[0], "source": source})
         else:
             _set_mbid_if_free(conn, "artists", artist_id, mbid)
             cache[("mbid", mbid)] = artist_id
