@@ -123,7 +123,7 @@ function renderArtistsBrowse() {
         <a class="al-card" href="#/artist/${a.id}">${move(a)}
           ${a.face ? `<img class="al-art" src="${esc(coverUrl(a.face.id, a.face.v))}" alt="" loading="lazy" />` : `<div class="al-art ap-noart">${esc(a.name.replace(/^the\s+/i, "").slice(0, 1))}</div>`}
           <b>${esc(a.name)}</b>
-          <span class="al-meta">${a.p ? `${apFmt(a.p)}<span class="ab-pw"> ${a.p === 1 ? "play" : "plays"}${windowTail(wk)}</span>` : "not played"}${abIcons(a.vinyl, a.shows, `Seen live ${a.shows}×`)}</span>
+          <span class="al-meta"><span class="ab-pc">${a.p ? `${apFmt(a.p)}<span class="ab-pw"> ${a.p === 1 ? "play" : "plays"}${windowTail(wk)}</span>` : "not played"}</span>${abIcons(a.vinyl, a.shows, `Seen live ${a.shows}×`)}</span>
           ${a.genres.length ? `<span class="al-artist">${esc(a.genres.slice(0, 2).map(genreName).join(" · "))}</span>` : ""}
         </a>`).join("") || `<div class="empty">No artists match.</div>`}</div>
       ${shown.length > st.shown ? `<div class="al-more"><button class="coll-btn" data-act="show-more">Show ${Math.min(120, shown.length - st.shown)} more</button>

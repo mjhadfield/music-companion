@@ -8,7 +8,10 @@
 .ab-ic .i { width: 14px; height: 14px; }
 .ab-ic.vinyl { color: var(--accent-vinyl); }
 .ab-ic.live { color: var(--accent-live); }
-.ab-wall .al-meta { display: flex; align-items: center; }
+.ab-wall .al-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 1px 8px; }
+/* "1,958 plays · 12 months" stays one phrase; when it and the icons don't fit, the icons take the next line */
+.ab-wall .ab-pc, .ab-wall .ab-icons { white-space: nowrap; }
+.ab-wall .ab-icons { margin-left: 0; }
 .ab-note { font-size: .74rem; margin-top: 2px; }
 .ab .al-f-title { width: 104px; }
 
@@ -61,9 +64,9 @@
 @media (max-width: 640px) {
   .ab-wall { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 10px; }
   .ab-wall .al-artist { display: none; }
-  .ab-wall .al-meta { white-space: nowrap; overflow: hidden; }
+  .ab-wall .al-meta { flex-wrap: nowrap; white-space: nowrap; overflow: hidden; column-gap: 6px; }
   .ab-pw { display: none; }
-  .ab-wall .ab-icons { gap: 5px; margin-left: 6px; }
+  .ab-wall .ab-icons { gap: 5px; }
   .ab-wall .ab-ic { font-size: .66rem; gap: 1px; }
   .ab-wall .ab-ic .i { width: 12px; height: 12px; }
   .ab-legend { text-align: right; padding-left: 0; }
