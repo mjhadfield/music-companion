@@ -6,14 +6,17 @@
   <title>Music Companion</title>
   <script>
     // the theme before anything paints: your choice, else light (no dark flash for a first visit).
-    // Inside Citadel's frame, Citadel sets it.
-    try { if (window.self === window.top) document.documentElement.dataset.theme = localStorage.getItem("theme") || "light"; } catch (e) { document.documentElement.dataset.theme = "light"; }
+    // In a frame (Citadel, or the website's terminal), the ?theme= the parent passed.
+    try {
+      if (window.self === window.top) document.documentElement.dataset.theme = localStorage.getItem("theme") || "light";
+      else if (new URLSearchParams(location.search).get("theme") === "light") document.documentElement.dataset.theme = "light";
+    } catch (e) { document.documentElement.dataset.theme = "light"; }
   </script>
   <script>
     // An old copy of this page from the browser's cache (an earlier version of the site) fetches
     // everything fresh and reloads -- once. Stamped by etl/bump_site_version.py, with the ?v= on
     // every stylesheet and script below; between versions everything caches as normal.
-    const SITE_VERSION = "20261028-202219";
+    const SITE_VERSION = "20261107-010338";
     fetch("version.txt", { cache: "no-store" }).then((r) => (r.ok ? r.text() : "")).then((v) => {
       v = v.trim();
       if (!v || v === SITE_VERSION) return;
@@ -21,14 +24,14 @@
       return Promise.all([location.pathname || "./", "index.html"].map((u) => fetch(u, { cache: "reload" }).catch(() => null))).then(() => location.reload());
     }).catch(() => {});
   </script>
-  <link rel="stylesheet" href="css/style.css?v=20261028-202219" />
-  <link rel="stylesheet" href="css/home.css?v=20261028-202219" />
-  <link rel="stylesheet" href="css/album-page.css?v=20261028-202219" />
-  <link rel="stylesheet" href="css/albums-page.css?v=20261028-202219" />
-  <link rel="stylesheet" href="css/artist-page.css?v=20261028-202219" />
-  <link rel="stylesheet" href="css/song-page.css?v=20261028-202219" />
-  <link rel="stylesheet" href="css/live.css?v=20261028-202219" />
-  <link rel="stylesheet" href="css/browse-pages.css?v=20261028-202219" />
+  <link rel="stylesheet" href="css/style.css?v=20261107-010338" />
+  <link rel="stylesheet" href="css/home.css?v=20261107-010338" />
+  <link rel="stylesheet" href="css/album-page.css?v=20261107-010338" />
+  <link rel="stylesheet" href="css/albums-page.css?v=20261107-010338" />
+  <link rel="stylesheet" href="css/artist-page.css?v=20261107-010338" />
+  <link rel="stylesheet" href="css/song-page.css?v=20261107-010338" />
+  <link rel="stylesheet" href="css/live.css?v=20261107-010338" />
+  <link rel="stylesheet" href="css/browse-pages.css?v=20261107-010338" />
 </head>
 <body>
   <header class="topbar">
@@ -45,7 +48,6 @@
     </div>
     <div id="topbar-title" class="topbar-title"></div>
     <div class="topbar-side topbar-right">
-      <a id="maintenance-link" class="icon-btn" href="http://192.168.0.66:8643/" title="Maintenance settings" aria-label="Maintenance settings"><svg class="i"><use href="#i-gear"/></svg></a>
       <button id="theme-toggle" class="icon-btn" type="button" title="Toggle dark mode" aria-label="Toggle dark mode"><svg class="i"><use href="#i-moon"/></svg></button>
     </div>
   </header>
@@ -72,17 +74,17 @@
   </nav>
 
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
-  <script src="js/icons.js?v=20261028-202219"></script>
-  <script src="js/charts.js?v=20261028-202219"></script>
-  <script src="js/enrichment.js?v=20261028-202219"></script>
-  <script src="js/collection.js?v=20261028-202219"></script>
-  <script src="js/home.js?v=20261028-202219"></script>
-  <script src="js/album-page.js?v=20261028-202219"></script>
-  <script src="js/albums-page.js?v=20261028-202219"></script>
-  <script src="js/artist-page.js?v=20261028-202219"></script>
-  <script src="js/song-page.js?v=20261028-202219"></script>
-  <script src="js/live.js?v=20261028-202219"></script>
-  <script src="js/browse-pages.js?v=20261028-202219"></script>
-  <script src="js/app.js?v=20261028-202219"></script>
+  <script src="js/icons.js?v=20261107-010338"></script>
+  <script src="js/charts.js?v=20261107-010338"></script>
+  <script src="js/enrichment.js?v=20261107-010338"></script>
+  <script src="js/collection.js?v=20261107-010338"></script>
+  <script src="js/home.js?v=20261107-010338"></script>
+  <script src="js/album-page.js?v=20261107-010338"></script>
+  <script src="js/albums-page.js?v=20261107-010338"></script>
+  <script src="js/artist-page.js?v=20261107-010338"></script>
+  <script src="js/song-page.js?v=20261107-010338"></script>
+  <script src="js/live.js?v=20261107-010338"></script>
+  <script src="js/browse-pages.js?v=20261107-010338"></script>
+  <script src="js/app.js?v=20261107-010338"></script>
 </body>
 </html>

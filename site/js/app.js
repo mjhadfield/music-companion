@@ -83,14 +83,16 @@ function applyTheme(theme) {
   }
 }
 
-function initTheme() {
+/** framed = in another page's frame (the website's terminal): start from the theme it passed in
+ * ?theme=, then switch independently of it, without remembering -- each launch matches the page. */
+function initTheme(framed = false) {
   let stored = null;
   try {
-    stored = localStorage.getItem("theme");
+    stored = framed ? new URLSearchParams(location.search).get("theme") : localStorage.getItem("theme");
   } catch {
     /* ignore */
   }
-  applyTheme(stored || "light"); // light until you choose otherwise
+  applyTheme(stored === "dark" ? "dark" : "light"); // light until you choose otherwise
 
   document.getElementById("theme-toggle").addEventListener("click", () => {
     // No system-preference fallback -- matches the token restructure (harmonised with Citadel):
@@ -99,10 +101,12 @@ function initTheme() {
     const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     const next = current === "dark" ? "light" : "dark";
     applyTheme(next);
-    try {
-      localStorage.setItem("theme", next);
-    } catch {
-      /* ignore */
+    if (!framed) {
+      try {
+        localStorage.setItem("theme", next);
+      } catch {
+        /* ignore */
+      }
     }
     render(); // re-render so any chart currently on screen redraws in the new theme's colors
   });
@@ -608,10 +612,19 @@ function updateLoadingProgress(loaded, total) {
 
 const CITADEL_ORIGIN = "http://192.168.0.66:8080";
 
-/** True when this page is running inside Citadel's #music iframe rather than opened
- * directly in its own tab -- drives whether the local theme toggle is shown at all. */
+/** True when this page is running in a frame (Citadel's #music, or the website's terminal)
+ * rather than opened directly in its own tab. */
 function isEmbedded() {
   return window.self !== window.top;
+}
+
+/** Framed by Citadel, which drives the theme, rather than by another page (the website), where the
+ * page keeps its own toggle. Citadel sends Referrer-Policy: same-origin, so its frame has no referrer;
+ * other pages pass their origin. No referrer at all is treated as Citadel (the old behaviour). */
+function embeddedByCitadel() {
+  if (!isEmbedded()) return false;
+  if (!document.referrer) return true;
+  try { return new URL(document.referrer).origin === CITADEL_ORIGIN; } catch { return true; }
 }
 
 /** Embedded: theme is driven entirely by Citadel (initial value via a ?theme= query
@@ -639,9 +652,6 @@ function applyCitadelLook(msg) {
     }
   }
   root.classList.toggle("citadel-bg", !!msg.bg);
-  // The gear opens Maintenance in this same frame; it reads ?theme= for its first paint, then follows Citadel itself.
-  const gear = document.getElementById("maintenance-link");
-  if (gear) gear.href = `${new URL(gear.href).origin}/?theme=${msg.theme}`;
 }
 
 function initEmbeddedTheme() {
@@ -658,7 +668,7 @@ function initEmbeddedTheme() {
 }
 
 async function boot() {
-  if (isEmbedded()) initEmbeddedTheme(); else initTheme();
+  if (embeddedByCitadel()) initEmbeddedTheme(); else initTheme(isEmbedded());
   try {
     // Independent downloads -- run them side by side rather than making
     // the (much bigger) database wait behind the small WASM runtime.

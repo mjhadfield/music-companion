@@ -688,7 +688,7 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--text-dim); }
   /* back chevron · search (or the page's title) · theme -- home + maintenance live in the tab bar / desktop */
   .topbar { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 8px; padding: 8px 10px; }
   .topbar-left, .topbar-right { justify-self: stretch; justify-content: center; }
-  .topbar-home, #maintenance-link { display: none; }
+  .topbar-home { display: none; }
   .topbar .icon-btn { width: 32px; height: 32px; border-color: transparent; background: none; }
   .topbar .icon-btn .i { width: 20px; height: 20px; }
   .topbar .topbar-back { display: flex; margin-left: -4px; }
