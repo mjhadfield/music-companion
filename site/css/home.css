@@ -87,6 +87,60 @@ a.hp-kpi { color: inherit; text-decoration: none; transition: border-color .15s,
 a.hp-kpi:hover, a.hp-kpi:focus-visible { border-color: var(--accent); background: var(--accent-wash); outline: none; }
 .hp-kpi span { display: block; max-width: 100%; margin-top: 4px; font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .07em; text-transform: uppercase; color: var(--text-dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* the plays tile's listening time: its own line, so a year's or all time's hours never get cut off */
+.hp-kpi small { display: block; max-width: 100%; margin-top: 2px; font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .04em; color: var(--text-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-kpi { container-type: inline-size; }
+@container (max-width: 150px) { .hp-kpi b { font-size: 1.5rem; } }
+@container (max-width: 115px) { .hp-kpi b { font-size: 1.2rem; } }
+
+/* ---- which period: one pager, ‹ This week › -- its middle opens the calendar ---- */
+.hp-nav { position: relative; display: inline-flex; align-items: stretch; min-width: 0; border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--surface); }
+.hp-nav-btn { display: grid; place-items: center; flex: none; width: 40px; min-height: 42px; padding: 0; border: 0; background: none; color: var(--text); cursor: pointer;
+  transition: background .15s, color .15s; }
+.hp-nav-btn[data-step="back"] { border-right: 1px solid var(--edge); }
+.hp-nav-btn[data-step="next"] { border-left: 1px solid var(--edge); }
+.hp-nav-btn .hp-ic { width: 18px; height: 18px; stroke-width: 2; }
+.hp-nav-btn:hover:not(:disabled), .hp-nav-btn:focus-visible { background: var(--accent-wash); color: var(--accent-soft); outline: none; }
+.hp-nav-btn:disabled { color: var(--text-dim); opacity: .35; cursor: default; }
+/* a steady width, so the arrows stay put while the words change under a run of clicks */
+.hp-nav-txt { display: flex; align-items: center; justify-content: center; gap: 10px; min-width: 13.5rem; min-height: 42px; padding: 3px 14px; border: 0; background: none;
+  font: inherit; color: var(--text); cursor: pointer; transition: background .15s; }
+.hp-nav-txt:hover, .hp-nav-txt:focus-visible, .hp-nav-txt[aria-expanded="true"] { background: var(--accent-wash); outline: none; }
+.hp-nav-lbl { display: flex; flex-direction: column; align-items: center; min-width: 0; text-align: center; line-height: 1.2; }
+.hp-nav-lbl b { font-size: .98rem; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.hp-nav-lbl span { font-family: var(--font-mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.hp-nav-txt .hp-nav-cal { width: 17px; height: 17px; color: var(--accent-soft); }
+.hp-nav-txt .hp-chev { display: none; width: 16px; height: 16px; color: var(--accent-soft); transition: transform .2s; }
+.hp-nav-txt[aria-expanded="true"] .hp-chev { transform: rotate(180deg); }
+.hp-listen-ctrls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* the calendar */
+.hp-pop { position: absolute; z-index: 40; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); width: 300px; padding: 14px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 12px; background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius-sm); box-shadow: var(--shadow); cursor: default; }
+.hp-pop[hidden] { display: none; }
+.hp-pop-sizes { display: none; }     /* phone only: the desktop header shows Day…All beside the pager */
+.hp-cal-head { display: flex; align-items: center; justify-content: space-between; }
+.hp-cal-head b { font-size: .95rem; font-weight: 600; color: var(--text); }
+.hp-cal-mv { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); cursor: pointer; }
+.hp-cal-mv .hp-ic { width: 16px; height: 16px; stroke-width: 2; }
+.hp-cal-mv:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-soft); }
+.hp-cal-mv:disabled { opacity: .35; cursor: default; }
+.hp-cal-dow, .hp-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.hp-cal-dow span { padding-bottom: 4px; text-align: center; font-family: var(--font-mono); font-size: .66rem; letter-spacing: .06em; color: var(--text-dim); }
+.hp-cal-grid { row-gap: 2px; }
+.hp-cal-grid button { display: grid; place-items: center; height: 34px; padding: 0; text-align: center; border: 0; background: none; font-family: var(--font-mono); font-size: .8rem; color: var(--text); cursor: pointer; font-variant-numeric: tabular-nums; }
+.hp-cal-grid button:hover:not(:disabled) { color: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.hp-cal-grid button:disabled { color: var(--text-dim); opacity: .35; cursor: default; }
+.hp-cal-grid button.today { text-decoration: underline; text-underline-offset: 3px; }
+.hp-cal-grid button.in { background: var(--accent-wash); }
+.hp-cal-grid button.lo, .hp-cal-grid button.hi { background: var(--accent); color: var(--surface); font-weight: 600; }
+.hp-cal-foot { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--edge); }
+.hp-cal-note { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: .66rem; letter-spacing: .04em; color: var(--text-dim); line-height: 1.35; }
+.hp-cal-btn { min-height: 32px; padding: 0 12px; border: 1px solid var(--edge); border-radius: var(--radius-sm); background: var(--surface); font-family: var(--font-mono); font-size: .7rem;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--text); cursor: pointer; }
+.hp-cal-btn.go { border-color: var(--accent); background: var(--accent-wash); color: var(--accent-soft); }
+.hp-cal-btn:disabled { opacity: .4; cursor: default; }
 .hp-chart-wrap { display: flex; flex-direction: column; padding-top: 10px; }
 .hp-chart { position: relative; height: 280px; }
 .hp-tick { position: absolute; left: 52px; right: 0; height: 0; border-top: 1px solid var(--gridline); opacity: .7; }
@@ -107,35 +161,40 @@ a.hp-kpi:hover, a.hp-kpi:focus-visible { border-color: var(--accent); background
 .hp-shape-panel h3 small { color: var(--text-dim); font-size: inherit; letter-spacing: .04em; text-transform: none; }
 
 .hp-card { display: flex; flex-direction: column; gap: 18px; padding: 20px; background: var(--surface); border: 1px solid var(--edge); box-shadow: var(--shadow); min-width: 0; }
-.hp-ctrl-stack { flex-direction: column; align-items: center; gap: 10px; }
+.hp-ctrl-stack { flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 10px; }  /* nowrap: a wrapping column sizes itself to its widest line */
 .hp-ctrl-stack .hp-seg { width: 100%; max-width: 460px; }
 .hp-ctrl-stack .hp-seg button { flex: 1; padding: 0 8px; }
-.hp-mp { display: flex; flex-direction: column; gap: 14px; }
+/* Most played: #1 and 2–10 share one grid -- rank | cover | title | plays -- so ranks, covers, titles and counts line
+   up down the list, with the same space at both ends. Sizes are variables, so the smaller screens just change them. */
+.hp-mp { --rpx: 10px; --rk: 20px; --ra: 44px; --rg: 12px; --hx: 104px; display: flex; flex-direction: column; gap: 2px; }
 .hp-art { position: relative; flex: none; width: 44px; height: 44px; overflow: hidden; background: var(--surface-3); display: grid; place-items: center; }
 .hp-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .hp-noart { font-weight: 600; font-size: 1.2rem; color: var(--accent-soft); text-transform: uppercase; background: linear-gradient(135deg, var(--surface-3), var(--accent-wash)); }
-.hp-hero { display: flex; align-items: center; gap: 18px; min-width: 0; }
-.hp-art.hp-art-xl { width: 132px; height: 132px; font-size: 3rem; box-shadow: var(--shadow); }
-.hp-hero-txt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.hp-hero-rank { font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
-.hp-hero-title { font-size: 1.7rem; font-weight: 600; line-height: 1.15; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hp-hero-sub { font-size: 1.02rem; color: var(--text-dim); }
-.hp-hero-num { margin-top: 6px; font-family: var(--font-mono); font-size: .8rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: .08em; }
-.hp-hero-num b { font-family: var(--font-display); font-size: 1.8rem; color: var(--accent-scrobble); font-weight: 600; letter-spacing: 0; margin-right: 4px; font-variant-numeric: tabular-nums; }
-.hp-hero-share { font-family: var(--font-mono); font-size: .7rem; color: var(--text-dim); letter-spacing: .05em; text-transform: uppercase; }
+.hp-hero, .hp-rows a { position: relative; display: grid; grid-template-columns: var(--rk) var(--ra) minmax(0, 1fr) auto; align-items: center; gap: var(--rg);
+  padding: 6px var(--rpx) 10px; border-radius: var(--radius-sm); }
+.hp-hero:hover, .hp-rows a:hover { background: var(--accent-wash); }
+.hp-hero { grid-template-columns: var(--rk) var(--hx) minmax(0, 1fr) auto; padding-top: 8px; padding-bottom: 14px; }
+.hp-mp .hp-art { width: var(--ra); height: var(--ra); }
+.hp-mp .hp-art.hp-art-xl { width: var(--hx); height: var(--hx); font-size: 2.6rem; box-shadow: var(--shadow); }
+.hp-hero-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hp-hero-rank { font-family: var(--font-mono); font-size: var(--hp-label); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-hero-title { font-size: 1.45rem; font-weight: 600; line-height: 1.15; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-hero-sub { min-height: 1.3em; font-size: .98rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hp-hero-share { margin-top: 4px; font-family: var(--font-mono); font-size: .66rem; color: var(--text-dim); letter-spacing: .05em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* #1's plays sit where every other count does, just bigger */
+.hp-hero-num { display: flex; flex-direction: column; align-items: flex-end; font-family: var(--font-mono); font-size: .66rem; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }
+.hp-hero-num b { font-family: var(--font-display); font-size: 1.7rem; line-height: 1.05; font-weight: 600; letter-spacing: 0; color: var(--accent-scrobble); font-variant-numeric: tabular-nums; }
 .hp-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .hp-rows li { --i: 0; }
-.hp-rows a { position: relative; display: grid; grid-template-columns: 24px 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 6px 4px 10px; border-radius: var(--radius-sm); }
-.hp-rows a:hover { background: var(--accent-wash); }
-.hp-rk { font-family: var(--font-mono); font-size: .84rem; color: var(--text-dim); text-align: right; }
+.hp-rk { font-family: var(--font-mono); font-size: .84rem; color: var(--text-dim); text-align: center; font-variant-numeric: tabular-nums; }
+.hp-hero .hp-rk { font-size: 1rem; font-weight: 600; color: var(--accent); }
 .hp-rt { min-width: 0; display: flex; flex-direction: column; }
 .hp-rt b { font-weight: 600; font-size: 1.04rem; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hp-rt span { font-size: .88rem; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.25em; }
-/* the same shape in every view (artists / albums / songs, any period): a blank second line keeps its height */
-.hp-hero-sub { min-height: 1.3em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hp-rows .hp-pad { visibility: hidden; }  /* a short list (a quiet day) keeps the panel's height */
 .hp-rc { font-family: var(--font-mono); font-size: .9rem; color: var(--silver); font-variant-numeric: tabular-nums; }
-.hp-rbar { position: absolute; left: 84px; right: 4px; bottom: 3px; height: 2px; background: var(--edge); }
+/* every bar runs from the covers' left edge to the counts' right edge, #1's included */
+.hp-rbar { position: absolute; left: calc(var(--rpx) + var(--rk) + var(--rg)); right: var(--rpx); bottom: 3px; height: 2px; background: var(--edge); }
 .hp-rbar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--w); background: color-mix(in srgb, var(--accent) 70%, transparent);
   transform-origin: left; transition: transform .6s var(--hp-ease) calc(var(--i, 0) * 45ms + 80ms); }
 .hp-swap.hp-pre .hp-rbar::after { transform: scaleX(0); transition: none; }
@@ -187,6 +246,15 @@ a.hp-kpi:hover, a.hp-kpi:focus-visible { border-color: var(--accent); background
   .hp-listen, .hp-listen-body { display: contents; }
   .hp-listen-head { display: none; }
   .hp .hp-ctrl-phone { display: flex; justify-content: center; }
+  /* one row: ‹ June 2026 ⌄ › -- the middle opens Day…All and the calendar */
+  .hp-ctrl-phone { flex-wrap: nowrap; align-self: stretch; }
+  .hp-ctrl-phone .hp-nav { display: flex; flex: 1; }
+  .hp-ctrl-phone .hp-nav-txt { flex: 1; min-width: 0; min-height: 40px; }
+  .hp-ctrl-phone .hp-nav-txt .hp-nav-cal { display: none; }
+  .hp-ctrl-phone .hp-nav-txt .hp-chev { display: block; flex: none; }
+  .hp-ctrl-phone .hp-pop { left: 0; right: 0; width: auto; transform: none; }
+  .hp-ctrl-phone .hp-pop-sizes { display: flex; width: 100%; }
+  .hp-ctrl-phone .hp-pop-sizes button { flex: 1; padding: 0 4px; }
   .hp-page { flex-shrink: 0; min-height: var(--hp-page); box-sizing: border-box; padding: 14px 0 6px; scroll-snap-align: start; scroll-snap-stop: always;
     display: flex; flex-direction: column; gap: 12px; }
   .hp-h2 { font-size: 1.15rem; }
@@ -241,16 +309,14 @@ a.hp-kpi:hover, a.hp-kpi:focus-visible { border-color: var(--accent); background
 
   .hp-card { padding: 12px; gap: 12px; }
   .hp-ctrl-stack { gap: 8px; }
-  .hp-mp { gap: 10px; }
-  .hp-hero { gap: 14px; }
-  .hp-art.hp-art-xl { width: 96px; height: 96px; font-size: 2.4rem; }
-  .hp-hero-title { font-size: 1.2rem; }
-  .hp-hero-sub { font-size: .88rem; }
-  .hp-hero-num b { font-size: 1.35rem; }
-  .hp-hero-share { display: none; }
-  .hp-rows a { grid-template-columns: 18px 36px minmax(0, 1fr) auto; gap: 9px; padding: 4px 2px 8px; }
-  .hp-art { width: 36px; height: 36px; }
-  .hp-rbar { left: 65px; }
+  .hp-mp { --rpx: 6px; --rk: 18px; --ra: 36px; --rg: 9px; --hx: 80px; }
+  .hp-hero { padding-top: 4px; padding-bottom: 10px; }
+  .hp-mp .hp-art.hp-art-xl { font-size: 2rem; }
+  .hp-hero-title { font-size: 1.15rem; }
+  .hp-hero-sub { font-size: .84rem; }
+  .hp-hero-num b { font-size: 1.3rem; }
+  .hp-hero-share, .hp-hero-when { display: none; }   /* the pager just above already names the period */
+  .hp-rows a { padding: 4px var(--rpx) 8px; }
   .hp-rt b { font-size: .92rem; }
   .hp-rt span { font-size: .76rem; }
   .hp-rc { font-size: .8rem; }
@@ -290,22 +356,19 @@ a.hp-kpi:hover, a.hp-kpi:focus-visible { border-color: var(--accent); background
   .hp-chart-wrap { padding-top: 6px; }
   .hp-shape-panel { padding: 10px 14px 8px; }
   .hp-shape-panel .hp-mini-bars { height: 36px; }
-  .hp-art.hp-art-xl { width: 104px; height: 104px; }
-  .hp-hero-title { font-size: 1.5rem; }
-  .hp-hero-num { margin-top: 2px; }
+  .hp-mp { --ra: 36px; --hx: 92px; }
+  .hp-hero-title { font-size: 1.35rem; }
   .hp-hero-num b { font-size: 1.55rem; }
-  .hp-rows a { grid-template-columns: 24px 36px minmax(0, 1fr) auto; padding: 3px 4px 7px; }
-  .hp-rows .hp-art { width: 36px; height: 36px; }
-  .hp-rbar { left: 76px; bottom: 2px; }
+  .hp-hero { padding-top: 4px; padding-bottom: 10px; }
+  .hp-rows a { padding: 3px var(--rpx) 7px; }
+  .hp-rbar { bottom: 2px; }
   /* two rows of record covers fit under the heading: the grid narrows with the window height */
   .hp-records { width: 100%; max-width: max(760px, calc(200vh - 860px)); margin-inline: auto; }
 }
 @media (min-width: 1100px) and (max-height: 780px) {
-  .hp-art.hp-art-xl { width: 84px; height: 84px; font-size: 2.2rem; }
+  .hp-mp { --ra: 30px; --hx: 76px; }
+  .hp-mp .hp-art.hp-art-xl { font-size: 2.2rem; }
   .hp-hero-share { display: none; }
-  .hp-rows a { padding: 2px 4px 5px; }
-  .hp-rows .hp-art { width: 30px; height: 30px; }
-  .hp-rows a { grid-template-columns: 24px 30px minmax(0, 1fr) auto; }
-  .hp-rbar { left: 70px; }
+  .hp-rows a { padding: 2px var(--rpx) 5px; }
   .hp-rt span { font-size: .8rem; }
 }

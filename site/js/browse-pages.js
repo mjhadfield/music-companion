@@ -69,8 +69,8 @@ function renderArtistsBrowse() {
   const st = artistsState;
   browseHashGenre(st, "artists");
   browseHashRange(st, "artists");
-  const wk = st.range?.win || st.win;
-  const W = playWindow("artist_id", wk), win = PLAY_WINDOWS[wk];
+  const { wk, win } = rangeWin(st);
+  const W = playWindow("artist_id", wk, st.range);
   artistsBase().forEach((a) => { a.p = W.cur.get(a.id) || 0; a.pp = W.prev.get(a.id) || 0; });
   let rows = wk === "all" && !st.range ? artistsBase() : artistsBase().filter((a) => a.p);  // a window (or a Home stat) lists who you played
   if (st.range?.newOnly) rows = rows.filter((a) => a.first && a.first >= W.start);  // new: first ever play in the window
@@ -103,7 +103,7 @@ function renderArtistsBrowse() {
       ${browseSwitch("artists")}
       <div class="al-head">
         <div><div class="hud">Artists</div><h1>${st.genre ? esc(genreName(st.genre)) : st.range?.newOnly ? "New artists" : "Every artist"}</h1>
-          <div class="subtle">${plural(shown.length, st.range?.newOnly ? "new artist" : "artist")} · ${plural(plays, "play")}${win.since ? ` in the ${esc(win.since)}` : ""}${st.genre ? ` · <button class="linkish" data-act="all-genres">all genres</button>` : ""}</div></div>
+          <div class="subtle">${plural(shown.length, st.range?.newOnly ? "new artist" : "artist")} · ${plural(plays, "play")}${winIn(win)}${st.genre ? ` · <button class="linkish" data-act="all-genres">all genres</button>` : ""}</div></div>
         <div class="al-tools">
           <input type="search" id="al-search" placeholder="Search artists…" value="${esc(st.q)}" />
           ${windowSeg(st)}
@@ -123,7 +123,7 @@ function renderArtistsBrowse() {
         <a class="al-card" href="#/artist/${a.id}">${move(a)}
           ${a.face ? `<img class="al-art" src="${esc(coverUrl(a.face.id, a.face.v))}" alt="" loading="lazy" />` : `<div class="al-art ap-noart">${esc(a.name.replace(/^the\s+/i, "").slice(0, 1))}</div>`}
           <b>${esc(a.name)}</b>
-          <span class="al-meta"><span class="ab-pc">${a.p ? `${apFmt(a.p)}<span class="ab-pw"> ${a.p === 1 ? "play" : "plays"}${windowTail(wk)}</span>` : "not played"}</span>${abIcons(a.vinyl, a.shows, `Seen live ${a.shows}×`)}</span>
+          <span class="al-meta"><span class="ab-pc">${a.p ? `${apFmt(a.p)}<span class="ab-pw"> ${a.p === 1 ? "play" : "plays"}${windowTail(wk, st)}</span>` : "not played"}</span>${abIcons(a.vinyl, a.shows, `Seen live ${a.shows}×`)}</span>
           ${a.genres.length ? `<span class="al-artist">${esc(a.genres.slice(0, 2).map(genreName).join(" · "))}</span>` : ""}
         </a>`).join("") || `<div class="empty">No artists match.</div>`}</div>
       ${shown.length > st.shown ? `<div class="al-more"><button class="coll-btn" data-act="show-more">Show ${Math.min(120, shown.length - st.shown)} more</button>
@@ -179,8 +179,8 @@ function songsBase() {
 }
 
 // each song's plays in a window and the window before, its remaster rows added together
-function songsWindow(win) {
-  const songs = songsBase(), W = playWindow("song_id", win);
+function songsWindow(win, range = null) {
+  const songs = songsBase(), W = playWindow("song_id", win, range);
   if (W.songs?.list === songs) return W.songs;
   const cur = new Map(), prev = new Map();
   for (const x of songs) {
@@ -196,8 +196,8 @@ function renderSongsBrowse() {
   const st = songsState;
   browseHashGenre(st, "songs");
   browseHashRange(st, "songs");
-  const wk = st.range?.win || st.win;
-  const W = songsWindow(wk), win = PLAY_WINDOWS[wk];
+  const { wk, win } = rangeWin(st);
+  const W = songsWindow(wk, st.range);
   songsBase().forEach((x) => { x.p = W.cur.get(x) || 0; x.pp = W.prev.get(x) || 0; });
   const rows = wk === "all" && !st.range ? songsBase() : songsBase().filter((x) => x.p);  // a window (or a Home stat) lists what you played
   const q = st.q.toLowerCase();
@@ -231,7 +231,7 @@ function renderSongsBrowse() {
       ${browseSwitch("songs")}
       <div class="al-head">
         <div><div class="hud">Songs</div><h1>${st.genre ? esc(genreName(st.genre)) : "Every song"}</h1>
-          <div class="subtle">${plural(shown.length, "song")} · ${plural(plays, "play")}${win.since ? ` in the ${esc(win.since)}` : ""}${st.genre ? ` · <button class="linkish" data-act="all-genres">all genres</button>` : ""}</div></div>
+          <div class="subtle">${plural(shown.length, "song")} · ${plural(plays, "play")}${winIn(win)}${st.genre ? ` · <button class="linkish" data-act="all-genres">all genres</button>` : ""}</div></div>
         <div class="al-tools">
           <input type="search" id="al-search" placeholder="Search song, artist or album…" value="${esc(st.q)}" />
           ${windowSeg(st)}
@@ -286,12 +286,23 @@ const PLAY_WINDOWS = {
 };
 
 // plays per song / album / artist (`col` of scrobbles) in a window and the window before
-// -> { start, cur: Map(id -> n), prev: Map(id -> n) }
-function playWindow(col, win) {
+// -> { start, cur: Map(id -> n), prev: Map(id -> n) }. An exact range from Home (`range`: start, end and the
+// previous period's start, all UTC like played_at) counts [start, end) against [prevStart, start).
+function playWindow(col, win, range = null) {
   if (browseCache.db !== db) Object.assign(browseCache, { db, artists: null, songs: null });
   browseCache.windows ||= {};
-  const key = `${col}|${win}`;
+  const exact = range?.start ? range : null;
+  const key = exact ? `${col}|${exact.start}|${exact.end}|${exact.prevStart}` : `${col}|${win}`;
   if (browseCache.windows[key]?.db === db) return browseCache.windows[key];
+  if (exact) {
+    const cur = new Map(), prev = new Map();
+    for (const r of query(`SELECT ${col} AS k, sum(played_at >= ?) AS cur, sum(played_at < ?) AS prev FROM scrobbles
+                           WHERE played_at >= ? AND played_at < ? AND ${col} IS NOT NULL GROUP BY k`, [exact.start, exact.start, exact.prevStart, exact.end])) {
+      if (r.cur) cur.set(r.k, r.cur);
+      if (r.prev) prev.set(r.k, r.prev);
+    }
+    return (browseCache.windows[key] = { db, start: exact.start, cur, prev });
+  }
   const w = PLAY_WINDOWS[win];
   const iso = (mod) => query(`SELECT strftime('%Y-%m-%dT%H:%M:%S', 'now', ?) AS d`, [mod])[0].d;
   const start = iso(w.mod), cur = new Map(), prev = new Map();
@@ -325,7 +336,7 @@ function chartMoves(shown, before, start, win) {
   return (x) => {
     if (!x.p) return "";
     const r = was.get(x);
-    if (!r) return `<i class="ab-mv new" title="${x.first && x.first >= start ? `First played in the ${esc(win.since || "last 30 days")}` : "Back — not played in the window before"}">new</i>`;
+    if (!r) return `<i class="ab-mv new" title="${x.first && x.first >= start ? `First played ${esc(win.in || `in the ${win.since || "last 30 days"}`)}` : "Back — not played in the window before"}">new</i>`;
     const d = r - now.get(x);
     return d > 0 ? `<i class="ab-mv up" title="Up ${d} (was ${r}) ${esc(win.vs)}">▲${d}</i>` : d < 0 ? `<i class="ab-mv down" title="Down ${-d} (was ${r}) ${esc(win.vs)}">▼${-d}</i>`
       : `<i class="ab-mv same" title="No change ${esc(win.vs)}">–</i>`;
@@ -333,7 +344,7 @@ function chartMoves(shown, before, start, win) {
 }
 // the switch -- or, arriving from a Home stat, that stat's range as a removable pill instead
 const windowSeg = (st) => (st.range
-  ? `<div class="ab-range" title="From Home's listening activity"><span><i>From Home</i> <b>${esc(PLAY_WINDOWS[st.range.win].since || "all time")}</b>${st.range.newOnly ? " · new artists" : ""}</span>
+  ? `<div class="ab-range" title="From Home's listening activity"><span><i>From Home</i> <b>${esc(st.range.tag || PLAY_WINDOWS[st.range.win].since || "all time")}</b>${st.range.newOnly ? " · new artists" : ""}</span>
       <button type="button" data-act="clear-range" aria-label="Remove this filter" title="Remove this filter">✕</button></div>`
   : `<div class="seg ab-win" role="tablist" aria-label="When">${["week", "month", "year", "all"].map((k) =>
     `<button role="tab" data-win="${k}" aria-selected="${st.win === k}">${PLAY_WINDOWS[k].label}</button>`).join("")}</div>`);
@@ -342,17 +353,29 @@ const windowSeg = (st) => (st.range
 function browseHashRange(st, route) {
   const params = new URLSearchParams(location.hash.split("?")[1] || "");
   const win = params.get("range");
-  if (!win || !PLAY_WINDOWS[win]) return;
-  st.range = { win, newOnly: params.get("new") === "1" };
+  const from = params.get("from");
+  if (from) {  // an exact period: #/songs?from=…&to=…&prev=…&tag=…&in=…&vs=… (Home's calendar weeks, ‹ › steps)
+    st.range = { win: "range", start: from, end: params.get("to"), prevStart: params.get("prev") || from, tag: params.get("tag") || "",
+      in: params.get("in") || "", vs: params.get("vs") || "vs the period before", newOnly: params.get("new") === "1" };
+  } else if (!win || !PLAY_WINDOWS[win]) return;
+  else st.range = { win, newOnly: params.get("new") === "1" };
   st.q = ""; st.genre = null; st.shown = st.pageSize; st.sort = "plays";
   Object.keys(st).forEach((k) => { if (st[k] instanceof Set) st[k].clear(); });
   ["decade", "firstYear", "version"].forEach((k) => { if (k in st) st[k] = null; });
   history.replaceState(history.state, "", `#/${route}`);
 }
+// the window a list counts: its own switch, or the range a Home stat linked with
+function rangeWin(st) {
+  if (st.range?.start) return { wk: "range", win: { since: st.range.tag, in: st.range.in, vs: st.range.vs } };
+  const wk = st.range?.win || st.win;
+  return { wk, win: PLAY_WINDOWS[wk] };
+}
+// " in the last 30 days" / " this week" / " in October 2025" after "… plays"
+const winIn = (win) => (win.in ? ` ${esc(win.in)}` : win.since ? ` in the ${esc(win.since)}` : "");
 const windowLegend = (win) => `<div class="ab-legend subtle">▲▼ rank ${esc(win.vs)}</div>`;
 // "plays" on a card says which window it counts when that isn't all time ("39 plays · 30 days")
 const WINDOW_SHORT = { day: "24 hours", week: "7 days", month: "30 days", year: "12 months" };
-const windowTail = (wk) => (WINDOW_SHORT[wk] ? ` · ${WINDOW_SHORT[wk]}` : "");
+const windowTail = (wk, st = null) => (wk === "range" && st?.range?.tag ? ` · ${st.range.tag}` : WINDOW_SHORT[wk] ? ` · ${WINDOW_SHORT[wk]}` : "");
 // a filtered list in a window hides what wasn't played in it -- say how many, with a way to all time
 function windowHiddenNote(n, what, win, st) {
   if (!n || st.range) return "";

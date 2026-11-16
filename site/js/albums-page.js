@@ -65,7 +65,7 @@ function renderAlbumsBrowse() {
       ${browseSwitch("albums")}
       <div class="al-head">
         <div><div class="hud">Albums</div><h1>${st.genre ? esc(genreName(st.genre)) : "Every album"}</h1>
-          <div class="subtle">${plural(shown.length, "album")} · ${plural(plays, "play")}${win.since ? ` in the ${esc(win.since)}` : ""}${st.genre ? ` · <button class="linkish" data-act="all-genres">all genres</button>` : ""}</div></div>
+          <div class="subtle">${plural(shown.length, "album")} · ${plural(plays, "play")}${winIn(win)}${st.genre ? ` · <button class="linkish" data-act="all-genres">all genres</button>` : ""}</div></div>
         <div class="al-tools">
           <input type="search" id="al-search" placeholder="Search album or artist…" value="${esc(st.q)}" />
           ${windowSeg(st)}

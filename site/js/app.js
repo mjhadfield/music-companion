@@ -231,10 +231,14 @@ const scrobblesState = { q: "", sort: "played_at", dir: "desc", page: 1, granula
 function renderScrobblesBrowse() {
   const st = scrobblesState;
   // from Home's "average per day": #/scrobbles?range=month -- every play behind it, the chart by day
-  const hp = new URLSearchParams(location.hash.split("?")[1] || "").get("range");
+  // or an exact period (Home's calendar weeks, ‹ › steps): #/scrobbles?win=week&from=…&to=…&tag=…
+  const hpq = new URLSearchParams(location.hash.split("?")[1] || "");
+  const hp = hpq.get("from") ? hpq.get("win") : hpq.get("range");
   if (hp && HP_WINDOWS[hp]) {
     const mod = HP_WINDOWS[hp].mod;
-    st.range = { win: hp, since: mod ? query(`SELECT strftime('%Y-%m-%dT%H:%M:%S', 'now', ?) AS d`, [mod])[0].d : null };
+    st.range = hpq.get("from")
+      ? { win: hp, since: hpq.get("from"), until: hpq.get("to"), tag: hpq.get("tag") || "" }
+      : { win: hp, since: mod ? query(`SELECT strftime('%Y-%m-%dT%H:%M:%S', 'now', ?) AS d`, [mod])[0].d : null, until: null, tag: HP_WINDOWS[hp].since };
     st.granularity = { day: "day", week: "month", month: "month", year: "year", all: "all" }[hp];
     Object.assign(st, { periodFilter: null, q: "", page: 1, sort: "played_at", dir: "desc" });
     history.replaceState(history.state, "", "#/scrobbles");
@@ -257,6 +261,10 @@ function renderScrobblesBrowse() {
   if (st.range?.since) {
     listWhereParts.push("s.played_at >= ?");
     listParams.push(st.range.since);
+  }
+  if (st.range?.until) {
+    listWhereParts.push("s.played_at < ?");
+    listParams.push(st.range.until);
   }
   if (st.periodFilter) {
     // a bucket picked on the home chart is in local time (tz: its UTC offset modifier); this page's own are UTC
@@ -305,11 +313,10 @@ function renderScrobblesBrowse() {
   app.innerHTML = `
     <div class="page-header"><h1>Scrobbles</h1><div class="subtle">${total.toLocaleString()} plays${st.range && !st.periodFilter && !st.q ? (() => {
       // divided as Home divides it, so the two figures agree
-      const days = { week: 7, month: 30, year: 365 }[st.range.win] || Math.max(1, (Date.now() - new Date(query("SELECT min(played_at) AS d FROM scrobbles")[0].d)) / 86400000);
-      const per = st.range.win === "day" ? total / 24 : total / days;
+      const per = hpAverage(total, st.range.since, st.range.until, st.range.win === "day");
       return ` · ${per < 10 ? per.toFixed(1) : Math.round(per).toLocaleString()} ${st.range.win === "day" ? "an hour" : "a day"} on average`;
     })() : ""}</div>
-      ${st.range ? `<div class="ab-range" title="From Home's listening activity"><span><i>From Home</i> <b>${esc(HP_WINDOWS[st.range.win].since)}</b></span>
+      ${st.range ? `<div class="ab-range" title="From Home's listening activity"><span><i>From Home</i> <b>${esc(st.range.tag || HP_WINDOWS[st.range.win].since)}</b></span>
         <button type="button" data-act="clear-range" aria-label="Remove this filter" title="Remove this filter">✕</button></div>` : ""}</div>
     <div class="section">
       <h2>Activity</h2>
