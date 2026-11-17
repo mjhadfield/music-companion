@@ -61,6 +61,7 @@
 * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
 
 body {
+  margin: 0;   /* the top bar runs edge to edge: the browser's default 8px left it floating, framed in Citadel or not */
   background-color: var(--bg);
   /* A faint noise tile (breaks up flat color like paper grain / a hint
      of tape hiss) plus a soft glow seated at the top of the page --
