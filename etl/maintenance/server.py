@@ -2,15 +2,11 @@
 Web UI for keeping data/music.sqlite clean: pulling fresh data (etl/refresh.py, with a
 keep/discard decision), and the review tools for artists, vinyl, albums and songs.
 
-It executes local scripts (which hit your Last.fm/Setlist.fm API keys and can import an
-arbitrary CSV from imports/) on request, so it's gated behind a shared password rather than
-left open to whoever can reach the port. Whether it's reachable beyond this machine is
-controlled by one thing: set MAINTENANCE_PASSWORD in .env and it binds to the LAN with every
-request requiring that password (HTTP Basic Auth -- browsers prompt once and remember it
-per-origin); leave it unset and it stays on 127.0.0.1 with no auth check. There's deliberately
-no way to end up LAN-reachable without a password required, or vice versa.
+It binds to the LAN with no password (Mike's call, 2026-11-19: it only lives on the home
+network/Tailscale and is opened from Citadel's Curate page, so the Basic Auth prompt was just
+friction). MAINTENANCE_PASSWORD is no longer read.
 
-This file is just the shell: auth, static files, the refresh/publish jobs and dispatch. The
+This file is just the shell: static files, the refresh/publish jobs and dispatch. The
 API itself lives in api/*.py (registered into api.core.ROUTES), merges/undo in merge.py,
 MusicBrainz access in mbcache.py, background sweeps in suggest.py.
 
@@ -22,8 +18,6 @@ Usage:
     python3 etl/maintenance/server.py
     open http://localhost:8643/
 """
-import base64
-import hmac
 import json
 import os
 import shutil
@@ -49,7 +43,6 @@ from api import about as _about, albums as _albums, artists as _artists, batch a
 from api.core import ROUTES, ApiError, Req, merge_error_response  # noqa: E402
 
 load_env()
-PASSWORD = os.environ.get("MAINTENANCE_PASSWORD", "")
 PORT = int(os.environ.get("MAINTENANCE_PORT", "8643"))
 
 PAGES = {
@@ -159,30 +152,6 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(length) or b"{}")
 
-    def _authorized(self) -> bool:
-        """No password configured -> loopback-only mode (see main()), where auth is moot -- always allow.
-        Password configured -> every request needs it, timing-safe compared; username is ignored."""
-        if not PASSWORD:
-            return True
-        given = self.headers.get("Authorization", "")
-        if not given.startswith("Basic "):
-            return False
-        try:
-            decoded = base64.b64decode(given[len("Basic "):]).decode()
-        except Exception:
-            return False
-        _, _, pw = decoded.partition(":")
-        return hmac.compare_digest(pw, PASSWORD)
-
-    def _require_auth(self) -> bool:
-        if self._authorized():
-            return True
-        self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="Music Maintenance"')
-        self.send_header("Content-Length", "0")
-        self.end_headers()
-        return False
-
     def _dispatch(self, method: str, path: str, query: dict, body: dict) -> bool:
         entry = ROUTES.get((method, path))
         if not entry:
@@ -204,8 +173,6 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self):
-        if not self._require_auth():
-            return
         parts = urlsplit(self.path)
         path = parts.path
         query = {k: v[0] for k, v in parse_qs(parts.query).items()}
@@ -266,8 +233,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
-        if not self._require_auth():
-            return
         path = urlsplit(self.path).path
         try:
             body = self._read_json_body()
@@ -419,17 +384,11 @@ def main():
     if DB_OVERRIDDEN:
         print(f"TEST INSTANCE -- database {DB_PATH}, publishing disabled.")
 
-    host = "0.0.0.0" if PASSWORD else "127.0.0.1"
-    server = ThreadingHTTPServer((host, PORT), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     genre_fill.arm()  # a scheduled MusicBrainz genre fill survives a restart
     if genre_fill.scheduled():
         print(f"MusicBrainz genre fill scheduled for {genre_fill.scheduled()['at']}.")
-    if PASSWORD:
-        print(f"Maintenance UI: http://{_lan_ip()}:{PORT}/  (password required)")
-        print("MAINTENANCE_PASSWORD is set -- reachable from the LAN. Ctrl+C to stop.")
-    else:
-        print(f"Maintenance UI: http://localhost:{PORT}/")
-        print("No MAINTENANCE_PASSWORD set -- staying local-only. Set one in .env for LAN access. Ctrl+C to stop.")
+    print(f"Maintenance UI: http://{_lan_ip()}:{PORT}/  (Ctrl+C to stop)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
