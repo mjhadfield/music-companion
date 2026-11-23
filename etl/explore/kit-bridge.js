@@ -4,6 +4,7 @@ import { initKit } from '/vendor/citadel-kit/kit.js';
 // kit.js queues any early postMessage until addOrigins() arrives.
 const kit = initKit({ origins: [], storagePrefix: 'mc-explore' });
 window.mcKit = kit;
+document.dispatchEvent(new CustomEvent('mc-kit:ready'));
 
 const btn = document.getElementById('theme-toggle');
 if (btn) {

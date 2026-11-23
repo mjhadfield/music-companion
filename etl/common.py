@@ -24,6 +24,20 @@ ENV_PATH = ROOT / ".env"
 DB_PATH = Path(os.environ["MUSIC_DB_PATH"]) if os.environ.get("MUSIC_DB_PATH") else ROOT / "data" / "music.sqlite"
 DB_OVERRIDDEN = bool(os.environ.get("MUSIC_DB_PATH"))
 
+DEFAULT_CITADEL_ORIGINS = (
+    "http://192.168.0.66:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+    "http://100.127.118.96:8080",
+)
+
+
+def citadel_origins() -> list[str]:
+    """Citadel origins allowed to drive theme updates via postMessage (overrideable by env)."""
+    base = os.environ.get("CITADEL_ORIGINS", "").split() or list(DEFAULT_CITADEL_ORIGINS)
+    extra = [os.environ["CITADEL_ORIGIN"]] if os.environ.get("CITADEL_ORIGIN") else []
+    return list(dict.fromkeys([*base, *extra]))
+
 
 def load_env() -> None:
     """Minimal .env loader (no external dependency needed for `KEY=value` lines)."""

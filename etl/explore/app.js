@@ -392,7 +392,10 @@ renderRecent(loadRecent());
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'failed to load the schema');
     schema = data.tables;
-    if (Array.isArray(data.citadel_origins)) window.mcKit?.addOrigins(data.citadel_origins);
+    if (Array.isArray(data.citadel_origins)) {
+      const add = () => window.mcKit?.addOrigins(data.citadel_origins);
+      if (window.mcKit) add(); else document.addEventListener('mc-kit:ready', add, { once: true });
+    }
     $('#table-count').textContent = `${Object.keys(schema).length} tables`;
     $('#db-size').textContent = fmtBytes(data.db_bytes);
     renderTables();

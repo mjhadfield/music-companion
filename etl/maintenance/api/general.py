@@ -1,13 +1,12 @@
 """Cross-cutting endpoints: landing-page counts, the activity feed + undo, suggestion
 accept/reject, background sweeps, review marks and publish status."""
 import json
-import os
 import uuid
 
 import merge
 import suggest
 from api.core import ApiError, read_conn, route, write_tx
-from common import DB_OVERRIDDEN, DB_PATH, ROOT
+from common import DB_OVERRIDDEN, DB_PATH, ROOT, citadel_origins
 
 PUBLIC_DB = ROOT / "site" / "public" / "music.sqlite"
 
@@ -267,9 +266,5 @@ def review_mark(req):
 def publish_status(req):
     working = DB_PATH.stat().st_mtime
     public = PUBLIC_DB.stat().st_mtime if PUBLIC_DB.exists() else 0
-    origins = list(dict.fromkeys([
-        *(os.environ.get("CITADEL_ORIGINS") or "http://192.168.0.66:8080 http://127.0.0.1:8080 http://localhost:8080 http://100.127.118.96:8080").split(),
-        *([os.environ["CITADEL_ORIGIN"]] if os.environ.get("CITADEL_ORIGIN") else []),
-    ]))
-    return {"unpublished": working > public + 1, "disabled": DB_OVERRIDDEN, "citadelOrigins": origins,
+    return {"unpublished": working > public + 1, "disabled": DB_OVERRIDDEN, "citadelOrigins": citadel_origins(),
             "reason": "test instance (MUSIC_DB_PATH override) -- publishing disabled" if DB_OVERRIDDEN else None}

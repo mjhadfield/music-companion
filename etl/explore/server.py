@@ -31,21 +31,22 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT / "etl"))
+from common import citadel_origins  # noqa: E402
+
 PAGE_DIR = Path(__file__).resolve().parent
 KIT_DIR = (PAGE_DIR / "vendor" / "citadel-kit").resolve()
 DATA_DB = Path(os.environ.get("MUSIC_DB_PATH") or (ROOT / "data" / "music.sqlite"))
 HOST = os.environ.get("EXPLORE_HOST") or "0.0.0.0"
 PORT = int(os.environ.get("EXPLORE_PORT") or "8644")
-CITADEL_ORIGINS = list(dict.fromkeys([
-    *(os.environ.get("CITADEL_ORIGINS") or "http://192.168.0.66:8080 http://127.0.0.1:8080 http://localhost:8080 http://100.127.118.96:8080").split(),
-    *([os.environ["CITADEL_ORIGIN"]] if os.environ.get("CITADEL_ORIGIN") else []),
-]))
+CITADEL_ORIGINS = citadel_origins()
 
 QUERY_TIMEOUT_S = 10          # a query still running after this long is aborted
 DEFAULT_LIMIT = 500
