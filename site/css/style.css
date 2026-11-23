@@ -1,47 +1,28 @@
 /*
- * Tokens harmonised with Citadel (the LAN dashboard this page is embedded in as an iframe) --
- * same values as Citadel's own web/css/tokens.css, ported verbatim rather than approximated.
- * The vinyl/scrobble/live category triad is this project's own addition, layered on top the
- * same way Citadel layers --ok/--warn/--bad status colours on its one main --accent.
+ * Music Companion site styles -- palettes, fonts and family tokens come from
+ * vendor/citadel-kit/kit-tokens.css and kit.css. This file layers Music Companion's
+ * vinyl/scrobble/live category triad and back-compat aliases on top.
  */
-@font-face { font-family: "Chakra Petch"; font-weight: 400; font-display: swap; src: url("../fonts/ChakraPetch-400.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 500; font-display: swap; src: url("../fonts/ChakraPetch-500.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 600; font-display: swap; src: url("../fonts/ChakraPetch-600.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap; src: url("../fonts/ChakraPetch-700.woff2") format("woff2"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("../fonts/JetBrainsMono-Regular.ttf") format("truetype"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap; src: url("../fonts/JetBrainsMono-Bold.ttf") format("truetype"); }
 
 :root {
-  --bg: #07060a; --bg-2: #0b0910; --surface: #0e0b14; --surface-2: #151021; --surface-3: #1c1530;
-  --accent: #8b5cf6; --accent-hi: #a855f7; --accent-soft: #c4b5fd; --accent-deep: #4c1d95; --accent-wash: rgba(139, 92, 246, 0.10);
-  --silver-hi: #e6e9ee; --silver: #c9ced6; --silver-mute: #9aa1ad; --silver-dim: #6b7280;
-  --edge: rgba(201, 206, 214, 0.13); --edge-strong: rgba(168, 85, 247, 0.45);
-  --ok: #34d399; --warn: #f5b454; --bad: #f43f5e;
-  --well: rgba(0, 0, 0, 0.38); --vignette: rgba(0, 0, 0, 0.45);
+  --vignette: rgba(0, 0, 0, 0.45);
 
-  --accent-vinyl: #d9a441;    /* new: warm brass/gold, distinct from violet+silver -- "physical/analog" */
-  --accent-scrobble: var(--accent); /* = --accent: scrobbles are the everyday/default category (so a Citadel custom theme's accent recolours them too) */
+  --accent-vinyl: #d9a441;    /* warm brass/gold, distinct from violet+silver -- "physical/analog" */
+  --accent-scrobble: var(--accent); /* = --accent: scrobbles are the everyday/default category */
   --accent-live: #f43f5e;     /* = --bad's rose-red, repurposed here as "hot/live" energy, not an error */
 
-  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --chamfer: 14px; --gap: 16px; --radius-sm: 2px; --ease: cubic-bezier(.2, .7, .2, 1);
 
   /* Back-compat aliases: every existing var(--bg-elevated)/var(--border)/var(--text)/var(--font-body)/
-     var(--shadow) call site below keeps rendering correctly under the new palette. */
+     var(--shadow) call site below keeps rendering correctly under this palette. */
   --bg-elevated: var(--surface-2); --border: var(--edge); --text: var(--silver-hi);
   --text-dim: var(--silver-mute); --text-muted: var(--silver-dim); --gridline: var(--edge);
   --glow: var(--accent-wash); --shadow: 0 1px 2px rgba(0,0,0,.45), 0 5px 26px rgba(76,29,149,.25);
   --font-body: var(--font-display);
 }
 
-:root[data-theme="light"] {
-  --bg: #f2e8d5; --bg-2: #f5ecdd; --surface: #f8f0e2; --surface-2: #faf4e6; --surface-3: #fdf9f0;
-  --accent: #b5541f; --accent-hi: #d9691f; --accent-soft: #82401b; --accent-deep: #6e2a12; --accent-wash: rgba(181, 84, 31, 0.10);
-  --silver-hi: #2a2015; --silver: #4a3c2a; --silver-mute: #6b5c44; --silver-dim: #93876c;
-  --edge: #ddcda8; --edge-strong: rgba(217, 105, 31, 0.45);
-  --ok: #0d8a6a; --warn: #b8791f; --bad: #8a2e2e;
-  --well: rgba(42, 32, 21, 0.07); --vignette: rgba(42, 32, 21, 0.10);
+:root[data-mode="day"] {
+  --vignette: rgba(42, 32, 21, 0.10);
 
   --accent-vinyl: #460c80; --accent-scrobble: var(--accent); --accent-live: #227f38;
 
@@ -979,3 +960,29 @@ main#app.wide { max-width: 1380px; }
 .tl-dur { margin-left: 10px; font-family: var(--font-mono); font-size: 0.72rem; }
 
 @keyframes reload-spin { to { transform: rotate(360deg); } }
+
+/* ---- Citadel Theme Kit family touches (LCARS, LCARS 25, Borg) -------------------------------- */
+html[data-family="lcars"] body { background-image: none; }
+html[data-family="lcars"] .icon-btn,
+html[data-family="lcars"] #search-input { border-radius: 999px; }
+html[data-family="lcars"] h1, html[data-family="lcars"] h2 {
+  font-family: var(--lc-font); letter-spacing: 0.08em; color: var(--lc-frame);
+}
+html[data-family="lcars"] .panel,
+html[data-family="lcars"] .stat-card {
+  border-radius: 16px 0 16px 16px;
+  box-shadow: inset 4px 0 0 var(--lc-frame), inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 25%, transparent);
+}
+
+html[data-family="lcars"][data-theme="lcars25"] .icon-btn,
+html[data-family="lcars"][data-theme="lcars25"] #search-input { border-radius: 4px; }
+html[data-family="lcars"][data-theme="lcars25"] .panel,
+html[data-family="lcars"][data-theme="lcars25"] .stat-card {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 40%, transparent);
+}
+
+html[data-family="borg"] body { background-image: none; }
+html[data-family="borg"] .icon-btn,
+html[data-family="borg"] #search-input { border-radius: 0; border-color: color-mix(in srgb, var(--brg-node) 38%, transparent); }
+html[data-family="borg"] h1, html[data-family="borg"] h2 { color: var(--brg-node); }

@@ -1,0 +1,739 @@
+/* ==========================================================================
+   Citadel Theme Kit — shared chrome primitives (ck-*)
+   Supports Citadel, LCARS (html[data-family="lcars"]), LCARS 25
+   (html[data-family="lcars"][data-theme="lcars25"]), and Borg
+   (html[data-family="borg"]) across Night and Day ([data-mode="day"]).
+
+   All colours flow from kit-tokens.css / Citadel's inline root overrides so
+   built-in styles (Standard, COM/SCI/ENG/ENT) and custom styles recolour
+   everything automatically.
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html {
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+html[data-mode="day"] { color-scheme: light; }
+
+a { color: inherit; }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+:focus-visible {
+  outline: 1px solid var(--accent-hi);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hi) 18%, transparent);
+}
+
+::selection { background: var(--accent-deep); color: var(--silver-hi); }
+* { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ==========================================================================
+   CITADEL BASE (default family)
+   ========================================================================== */
+
+body.ck-app,
+.ck-app {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--silver);
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.45;
+  background:
+    radial-gradient(960px 520px at 8% -12%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(840px 460px at 104% 106%, color-mix(in srgb, var(--glow-2) 18%, transparent), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+html.no-glow body.ck-app,
+html.no-glow .ck-app {
+  background: var(--bg);
+}
+
+html.has-bg body.ck-app,
+html.has-bg .ck-app {
+  background: transparent;
+}
+
+/* Header */
+.ck-header {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border-bottom: 1px solid var(--edge);
+}
+.ck-header::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: -1px;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, var(--accent) 0 120px, color-mix(in srgb, var(--accent) 25%, transparent) 280px, transparent 100%);
+}
+.ck-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 16px/1 var(--font-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--silver-hi);
+  white-space: nowrap;
+}
+.ck-header__spacer { flex: 1 1 auto; }
+.ck-header__actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Rail */
+.ck-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 8px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border-right: 1px solid var(--edge);
+}
+.ck-rail__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--silver-mute);
+  text-decoration: none;
+  cursor: pointer;
+  text-align: left;
+  font: 500 13px/1.2 var(--font-display);
+  letter-spacing: 0.04em;
+  transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease);
+}
+.ck-rail__item:hover {
+  color: var(--silver-hi);
+  background: var(--accent-wash);
+  border-color: var(--edge);
+}
+.ck-rail__item.is-active,
+.ck-rail__item[aria-current="page"],
+.ck-rail__item[aria-pressed="true"] {
+  color: var(--silver-hi);
+  background: var(--accent-wash);
+  border-color: var(--edge-strong);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Panel */
+.ck-panel {
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.ck-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--edge);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+.ck-panel__title {
+  margin: 0;
+  font: 600 12px/1.2 var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--silver-hi);
+}
+.ck-panel__body { padding: 14px; }
+
+/* Buttons */
+.ck-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--silver-hi);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  font: 500 13px/1.1 var(--font-display);
+  letter-spacing: 0.04em;
+  transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease);
+}
+.ck-btn:hover:not(:disabled) {
+  border-color: var(--edge-strong);
+  background: var(--surface-3);
+}
+.ck-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.ck-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent-hi);
+  color: var(--accent-ink, #ffffff);
+  font-weight: 600;
+}
+.ck-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hi);
+  border-color: var(--accent-hi);
+}
+.ck-btn--quiet {
+  background: transparent;
+  border-color: transparent;
+  color: var(--silver-mute);
+}
+.ck-btn--quiet:hover:not(:disabled) {
+  background: var(--accent-wash);
+  border-color: var(--edge);
+  color: var(--silver-hi);
+}
+.ck-btn--danger {
+  border-color: color-mix(in srgb, var(--bad) 55%, transparent);
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
+}
+.ck-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bad) 20%, transparent);
+  border-color: var(--bad);
+}
+
+/* Tabs */
+.ck-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.ck-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--silver-mute);
+  cursor: pointer;
+  text-decoration: none;
+  font: 500 12.5px/1.2 var(--font-display);
+  letter-spacing: 0.05em;
+  transition: background .15s var(--ease), border-color .15s var(--ease), color .15s var(--ease);
+}
+.ck-tab:hover { color: var(--silver-hi); border-color: var(--edge-strong); }
+.ck-tab.is-active,
+.ck-tab[aria-selected="true"],
+.ck-tab[aria-pressed="true"] {
+  color: var(--accent-soft);
+  background: var(--accent-wash);
+  border-color: var(--edge-strong);
+}
+
+/* Inputs & Selects */
+.ck-input,
+.ck-select {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--well);
+  color: var(--silver-hi);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.35;
+  outline: none;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.ck-input::placeholder { color: var(--silver-dim); }
+.ck-input:focus,
+.ck-select:focus {
+  border-color: var(--edge-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-hi) 16%, transparent);
+}
+.ck-select option { background: var(--surface-2); color: var(--silver-hi); }
+
+/* Tables */
+.ck-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ck-table th,
+.ck-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--edge);
+}
+.ck-table th {
+  font: 600 10.5px/1.2 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--silver-mute);
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+}
+.ck-table tbody tr:hover { background: var(--accent-wash); }
+
+/* Chips */
+.ck-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--silver-mute);
+  font: 500 11px/1.3 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ck-chip--ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.ck-chip--warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.ck-chip--bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+
+/* Dialog */
+.ck-dialog {
+  max-width: min(640px, calc(100vw - 24px));
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--edge-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--silver);
+  box-shadow: 0 24px 60px var(--vignette);
+}
+.ck-dialog::backdrop { background: rgba(0, 0, 0, 0.58); backdrop-filter: blur(2px); }
+.ck-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--edge);
+  background: var(--surface-2);
+}
+.ck-dialog__title { margin: 0; font: 600 14px/1.2 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--silver-hi); }
+.ck-dialog__body { padding: 16px; }
+.ck-dialog__foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--edge); }
+
+/* ==========================================================================
+   LCARS FAMILY (LCARS + LCARS 25 base)
+   ========================================================================== */
+
+html[data-family="lcars"] body.ck-app,
+html[data-family="lcars"] .ck-app {
+  background: var(--bg);
+}
+html[data-family="lcars"].has-bg body.ck-app,
+html[data-family="lcars"].has-bg .ck-app {
+  background: transparent;
+}
+
+html[data-family="lcars"] .ck-header {
+  background: var(--bg);
+  border-bottom: 0;
+  padding: 10px 16px 14px;
+}
+html[data-family="lcars"] .ck-header::after {
+  left: 16px; right: 16px; bottom: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg,
+    var(--lc-frame) 0 148px, transparent 148px 154px,
+    var(--lc-1) 154px 32%, transparent 32% calc(32% + 5px),
+    var(--lc-4) calc(32% + 5px) 46%, transparent 46% calc(46% + 5px),
+    var(--lc-5) calc(46% + 5px) 78%, transparent 78% calc(78% + 5px),
+    var(--lc-2) calc(78% + 5px));
+}
+html[data-family="lcars"][data-mode="day"] .ck-header::after {
+  background: linear-gradient(90deg,
+    var(--lc-frame) 0 148px, transparent 148px 154px,
+    var(--lc-frame) 154px 46%, transparent 46% calc(46% + 5px),
+    var(--lc-5) calc(46% + 5px) 60%, transparent 60% calc(60% + 5px),
+    var(--lc-3) calc(60% + 5px) 84%, transparent 84% calc(84% + 5px),
+    var(--lc-frame) calc(84% + 5px));
+}
+
+html[data-family="lcars"] .ck-brand {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 17px 4px 4px 17px;
+  background: var(--lc-frame);
+  color: var(--lc-on);
+  font: 600 19px/1 var(--lc-font);
+  letter-spacing: 0.12em;
+}
+
+html[data-family="lcars"] .ck-rail {
+  background: transparent;
+  border-right: 0;
+  gap: 5px;
+  padding: 12px 10px;
+}
+html[data-family="lcars"] .ck-rail__item {
+  border: 0;
+  border-radius: 17px 4px 4px 17px;
+  padding: 7px 12px 7px 14px;
+  background: color-mix(in srgb, var(--lc-frame) 22%, var(--surface));
+  color: var(--silver-hi);
+  font: 500 15px/1.1 var(--lc-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: inset 6px 0 0 var(--lc-c, var(--lc-frame));
+}
+html[data-family="lcars"] .ck-rail__item:hover {
+  background: color-mix(in srgb, var(--lc-c, var(--lc-frame)) 36%, var(--surface));
+}
+html[data-family="lcars"] .ck-rail__item.is-active,
+html[data-family="lcars"] .ck-rail__item[aria-current="page"],
+html[data-family="lcars"] .ck-rail__item[aria-pressed="true"] {
+  background: var(--lc-c, var(--lc-7));
+  color: var(--lc-on);
+  box-shadow: none;
+}
+
+html[data-family="lcars"] .ck-panel {
+  border: 0;
+  border-radius: 18px 0 18px 18px;
+  background: var(--surface);
+  box-shadow: inset 5px 0 0 var(--lc-c, var(--lc-frame)), inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 28%, transparent);
+}
+html[data-family="lcars"] .ck-panel__head {
+  border-bottom: 1px solid color-mix(in srgb, var(--lc-frame) 28%, transparent);
+  background: color-mix(in srgb, var(--lc-frame) 10%, var(--surface));
+  padding-left: 18px;
+}
+html[data-family="lcars"] .ck-panel__title {
+  font: 500 18px/1 var(--lc-font);
+  letter-spacing: 0.1em;
+  color: var(--lc-c, var(--lc-frame));
+}
+html[data-family="lcars"] .ck-panel__body { padding-left: 18px; }
+
+html[data-family="lcars"] .ck-btn {
+  min-height: 32px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--lc-frame) 24%, var(--surface-2));
+  color: var(--silver-hi);
+  font: 500 14.5px/1 var(--lc-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html[data-family="lcars"] .ck-btn:hover:not(:disabled) {
+  background: var(--lc-2);
+  color: var(--lc-on);
+}
+html[data-family="lcars"] .ck-btn--primary {
+  background: var(--lc-frame);
+  color: var(--lc-on);
+}
+html[data-family="lcars"] .ck-btn--primary:hover:not(:disabled) {
+  background: var(--lc-7);
+  color: var(--lc-on);
+}
+html[data-family="lcars"] .ck-btn--quiet {
+  background: transparent;
+  color: var(--silver-mute);
+}
+html[data-family="lcars"] .ck-btn--danger {
+  background: color-mix(in srgb, var(--lc-red) 22%, var(--surface-2));
+  color: var(--lc-red);
+}
+html[data-family="lcars"] .ck-btn--danger:hover:not(:disabled) {
+  background: var(--lc-red);
+  color: var(--lc-on);
+}
+
+html[data-family="lcars"] .ck-tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: color-mix(in srgb, var(--lc-frame) 18%, var(--surface));
+  color: var(--silver);
+  font: 500 14.5px/1 var(--lc-font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+html[data-family="lcars"] .ck-tab.is-active,
+html[data-family="lcars"] .ck-tab[aria-selected="true"],
+html[data-family="lcars"] .ck-tab[aria-pressed="true"] {
+  background: var(--lc-7);
+  color: var(--lc-on);
+}
+
+html[data-family="lcars"] .ck-input,
+html[data-family="lcars"] .ck-select {
+  border-radius: 999px;
+  padding: 6px 14px;
+  border-color: color-mix(in srgb, var(--lc-frame) 42%, transparent);
+}
+html[data-family="lcars"] textarea.ck-input { border-radius: 12px; }
+
+html[data-family="lcars"] .ck-table th {
+  font: 500 14px/1 var(--lc-font);
+  letter-spacing: 0.1em;
+  color: var(--lc-frame);
+  border-bottom: 2px solid color-mix(in srgb, var(--lc-frame) 45%, transparent);
+}
+
+html[data-family="lcars"] .ck-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 2px 10px;
+  background: color-mix(in srgb, var(--lc-frame) 22%, var(--surface-2));
+  color: var(--silver-hi);
+  font: 500 12.5px/1.2 var(--lc-font);
+  letter-spacing: 0.08em;
+}
+html[data-family="lcars"] .ck-chip--ok { background: color-mix(in srgb, var(--ok) 22%, var(--surface-2)); color: var(--ok); }
+html[data-family="lcars"] .ck-chip--warn { background: var(--lc-7); color: var(--lc-on); }
+html[data-family="lcars"] .ck-chip--bad { background: var(--lc-red); color: var(--lc-on); }
+
+html[data-family="lcars"] .ck-dialog {
+  border: 0;
+  border-radius: 22px 0 22px 22px;
+  box-shadow: inset 6px 0 0 var(--lc-frame), 0 24px 60px var(--vignette);
+}
+html[data-family="lcars"] .ck-dialog__head {
+  padding-left: 20px;
+  border-bottom: 2px solid color-mix(in srgb, var(--lc-frame) 40%, transparent);
+}
+html[data-family="lcars"] .ck-dialog__title {
+  font: 500 22px/1 var(--lc-font);
+  letter-spacing: 0.1em;
+  color: var(--lc-frame);
+}
+html[data-family="lcars"] .ck-dialog__body,
+html[data-family="lcars"] .ck-dialog__foot { padding-left: 20px; }
+
+/* ==========================================================================
+   LCARS 25 (symmetrical Tactical Deck tiles, key-pad buttons, segmented spine)
+   Always prefixed with [data-family="lcars"][data-theme="lcars25"] so specificity
+   wins over [data-family="lcars"][data-mode="day"].
+   ========================================================================== */
+
+html[data-family="lcars"][data-theme="lcars25"] .ck-header {
+  padding: 8px 14px 12px;
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-header::after {
+  left: 14px; right: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--lc-frame) 55%, transparent) 0 calc(100% - 148px),
+    transparent calc(100% - 148px) calc(100% - 142px),
+    var(--lc-5) calc(100% - 142px) calc(100% - 82px),
+    transparent calc(100% - 82px) calc(100% - 76px),
+    var(--lc-2) calc(100% - 76px));
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-brand {
+  border-radius: 6px;
+  background: var(--lc-1);
+  color: var(--lc-on);
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-rail__item {
+  border-radius: 4px 14px 14px 4px;
+  box-shadow: inset 4px 0 0 var(--lc-c, var(--lc-frame));
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-panel {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 42%, transparent);
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-panel__head {
+  padding: 7px 12px;
+  background: color-mix(in srgb, var(--lc-frame) 16%, var(--surface-2));
+  border-bottom: 2px solid color-mix(in srgb, var(--lc-frame) 52%, transparent);
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-panel__body { padding: 14px; }
+html[data-family="lcars"][data-theme="lcars25"] .ck-btn,
+html[data-family="lcars"][data-theme="lcars25"] .ck-tab {
+  border-radius: 4px;
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-input,
+html[data-family="lcars"][data-theme="lcars25"] .ck-select {
+  border-radius: 4px;
+  padding: 6px 10px;
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-chip { border-radius: 4px; }
+html[data-family="lcars"][data-theme="lcars25"] .ck-dialog {
+  border-radius: 8px;
+  box-shadow: inset 7px 0 0 var(--lc-frame), inset -7px 0 0 var(--lc-3), inset 0 5px 0 var(--lc-1), inset 0 -5px 0 var(--lc-2), 0 24px 60px var(--vignette);
+}
+html[data-family="lcars"][data-theme="lcars25"] .ck-dialog__head,
+html[data-family="lcars"][data-theme="lcars25"] .ck-dialog__body,
+html[data-family="lcars"][data-theme="lcars25"] .ck-dialog__foot {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+/* ==========================================================================
+   BORG FAMILY (Unimatrix obsidian matrix grid, emerald conduits, gold axes)
+   ========================================================================== */
+
+html[data-family="borg"] body.ck-app,
+html[data-family="borg"] .ck-app {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(90deg, var(--brg-grid) 1px, transparent 1px),
+    linear-gradient(0deg, var(--brg-grid) 1px, transparent 1px),
+    radial-gradient(880px 520px at 8% -10%, color-mix(in srgb, var(--brg-node) 12%, transparent), transparent 62%),
+    radial-gradient(760px 460px at 98% 104%, color-mix(in srgb, var(--brg-cyan) 10%, transparent), transparent 60%);
+  background-size: 44px 44px, 44px 44px, auto, auto;
+  background-attachment: fixed;
+}
+html[data-family="borg"].no-glow body.ck-app,
+html[data-family="borg"].no-glow .ck-app {
+  background-image:
+    linear-gradient(90deg, var(--brg-grid) 1px, transparent 1px),
+    linear-gradient(0deg, var(--brg-grid) 1px, transparent 1px);
+  background-size: 44px 44px, 44px 44px;
+}
+html[data-family="borg"].has-bg body.ck-app,
+html[data-family="borg"].has-bg .ck-app {
+  background: transparent;
+}
+
+html[data-family="borg"] .ck-header {
+  background:
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--brg-node) 5%, transparent) 0 1px, transparent 1px 10px) left / 14px 100% no-repeat,
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 94%, transparent), color-mix(in srgb, var(--surface) 94%, transparent));
+  border-bottom: 0;
+  padding: 10px 18px 14px 22px;
+}
+html[data-family="borg"] .ck-header::after {
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  background: linear-gradient(90deg,
+    var(--brg-axis) 0 88px, transparent 88px 94px,
+    color-mix(in srgb, var(--brg-node) 88%, transparent) 94px 290px, transparent 290px 296px,
+    color-mix(in srgb, var(--brg-cyan) 65%, transparent) 296px 420px,
+    color-mix(in srgb, var(--brg-node) 34%, transparent) 420px 88%, transparent 100%) left center / 100% 2px no-repeat;
+}
+html[data-family="borg"] .ck-brand {
+  color: var(--brg-node);
+  letter-spacing: 0.16em;
+  text-shadow: 0 0 12px var(--brg-glow);
+}
+html[data-family="borg"][data-mode="day"] .ck-brand { text-shadow: none; }
+
+html[data-family="borg"] .ck-rail {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--brg-node) 32%, transparent);
+}
+html[data-family="borg"] .ck-rail__item {
+  border: 1px solid color-mix(in srgb, var(--brg-node) 22%, transparent);
+  border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  color: var(--silver);
+}
+html[data-family="borg"] .ck-rail__item.is-active,
+html[data-family="borg"] .ck-rail__item[aria-current="page"],
+html[data-family="borg"] .ck-rail__item[aria-pressed="true"] {
+  border-color: var(--brg-axis);
+  background: color-mix(in srgb, var(--brg-node) 18%, var(--surface-2));
+  color: var(--brg-node);
+  box-shadow: inset 3px 0 0 var(--brg-axis);
+}
+
+html[data-family="borg"] .ck-panel {
+  border: 1px solid color-mix(in srgb, var(--brg-node) 38%, transparent);
+  border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+html[data-family="borg"] .ck-panel__head {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brg-node) 14%, var(--surface-2)), var(--surface-2));
+  border-bottom: 1px solid color-mix(in srgb, var(--brg-axis) 42%, transparent);
+}
+html[data-family="borg"] .ck-panel__title { color: var(--brg-node); }
+
+html[data-family="borg"] .ck-btn,
+html[data-family="borg"] .ck-tab {
+  border-radius: 0;
+  border-color: color-mix(in srgb, var(--brg-node) 40%, transparent);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+}
+html[data-family="borg"] .ck-btn--primary {
+  background: var(--brg-node);
+  border-color: var(--brg-node);
+  color: var(--brg-on);
+}
+html[data-family="borg"] .ck-btn--primary:hover:not(:disabled) {
+  background: var(--brg-axis);
+  border-color: var(--brg-axis);
+  color: var(--brg-on);
+}
+html[data-family="borg"] .ck-tab.is-active,
+html[data-family="borg"] .ck-tab[aria-selected="true"],
+html[data-family="borg"] .ck-tab[aria-pressed="true"] {
+  border-color: var(--brg-axis);
+  background: color-mix(in srgb, var(--brg-node) 18%, var(--surface-2));
+  color: var(--brg-node);
+}
+
+html[data-family="borg"] .ck-input,
+html[data-family="borg"] .ck-select {
+  border-radius: 0;
+  border-color: color-mix(in srgb, var(--brg-node) 38%, transparent);
+}
+html[data-family="borg"] .ck-input:focus,
+html[data-family="borg"] .ck-select:focus {
+  border-color: var(--brg-axis);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brg-node) 18%, transparent);
+}
+
+html[data-family="borg"] .ck-table th {
+  color: var(--brg-axis);
+  border-bottom-color: color-mix(in srgb, var(--brg-node) 40%, transparent);
+}
+
+html[data-family="borg"] .ck-chip {
+  border-radius: 0;
+  border-color: color-mix(in srgb, var(--brg-cyan) 48%, transparent);
+  color: var(--brg-cyan);
+}
+html[data-family="borg"] .ck-chip--ok { border-color: var(--brg-node); color: var(--brg-node); }
+html[data-family="borg"] .ck-chip--warn { border-color: var(--brg-axis); color: var(--brg-axis); }
+html[data-family="borg"] .ck-chip--bad { border-color: var(--bad); color: var(--bad); }
+
+html[data-family="borg"] .ck-dialog {
+  border-radius: 0;
+  border: 1px solid var(--brg-node);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+}
+html[data-family="borg"] .ck-dialog__title { color: var(--brg-node); }
+
+/* ==========================================================================
+   PHONE LAYOUT SAFETY (<= 760px: never overflow horizontally)
+   ========================================================================== */
+@media (max-width: 760px) {
+  .ck-header { padding: 8px 12px 12px; gap: 8px; }
+  .ck-rail {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--edge);
+    padding: 8px 10px;
+  }
+  .ck-rail__item { flex: 0 0 auto; }
+}

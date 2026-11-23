@@ -1,34 +1,14 @@
 /*
- * Tokens harmonised with Citadel (the LAN dashboard this tool is linked from) and with this
- * project's own site/css/style.css -- same values, ported verbatim rather than approximated.
- * Light and dark, like site/: the same Citadel palette pair, toggled from the nav (sun/moon)
- * and remembered in localStorage["theme"]. Every colour below comes from these tokens (tints via
- * color-mix of a token), so nothing needs a second, hand-picked light value.
- *
- * Every page's shared components live here (nav, tabs, tables, review lists, comparison grid,
- * typeahead, toasts, job log) -- page <style> blocks should only ever hold layout.
+ * Music Maintenance shared styles -- palettes, fonts and family tokens come from
+ * /vendor/citadel-kit/kit-tokens.css and kit.css. This file layers Music Companion's
+ * category triad, maintenance-specific extras and back-compat aliases on top.
  */
-@font-face { font-family: "Chakra Petch"; font-weight: 400; font-display: swap; src: url("fonts/ChakraPetch-400.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 500; font-display: swap; src: url("fonts/ChakraPetch-500.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 600; font-display: swap; src: url("fonts/ChakraPetch-600.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap; src: url("fonts/ChakraPetch-700.woff2") format("woff2"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap; src: url("fonts/JetBrainsMono-Bold.ttf") format("truetype"); }
 
 :root {
-  --bg: #07060a; --bg-2: #0b0910; --surface: #0e0b14; --surface-2: #151021; --surface-3: #1c1530;
-  --accent: #8b5cf6; --accent-hi: #a855f7; --accent-soft: #c4b5fd; --accent-deep: #4c1d95; --accent-wash: rgba(139, 92, 246, 0.10);
-  --silver-hi: #e6e9ee; --silver: #c9ced6; --silver-mute: #9aa1ad; --silver-dim: #6b7280;
-  --edge: rgba(201, 206, 214, 0.13); --edge-strong: rgba(168, 85, 247, 0.45);
-  --ok: #34d399; --warn: #f5b454; --bad: #f43f5e;
-  --well: rgba(0, 0, 0, 0.38);
-
   --accent-vinyl: #d9a441;    /* warm brass/gold, distinct from violet+silver -- "physical/analog" */
-  --accent-scrobble: #8b5cf6; /* = --accent: scrobbles are the everyday/default category */
+  --accent-scrobble: var(--accent); /* = --accent: scrobbles are the everyday/default category */
   --accent-live: #f43f5e;     /* = --bad's rose-red, repurposed here as "hot/live" energy, not an error */
 
-  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --chamfer: 14px; --radius-sm: 2px; --ease: cubic-bezier(.2, .7, .2, 1);
 
   /* Back-compat aliases: every var(--bg-elevated)/var(--border)/var(--text)/var(--danger)/
@@ -43,24 +23,15 @@
   --log-bg: #0a0810;              /* job log / output boxes */
   --nav-bg: color-mix(in srgb, var(--bg-2) 92%, transparent);   /* follows a Citadel custom theme's --bg-2 */
   --shadow-pop: rgba(0, 0, 0, 0.6);
-  color-scheme: dark;
 }
 
-/* Light: the Citadel / site/ parchment-and-rust palette, verbatim from site/css/style.css. */
-:root[data-theme="light"] {
-  --bg: #f2e8d5; --bg-2: #f5ecdd; --surface: #f8f0e2; --surface-2: #faf4e6; --surface-3: #fdf9f0;
-  --accent: #b5541f; --accent-hi: #d9691f; --accent-soft: #82401b; --accent-deep: #6e2a12; --accent-wash: rgba(181, 84, 31, 0.10);
-  --silver-hi: #2a2015; --silver: #4a3c2a; --silver-mute: #6b5c44; --silver-dim: #93876c;
-  --edge: #ddcda8; --edge-strong: rgba(217, 105, 31, 0.45);
-  --ok: #0d8a6a; --warn: #b8791f; --bad: #8a2e2e;
-  --well: rgba(42, 32, 21, 0.07);
-  --accent-vinyl: #460c80; --accent-scrobble: #b5541f; --accent-live: #227f38;
+:root[data-mode="day"] {
+  --accent-vinyl: #460c80; --accent-scrobble: var(--accent); --accent-live: #227f38;
 
   --bad-soft: #8a2e2e;
   --reissue: #2c5ea8;
   --log-bg: #efe4cf;
   --shadow-pop: rgba(60, 40, 10, 0.18);
-  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -460,3 +431,43 @@ body:has(.basket-bar:not([hidden])) main { padding-bottom: 80px; }
 .flag-sides th { text-align: left; vertical-align: top; padding: 5px 10px; font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim); white-space: nowrap; }
 .flag-sides td { padding: 5px 10px 5px 0; vertical-align: top; }
 .flag-sides tr + tr th, .flag-sides tr + tr td { border-top: 1px solid var(--edge); }
+
+@media (max-width: 760px) {
+  main { padding: 16px 12px 64px; overflow-x: clip; }
+  .card { padding: 14px 12px; max-width: 100%; }
+  .source-row { flex-wrap: wrap; }
+  .source-row select { max-width: 100%; width: 100%; }
+  .activity li { flex-wrap: wrap; min-width: 0; }
+  .activity .what { min-width: 0; overflow-wrap: anywhere; }
+  table.data { display: block; overflow-x: auto; max-width: 100%; }
+}
+
+/* ---- Citadel Theme Kit family touches (LCARS, LCARS 25, Borg) -------------------------------- */
+html[data-family="lcars"] .topnav .brand b { color: inherit; }
+html[data-family="lcars"] .topnav nav a { border-radius: 999px; font-family: var(--lc-font); letter-spacing: 0.08em; }
+html[data-family="lcars"] .topnav nav a[aria-current="page"] { background: var(--lc-frame); border-color: var(--lc-frame); color: var(--lc-on); }
+html[data-family="lcars"] .card::before {
+  clip-path: none;
+  border-radius: 18px 0 18px 18px;
+  box-shadow: inset 5px 0 0 var(--lc-frame), inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 26%, transparent);
+}
+html[data-family="lcars"] button, html[data-family="lcars"] .btn { border-radius: 999px; font-family: var(--lc-font); letter-spacing: 0.06em; text-transform: uppercase; }
+html[data-family="lcars"] button.primary, html[data-family="lcars"] .btn.primary { background: var(--lc-frame); border-color: var(--lc-frame); color: var(--lc-on); }
+html[data-family="lcars"] h1, html[data-family="lcars"] h2 { font-family: var(--lc-font); letter-spacing: 0.08em; color: var(--lc-frame); }
+
+html[data-family="lcars"][data-theme="lcars25"] .topnav nav a,
+html[data-family="lcars"][data-theme="lcars25"] button,
+html[data-family="lcars"][data-theme="lcars25"] .btn { border-radius: 4px; }
+html[data-family="lcars"][data-theme="lcars25"] .card::before {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 42%, transparent);
+}
+
+html[data-family="borg"] .card::before {
+  clip-path: none;
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brg-node) 38%, transparent);
+}
+html[data-family="borg"] button, html[data-family="borg"] .btn, html[data-family="borg"] .topnav nav a { border-radius: 0; border-color: color-mix(in srgb, var(--brg-node) 38%, transparent); }
+html[data-family="borg"] button.primary, html[data-family="borg"] .btn.primary { background: var(--brg-node); border-color: var(--brg-node); color: var(--brg-on); }
+html[data-family="borg"] h1, html[data-family="borg"] h2 { color: var(--brg-node); }

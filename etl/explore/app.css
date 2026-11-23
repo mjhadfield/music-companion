@@ -1,70 +1,16 @@
 /* ==========================================================================
-   Music DB Explorer -- styled to match Citadel (the LAN dashboard this is
-   linked from): same tokens, same chamfered-card / mono-HUD language, kept
-   self-contained here (own fonts, own CSS) since this runs as its own
-   server on its own port.
+   Music DB Explorer -- adopts the Citadel Theme Kit (kit-tokens.css + kit.css)
+   for palettes, fonts and family chrome (Citadel, LCARS, LCARS 25, Borg).
    ========================================================================== */
 
-@font-face { font-family: "Chakra Petch"; font-weight: 400; font-display: swap; src: url("fonts/ChakraPetch-400.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 600; font-display: swap; src: url("fonts/ChakraPetch-600.woff2") format("woff2"); }
-@font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap; src: url("fonts/ChakraPetch-700.woff2") format("woff2"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("fonts/JetBrainsMono-Regular.ttf") format("truetype"); }
-@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap; src: url("fonts/JetBrainsMono-Bold.ttf") format("truetype"); }
-
 :root {
-  --bg:         #07060a;
-  --surface:    #0e0b14;
-  --surface-2:  #151021;
-  --surface-3:  #1c1530;
-  --accent:      #8b5cf6;
-  --accent-hi:   #a855f7;
-  --accent-soft: #c4b5fd;
-  --accent-deep: #4c1d95;
-  --accent-wash: rgba(139, 92, 246, 0.10);
-  --silver-hi:   #e6e9ee;
-  --silver:      #c9ced6;
-  --silver-mute: #9aa1ad;
-  --silver-dim:  #6b7280;
-  --edge:        rgba(201, 206, 214, 0.13);
-  --edge-strong: rgba(168, 85, 247, 0.45);
-  --ok:   #34d399;
-  --warn: #f5b454;
-  --bad:  #f43f5e;
-  --well: rgba(0, 0, 0, .38);
-  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
-  --font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --chamfer: 12px;
   --ease: cubic-bezier(.2, .7, .2, 1);
 }
 
 * { box-sizing: border-box; }
 * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
-/* Light: only used inside Citadel, when its theme is Light (or a custom theme built on Light) -- Citadel's own light
-   palette, so the embedded page matches it. Standalone, this page is always dark. */
-:root[data-theme="light"] {
-  --bg:         #f2e8d5;
-  --surface:    #f8f0e2;
-  --surface-2:  #faf4e6;
-  --surface-3:  #fdf9f0;
-  --accent:      #b5541f;
-  --accent-hi:   #d9691f;
-  --accent-soft: #82401b;
-  --accent-deep: #6e2a12;
-  --accent-wash: rgba(181, 84, 31, 0.10);
-  --silver-hi:   #2a2015;
-  --silver:      #4a3c2a;
-  --silver-mute: #6b5c44;
-  --silver-dim:  #93876c;
-  --edge:        #ddcda8;
-  --edge-strong: rgba(217, 105, 31, 0.45);
-  --ok:   #0d8a6a;
-  --warn: #b8791f;
-  --bad:  #8a2e2e;
-  --well: rgba(42, 32, 21, 0.07);
-}
 
-html { color-scheme: dark; }
-:root[data-theme="light"] { color-scheme: light; }
 /* Inside Citadel, when its custom theme has a background picture: see-through, so the picture shows behind the panels. */
 html.citadel-bg, html.citadel-bg body { background: transparent; }
 body {
@@ -283,5 +229,45 @@ table.grid td.null { color: var(--silver-dim); font-style: italic; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
 
-/* Light (inside Citadel): the pale pink error/danger text is made for dark panels -- use the light palette's red. */
-:root[data-theme="light"] .error, :root[data-theme="light"] .btn--danger, :root[data-theme="light"] .btn--danger:hover { color: var(--bad); }
+/* Day mode: the pale pink error/danger text is made for dark panels -- use the day palette's red. */
+:root[data-mode="day"] .error, :root[data-mode="day"] .btn--danger, :root[data-mode="day"] .btn--danger:hover { color: var(--bad); }
+
+@media (max-width: 760px) {
+  .top { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .shell { padding: 12px 10px 28px; gap: 12px; }
+  .schema { position: static; max-height: 260px; }
+  .workspace { min-height: 0; }
+}
+
+/* ---- Citadel Theme Kit family touches (LCARS, LCARS 25, Borg) -------------------------------- */
+html[data-family="lcars"] body { background: var(--bg); }
+html[data-family="lcars"] .brand .wordmark {
+  background: none; -webkit-background-clip: initial; background-clip: initial;
+  color: inherit; filter: none; letter-spacing: .12em;
+}
+html[data-family="lcars"] .card {
+  padding: 0; background: var(--surface); clip-path: none;
+  border-radius: 18px 0 18px 18px;
+  box-shadow: inset 5px 0 0 var(--lc-frame), inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 26%, transparent);
+}
+html[data-family="lcars"] .card__in { background: transparent; clip-path: none; }
+html[data-family="lcars"] .card__in::before { display: none; }
+html[data-family="lcars"] .btn, html[data-family="lcars"] .preset { border-radius: 999px; font-family: var(--lc-font); letter-spacing: .08em; }
+html[data-family="lcars"] .btn--go { background: var(--lc-frame); border-color: var(--lc-frame); color: var(--lc-on); }
+
+html[data-family="lcars"][data-theme="lcars25"] .card {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lc-frame) 42%, transparent);
+}
+html[data-family="lcars"][data-theme="lcars25"] .btn,
+html[data-family="lcars"][data-theme="lcars25"] .preset { border-radius: 4px; }
+
+html[data-family="borg"] body { background: var(--bg); }
+html[data-family="borg"] .card {
+  padding: 0; background: var(--surface); clip-path: none;
+  border-radius: 0; border: 1px solid color-mix(in srgb, var(--brg-node) 38%, transparent);
+}
+html[data-family="borg"] .card__in { background: transparent; clip-path: none; }
+html[data-family="borg"] .card__in::before { background: linear-gradient(90deg, var(--brg-node), transparent); }
+html[data-family="borg"] .btn, html[data-family="borg"] .preset, html[data-family="borg"] .select { border-radius: 0; border-color: color-mix(in srgb, var(--brg-node) 40%, transparent); }
+html[data-family="borg"] .btn--go { background: var(--brg-node); border-color: var(--brg-node); color: var(--brg-on); }

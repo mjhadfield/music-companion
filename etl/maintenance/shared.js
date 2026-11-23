@@ -276,55 +276,48 @@ function mountActivity(el, { entityType, limit = 25 } = {}) {
 
 const COMPANION_URL = "http://192.168.0.66:8642/";
 
-// Light / dark, the same way site/ does it: localStorage["theme"], no attribute = dark. The
-// button shows the mode you're in (moon = dark, sun = light), like site/'s. theme-init.js, in each
-// page's <head>, applies the saved choice before first paint. Inside Citadel there's no button: the
-// look is Citadel's (applyCitadelLook, theme-init.js), told here by postMessage.
-if (IN_CITADEL) {
-  window.addEventListener("message", (event) => {
-    if (event.origin !== CITADEL_ORIGIN || event.data?.type !== "citadel-theme") return;
-    if (event.data.theme !== "light" && event.data.theme !== "dark") return;
-    applyCitadelLook(event.data);
-    try { sessionStorage.setItem("citadel-look", JSON.stringify(event.data)); } catch { /* just this page */ }
-  });
-}
+const IN_CITADEL = window.self !== window.top;
 const THEME_ICONS = {
   moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
   sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
 };
 function mountThemeToggle(btn) {
   const paint = () => {
-    const light = document.documentElement.dataset.theme === "light";
-    btn.innerHTML = THEME_ICONS[light ? "sun" : "moon"];
-    btn.title = light ? "Light mode — switch to dark" : "Dark mode — switch to light";
+    const day = document.documentElement.dataset.mode === "day";
+    btn.innerHTML = THEME_ICONS[day ? "sun" : "moon"];
+    btn.title = day ? "Day mode — switch to Night" : "Night mode — switch to Day";
     btn.setAttribute("aria-label", btn.title);
   };
   btn.addEventListener("click", () => {
-    const light = document.documentElement.dataset.theme !== "light";
-    if (light) document.documentElement.dataset.theme = "light"; else delete document.documentElement.dataset.theme;
-    try { localStorage.setItem("theme", light ? "light" : "dark"); } catch { /* storage blocked: just this visit */ }
+    const next = document.documentElement.dataset.mode === "day" ? "night" : "day";
+    if (window.mcKit) window.mcKit.setMode(next);
+    else document.documentElement.dataset.mode = next;
     paint();
   });
+  document.addEventListener("kit:change", paint);
   paint();
 }
 
 function mountNav(active) {
   const header = document.getElementById("topnav");
   const links = [["/", "Home"], ["/workbench.html", "Workbench"], ["/artists.html", "Artists"], ["/vinyl.html", "Vinyl"], ["/albums.html", "Albums"], ["/songs.html", "Songs"], ["/genres.html", "Genres"], ["/inbox.html", "Inbox"]];
-  header.className = "topnav";
+  header.className = "topnav ck-header";
   header.innerHTML = `
-    <a class="brand" href="/">Music <b>Maintenance</b></a>
+    <a class="brand ck-brand" href="/">Music <b>Maintenance</b></a>
     <nav>${links.map(([href, label, soon]) =>
       `<a href="${href}" ${label === active ? 'aria-current="page"' : ""} ${soon ? 'class="soon" title="Coming in a later phase"' : ""}>${label}</a>`).join("")}</nav>
-    <input class="nav-search" id="nav-search" type="search" placeholder="Find an artist, album or song…" aria-label="Search everything" />
+    <input class="nav-search ck-input" id="nav-search" type="search" placeholder="Find an artist, album or song…" aria-label="Search everything" />
     <span class="spacer"></span>
-    <button class="publish-btn small" id="publish-btn" title="Rebuild the public database the Companion site serves"><span class="dot"></span> Publish</button>
-    ${IN_CITADEL ? "" : '<button class="theme-toggle small" id="theme-toggle" type="button"></button>'}
+    <button class="publish-btn small ck-btn" id="publish-btn" title="Rebuild the public database the Companion site serves"><span class="dot"></span> Publish</button>
+    ${IN_CITADEL ? "" : '<button class="theme-toggle small ck-btn" id="theme-toggle" type="button"></button>'}
     <a class="companion" href="${COMPANION_URL}">Music Companion ↗</a>`;
   if (IN_CITADEL) {
-    // Back in Companion, its first paint should match too (it reads ?theme= when embedded).
+    // Back in Companion, its first paint should match Citadel's active mode & theme.
     header.querySelector(".companion").addEventListener("click", (e) => {
-      e.currentTarget.href = `${COMPANION_URL}?theme=${document.documentElement.dataset.theme === "light" ? "light" : "dark"}`;
+      const ds = document.documentElement.dataset;
+      const m = ds.mode === "day" ? "day" : "night";
+      const t = ds.theme || "citadel";
+      e.currentTarget.href = `${COMPANION_URL}?citadel_mode=${encodeURIComponent(m)}&citadel_theme=${encodeURIComponent(t)}`;
     });
   } else {
     mountThemeToggle(header.querySelector("#theme-toggle"));
@@ -335,6 +328,10 @@ function mountNav(active) {
   async function refreshStatus() {
     const { ok, data } = await api("/api/publish-status");
     if (!ok) return;
+    if (Array.isArray(data.citadelOrigins)) {
+      const add = () => window.mcKit?.addOrigins(data.citadelOrigins);
+      if (window.mcKit) add(); else document.addEventListener("mc-kit:ready", add, { once: true });
+    }
     btn.classList.toggle("dirty", data.unpublished);
     btn.title = data.disabled ? data.reason : (data.unpublished ? "Unpublished changes — click to rebuild the public database" : "Public database is up to date");
     btn.disabled = data.disabled;

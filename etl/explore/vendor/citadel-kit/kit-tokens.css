@@ -1,0 +1,230 @@
+/* ==========================================================================
+   Citadel Theme Kit — design tokens (Citadel, LCARS, Borg × Night & Day)
+   Mirrors Citadel's tokens.css, lcars.css and borg.css root palette blocks.
+   tests/test_appearance.py asserts every colour token matches Citadel's CSS.
+   ========================================================================== */
+
+@font-face { font-family: "Chakra Petch"; font-weight: 400; font-display: swap; src: url("./fonts/ChakraPetch-400.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 500; font-display: swap; src: url("./fonts/ChakraPetch-500.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 600; font-display: swap; src: url("./fonts/ChakraPetch-600.woff2") format("woff2"); }
+@font-face { font-family: "Chakra Petch"; font-weight: 700; font-display: swap; src: url("./fonts/ChakraPetch-700.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("./fonts/JetBrainsMono-Regular.ttf") format("truetype"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap; src: url("./fonts/JetBrainsMono-Bold.ttf") format("truetype"); }
+@font-face { font-family: "Antonio"; src: url("./fonts/Antonio-VF.ttf") format("truetype"); font-weight: 100 700; font-display: swap; }
+
+/* ---- Citadel Night (default) ---------------------------------------------------------------- */
+:root {
+  --bg:         #07060a;
+  --bg-2:       #0b0910;
+  --surface:    #0e0b14;
+  --surface-2:  #151021;
+  --surface-3:  #1c1530;
+
+  --accent:      #8b5cf6;
+  --accent-hi:   #a855f7;
+  --accent-soft: #c4b5fd;
+  --accent-deep: #4c1d95;
+  --accent-wash: rgba(139, 92, 246, 0.10);
+  --accent-ink:  #ffffff;
+  --glow-2:      #4c1d95;
+
+  --silver-hi:   #e6e9ee;
+  --silver:      #c9ced6;
+  --silver-mute: #9aa1ad;
+  --silver-dim:  #6b7280;
+
+  --edge:        rgba(201, 206, 214, 0.13);
+  --edge-strong: rgba(168, 85, 247, 0.45);
+
+  --ok:   #34d399;
+  --warn: #f5b454;
+  --bad:  #f43f5e;
+  --heat-1: #f3d899;
+  --heat-2: #f5a742;
+  --heat-3: #ff4b2b;
+  --series-1: #a78bfa; --series-2: #e6e9ee; --series-3: #f0abfc; --series-4: #67e8f9; --series-5: #93c5fd;
+
+  --well:      rgba(0, 0, 0, 0.38);
+  --vignette:  rgba(0, 0, 0, 0.45);
+
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  --chamfer: 14px;
+  --gap: 16px;
+  --radius-sm: 2px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+
+/* ---- Citadel Day ---------------------------------------------------------------------------- */
+:root[data-mode="day"] {
+  --bg:         #f2e8d5;
+  --bg-2:       #f5ecdd;
+  --surface:    #f8f0e2;
+  --surface-2:  #faf4e6;
+  --surface-3:  #fdf9f0;
+
+  --accent:      #b5541f;
+  --accent-hi:   #c4601f;
+  --accent-soft: #82401b;
+  --accent-deep: #6e2a12;
+  --accent-wash: rgba(181, 84, 31, 0.10);
+  --accent-ink:  #ffffff;
+  --glow-2:      #6e2a12;
+
+  --silver-hi:   #2a2015;
+  --silver:      #4a3c2a;
+  --silver-mute: #6b5c44;
+  --silver-dim:  #93876c;
+
+  --edge:        #ddcda8;
+  --edge-strong: rgba(196, 96, 31, 0.45);
+
+  --ok:   #3d5a73;
+  --warn: #b0601c;
+  --bad:  #8a2e2e;
+  --heat-1: #8c6a45;
+  --heat-2: #b5541f;
+  --heat-3: #a3302a;
+  --series-1: #b5541f; --series-2: #3d5a73; --series-3: #8a2e2e; --series-4: #7d6b52; --series-5: #5c4a3a;
+
+  --well:      rgba(42, 32, 21, 0.07);
+  --vignette:  rgba(42, 32, 21, 0.10);
+
+  color-scheme: light;
+}
+
+/* ---- LCARS family (Night & Day; shared by LCARS and LCARS 25) ------------------------------- */
+html[data-family="lcars"] {
+  --lc-1: #a78bfa;
+  --lc-2: #c4b5fd;
+  --lc-3: #8577e0;
+  --lc-4: #c9ced6;
+  --lc-5: #d3a4ea;
+  --lc-6: #8f96a3;
+  --lc-7: #f2b45a;
+  --lc-red: #f43f5e;
+  --lc-frame: var(--lc-3);
+  --lc-gig: #b03c64;
+  --lc-gig-on: #f6e9ee;
+  --lc-diary: #9a5bb5;
+  --lc-on: #07060a;
+  --lc-hd-frame: #6c5ce7; --lc-hd-1: #9b6bff; --lc-hd-2: #6f86d6; --lc-hd-3: #c05ed8; --lc-hd-4: #6c5ce7;
+  --lc-font: "Antonio", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --lc-ease: cubic-bezier(.2, .8, .2, 1);
+}
+
+html[data-family="lcars"][data-mode="day"] {
+  --lc-1: #b5541f;
+  --lc-2: #a8652f;
+  --lc-3: #3d5a73;
+  --lc-4: #7d6b52;
+  --lc-5: #8a2e2e;
+  --lc-6: #5c4a3a;
+  --lc-7: #c25a17;
+  --lc-red: #a3302a;
+  --lc-on: #fdf8ee;
+  --lc-frame: var(--lc-1);
+  --lc-gig: var(--lc-5); --lc-gig-on: var(--lc-on); --lc-diary: var(--lc-2);
+  --lc-hd-frame: var(--lc-frame); --lc-hd-1: var(--lc-2); --lc-hd-2: var(--lc-4); --lc-hd-3: var(--lc-5); --lc-hd-4: var(--lc-1);
+}
+
+/* ---- Borg family (Night & Day) -------------------------------------------------------------- */
+html[data-family="borg"] {
+  --bg:           #030704;
+  --bg-2:         #060d08;
+  --surface:      #060e08;
+  --surface-2:    #09150d;
+  --surface-3:    #0e2014;
+
+  --accent:       #2ee86c;
+  --accent-hi:    #5eff91;
+  --accent-soft:  #86f7a9;
+  --accent-deep:  #0d4d24;
+  --accent-wash:  rgba(46, 232, 108, 0.11);
+  --accent-ink:   #030805;
+  --glow-2:       #145c4c;
+
+  --silver-hi:    #e4f5e9;
+  --silver:       #b8d4be;
+  --silver-mute:  #7aa084;
+  --silver-dim:   #4d6f57;
+
+  --edge:         rgba(46, 232, 108, 0.22);
+  --edge-strong:  rgba(46, 232, 108, 0.56);
+
+  --ok:           #2ee86c;
+  --warn:         #e5b23a;
+  --bad:          #f43f5e;
+  --heat-1:       #d8a328;
+  --heat-2:       #f59e0b;
+  --heat-3:       #ff4b2b;
+
+  --series-1:     #2ee86c;
+  --series-2:     #d8a328;
+  --series-3:     #26c6b8;
+  --series-4:     #6684b5;
+  --series-5:     #a6f4c5;
+
+  --well:         rgba(0, 8, 3, 0.55);
+  --vignette:     rgba(0, 6, 2, 0.62);
+
+  --brg-node:     #2ee86c;
+  --brg-axis:     #d8a328;
+  --brg-cyan:     #26c6b8;
+  --brg-sub:      #6684b5;
+  --brg-on:       #030805;
+
+  --brg-ease:     cubic-bezier(.16, .84, .32, 1);
+  --brg-grid:     rgba(46, 232, 108, 0.055);
+  --brg-glow:     rgba(46, 232, 108, 0.28);
+}
+
+html[data-family="borg"][data-mode="day"] {
+  --bg:           #e8efe9;
+  --bg-2:         #edf4ee;
+  --surface:      #f3f7f4;
+  --surface-2:    #f7faf8;
+  --surface-3:    #fbfdfb;
+
+  --accent:       #167a3e;
+  --accent-hi:    #1c944c;
+  --accent-soft:  #115c2f;
+  --accent-deep:  #0c4523;
+  --accent-wash:  rgba(22, 122, 62, 0.10);
+  --accent-ink:   #f4fbf6;
+  --glow-2:       #186b6e;
+
+  --silver-hi:    #112117;
+  --silver:       #263d2e;
+  --silver-mute:  #476351;
+  --silver-dim:   #6f8a78;
+
+  --edge:         rgba(22, 122, 62, 0.24);
+  --edge-strong:  rgba(22, 122, 62, 0.55);
+
+  --ok:           #167a3e;
+  --warn:         #9c6d14;
+  --bad:          #a3262e;
+  --heat-1:       #6e6b20;
+  --heat-2:       #9c6d14;
+  --heat-3:       #a3262e;
+
+  --series-1:     #167a3e;
+  --series-2:     #9c6d14;
+  --series-3:     #186b6e;
+  --series-4:     #3f5c80;
+  --series-5:     #3a5243;
+
+  --well:         rgba(17, 33, 23, 0.07);
+  --vignette:     rgba(17, 33, 23, 0.11);
+
+  --brg-node:     #167a3e;
+  --brg-axis:     #9c6d14;
+  --brg-cyan:     #186b6e;
+  --brg-sub:      #3f5c80;
+  --brg-on:       #f4fbf6;
+
+  --brg-grid:     rgba(22, 122, 62, 0.08);
+  --brg-glow:     rgba(22, 122, 62, 0.18);
+}

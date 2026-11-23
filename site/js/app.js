@@ -66,49 +66,27 @@ function renderNotFound(kind) {
 }
 
 // ---------------------------------------------------------------------
-// Theme toggle (light / dark / system, persisted in localStorage)
+// Theme toggle (Day / Night via Citadel Theme Kit)
 // ---------------------------------------------------------------------
-function applyTheme(theme) {
-  if (theme === "light" || theme === "dark") {
-    document.documentElement.dataset.theme = theme;
-  } else {
-    delete document.documentElement.dataset.theme;
-  }
-  // the button shows the mode you're in: a moon in dark mode (the default), a sun in light
+function syncThemeButton() {
   const btn = document.getElementById("theme-toggle");
-  if (btn) {
-    const dark = theme !== "light";
-    btn.innerHTML = `<svg class="i"><use href="#i-${dark ? "moon" : "sun"}"/></svg>`;
-    btn.title = dark ? "Dark mode — switch to light" : "Light mode — switch to dark";
-  }
+  if (!btn) return;
+  const dark = document.documentElement.dataset.mode !== "day";
+  btn.innerHTML = `<svg class="i"><use href="#i-${dark ? "moon" : "sun"}"/></svg>`;
+  btn.title = dark ? "Night mode — switch to Day" : "Day mode — switch to Night";
 }
 
-/** framed = in another page's frame (the website's terminal): start from the theme it passed in
- * ?theme=, then switch independently of it, without remembering -- each launch matches the page. */
 function initTheme(framed = false) {
-  let stored = null;
-  try {
-    stored = framed ? new URLSearchParams(location.search).get("theme") : localStorage.getItem("theme");
-  } catch {
-    /* ignore */
-  }
-  applyTheme(stored === "dark" ? "dark" : "light"); // light until you choose otherwise
-
-  document.getElementById("theme-toggle").addEventListener("click", () => {
-    // No system-preference fallback -- matches the token restructure (harmonised with Citadel):
-    // no data-theme attribute always means dark, unconditionally, there's no longer an
-    // @media(prefers-color-scheme:dark) bucket for "system says dark" to be distinct from.
-    const current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
-    const next = current === "dark" ? "light" : "dark";
-    applyTheme(next);
-    if (!framed) {
-      try {
-        localStorage.setItem("theme", next);
-      } catch {
-        /* ignore */
-      }
+  syncThemeButton();
+  document.getElementById("theme-toggle")?.addEventListener("click", () => {
+    const next = document.documentElement.dataset.mode === "day" ? "night" : "day";
+    if (!framed && window.mcKit) {
+      window.mcKit.setMode(next);
+    } else {
+      document.documentElement.dataset.mode = next;
     }
-    render(); // re-render so any chart currently on screen redraws in the new theme's colors
+    syncThemeButton();
+    if (db) render(); // re-render so any chart currently on screen redraws in the new mode's colors
   });
 }
 
@@ -617,60 +595,39 @@ function updateLoadingProgress(loaded, total) {
   }
 }
 
-const CITADEL_ORIGIN = "http://192.168.0.66:8080";
-
 /** True when this page is running in a frame (Citadel's #music, or the website's terminal)
  * rather than opened directly in its own tab. */
 function isEmbedded() {
   return window.self !== window.top;
 }
 
-/** Framed by Citadel, which drives the theme, rather than by another page (the website), where the
- * page keeps its own toggle. Citadel sends Referrer-Policy: same-origin, so its frame has no referrer;
- * other pages pass their origin. No referrer at all is treated as Citadel (the old behaviour). */
+const CITADEL_DEFAULT_ORIGINS = [
+  "http://192.168.0.66:8080",
+  "http://127.0.0.1:8080",
+  "http://localhost:8080",
+  "http://100.127.118.96:8080",
+];
+
 function embeddedByCitadel() {
+  if (window.mcKit) return window.mcKit.framedByCitadel;
   if (!isEmbedded()) return false;
   if (!document.referrer) return true;
-  try { return new URL(document.referrer).origin === CITADEL_ORIGIN; } catch { return true; }
-}
-
-/** Embedded: theme is driven entirely by Citadel (initial value via a ?theme= query
- * param, then postMessage on every load and change) -- the local toggle button is
- * removed outright so it can never be clicked and fight the parent. Standalone: the
- * existing self-contained initTheme() (localStorage + matchMedia fallback) is untouched.
- *
- * Citadel's custom themes (Settings -> Appearance) arrive as `vars`: the same CSS variable
- * names this page already uses (the palettes were harmonised), so they're applied as-is.
- * `bg` means Citadel draws a background picture behind this frame: the page's own backdrop
- * goes see-through so it shows. color-scheme is pinned to the mode so the browser never
- * paints an opaque backdrop under a transparent frame of a different scheme. */
-let citadelVars = [];
-function applyCitadelLook(msg) {
-  applyTheme(msg.theme);
-  const root = document.documentElement;
-  root.style.colorScheme = msg.theme;
-  citadelVars.forEach((name) => root.style.removeProperty(name));
-  citadelVars = [];
-  if (msg.vars && typeof msg.vars === "object") {
-    for (const [name, value] of Object.entries(msg.vars)) {
-      if (!/^--[a-z0-9-]+$/.test(name) || typeof value !== "string" || value.length > 200) continue;
-      root.style.setProperty(name, value);
-      citadelVars.push(name);
-    }
+  try {
+    const ref = new URL(document.referrer);
+    if (CITADEL_DEFAULT_ORIGINS.includes(ref.origin)) return true;
+    if ((location.hostname === "127.0.0.1" || location.hostname === "localhost") &&
+        (ref.hostname === "127.0.0.1" || ref.hostname === "localhost")) return true;
+    return false;
+  } catch {
+    return true;
   }
-  root.classList.toggle("citadel-bg", !!msg.bg);
 }
 
 function initEmbeddedTheme() {
   document.getElementById("theme-toggle")?.remove();
-  const initial = new URLSearchParams(location.search).get("theme");
-  if (initial === "light" || initial === "dark") applyCitadelLook({ theme: initial });
-  window.addEventListener("message", (event) => {
-    if (event.origin !== CITADEL_ORIGIN) return;
-    if (event.data?.type === "citadel-theme" && (event.data.theme === "light" || event.data.theme === "dark")) {
-      applyCitadelLook(event.data);
-      if (db) render(); // db not loaded yet (e.g. message arrives mid-boot) -- nothing on screen to redraw
-    }
+  document.addEventListener("kit:change", () => {
+    syncThemeButton();
+    if (db) render();
   });
 }
 

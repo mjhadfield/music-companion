@@ -28,6 +28,7 @@ Usage:
     open http://localhost:8644/
 """
 import json
+import os
 import re
 import sqlite3
 import time
@@ -37,8 +38,17 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 PAGE_DIR = Path(__file__).resolve().parent
-DATA_DB = ROOT / "data" / "music.sqlite"
-PORT = 8644
+KIT_DIR = (PAGE_DIR / "vendor" / "citadel-kit").resolve()
+DATA_DB = Path(os.environ.get("MUSIC_DB_PATH") or (ROOT / "data" / "music.sqlite"))
+HOST = os.environ.get("EXPLORE_HOST") or "0.0.0.0"
+PORT = int(os.environ.get("EXPLORE_PORT") or "8644")
+CITADEL_ORIGINS = list(dict.fromkeys([
+    "http://192.168.0.66:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+    "http://100.127.118.96:8080",
+    *([os.environ["CITADEL_ORIGIN"]] if os.environ.get("CITADEL_ORIGIN") else []),
+]))
 
 QUERY_TIMEOUT_S = 10          # a query still running after this long is aborted
 DEFAULT_LIMIT = 500
@@ -50,8 +60,14 @@ STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.css": ("app.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "application/javascript; charset=utf-8"),
+    "/kit-bridge.js": ("kit-bridge.js", "application/javascript; charset=utf-8"),
 }
-FONT_TYPES = {".woff2": "font/woff2", ".ttf": "font/ttf"}
+KIT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+}
 
 
 # ---- read-only query engine -----------------------------------------------------------------------------------
@@ -169,17 +185,22 @@ class Handler(BaseHTTPRequestHandler):
             name, ctype = STATIC[path]
             return self._send_file(PAGE_DIR / name, ctype)
 
-        if path.startswith("/fonts/") and "/" not in path[len("/fonts/"):]:
-            fp = PAGE_DIR / "fonts" / path[len("/fonts/"):]
-            if fp.is_file() and fp.suffix in FONT_TYPES:
-                return self._send_file(fp, FONT_TYPES[fp.suffix])
+        if path.startswith("/vendor/citadel-kit/"):
+            rel = path[len("/vendor/citadel-kit/"):]
+            fp = (KIT_DIR / rel).resolve()
+            if fp.is_relative_to(KIT_DIR) and fp.is_file() and fp.suffix in KIT_TYPES:
+                return self._send_file(fp, KIT_TYPES[fp.suffix])
             return self.send_error(404)
 
         if path == "/api/schema":
             if not DATA_DB.is_file():
                 return self._send_json({"error": f"{DATA_DB} not found -- run the ETL scripts first."}, status=404)
             try:
-                return self._send_json({"tables": get_schema(), "db_bytes": DATA_DB.stat().st_size})
+                return self._send_json({
+                    "tables": get_schema(),
+                    "db_bytes": DATA_DB.stat().st_size,
+                    "citadel_origins": CITADEL_ORIGINS,
+                })
             except sqlite3.Error as exc:
                 return self._send_json({"error": str(exc)}, status=500)
 
@@ -212,7 +233,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"Music DB explorer (read-only): http://localhost:{PORT}/")
     try:
         server.serve_forever()

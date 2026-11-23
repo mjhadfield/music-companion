@@ -4,22 +4,19 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Music DB Explorer</title>
+<link rel="stylesheet" href="/vendor/citadel-kit/kit-tokens.css" />
+<script src="/vendor/citadel-kit/kit-init.js" data-storage-prefix="mc-explore"></script>
+<link rel="stylesheet" href="/vendor/citadel-kit/kit.css" />
 <link rel="stylesheet" href="app.css" />
-<script>
-  // Inside Citadel: start in its mode straight away (no dark flash before a Light theme). The rest -- a custom
-  // theme's colours and background -- arrives by postMessage once app.js is running.
-  if (window.self !== window.top && new URLSearchParams(location.search).get('theme') === 'light') {
-    document.documentElement.dataset.theme = 'light';
-  }
-</script>
 </head>
-<body>
-<header class="top">
-  <span class="wordmark">MUSIC&nbsp;DB</span>
+<body class="ck-app">
+<header class="top ck-header">
+  <span class="brand ck-brand"><span class="wordmark">MUSIC&nbsp;DB</span></span>
   <span class="hud">Explorer</span>
   <div class="top__right">
-    <span class="chip chip--ro">Read-only</span>
-    <span class="chip" id="db-size" title="data/music.sqlite">…</span>
+    <span class="chip chip--ro ck-chip ck-chip--ok">Read-only</span>
+    <span class="chip ck-chip" id="db-size" title="data/music.sqlite">…</span>
+    <button class="btn ck-btn" id="theme-toggle" type="button">Day</button>
   </div>
 </header>
 
@@ -85,6 +82,7 @@
   </div>
 </div>
 
+<script type="module" src="/kit-bridge.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

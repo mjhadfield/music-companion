@@ -31,6 +31,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 PAGE_DIR = Path(__file__).resolve().parent
+KIT_DIR = (PAGE_DIR / "vendor" / "citadel-kit").resolve()
 ROOT = PAGE_DIR.parent.parent
 sys.path.insert(0, str(ROOT / "etl"))
 sys.path.insert(0, str(PAGE_DIR))
@@ -69,9 +70,21 @@ STATIC = {"/shared.js": ("shared.js", "application/javascript; charset=utf-8"),
           "/editions-ui.js": ("editions-ui.js", "application/javascript; charset=utf-8"),
           "/recordings-ui.js": ("recordings-ui.js", "application/javascript; charset=utf-8"),
           "/songtools-ui.js": ("songtools-ui.js", "application/javascript; charset=utf-8"),
-          "/theme-init.js": ("theme-init.js", "application/javascript; charset=utf-8"),
+          "/kit-bridge.js": ("kit-bridge.js", "application/javascript; charset=utf-8"),
           "/shared.css": ("shared.css", "text/css; charset=utf-8")}
-FONT_TYPES = {".woff2": "font/woff2", ".ttf": "font/ttf"}
+KIT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".ttf": "font/ttf",
+}
+CITADEL_ORIGINS = list(dict.fromkeys([
+    "http://192.168.0.66:8080",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+    "http://100.127.118.96:8080",
+    *([os.environ["CITADEL_ORIGIN"]] if os.environ.get("CITADEL_ORIGIN") else []),
+]))
 BACKUP_DIR = DB_PATH.parent / ".refresh_backups"
 
 # job_id -> {"lines": [str] (append-only), "done", "returncode", "kind": "refresh"|"build"|"sweep:*",
@@ -188,10 +201,11 @@ class Handler(BaseHTTPRequestHandler):
         if path in STATIC:
             name, ctype = STATIC[path]
             return self._send_file(PAGE_DIR / name, ctype)
-        if path.startswith("/fonts/") and "/" not in path[len("/fonts/"):]:
-            fp = PAGE_DIR / "fonts" / path[len("/fonts/"):]
-            if fp.is_file() and fp.suffix in FONT_TYPES:
-                return self._send_file(fp, FONT_TYPES[fp.suffix])
+        if path.startswith("/vendor/citadel-kit/"):
+            rel = path[len("/vendor/citadel-kit/"):]
+            fp = (KIT_DIR / rel).resolve()
+            if fp.is_relative_to(KIT_DIR) and fp.is_file() and fp.suffix in KIT_TYPES:
+                return self._send_file(fp, KIT_TYPES[fp.suffix])
             return self.send_error(404)
         if path.startswith("/covers/pending/") and "/" not in path[len("/covers/pending/"):]:
             # an import's cover awaiting review in the Inbox (covers/.pending/)
