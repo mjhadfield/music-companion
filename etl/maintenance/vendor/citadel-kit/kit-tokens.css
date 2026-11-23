@@ -129,29 +129,29 @@ html[data-family="lcars"][data-mode="day"] {
   --lc-hd-frame: var(--lc-frame); --lc-hd-1: var(--lc-2); --lc-hd-2: var(--lc-4); --lc-hd-3: var(--lc-5); --lc-hd-4: var(--lc-1);
 }
 
-/* ---- Borg family (Night & Day) -------------------------------------------------------------- */
+/* ---- Borg family (Night & Day — Obsidian default) ------------------------------------------- */
 html[data-family="borg"] {
-  --bg:           #030704;
-  --bg-2:         #060d08;
-  --surface:      #060e08;
-  --surface-2:    #09150d;
-  --surface-3:    #0e2014;
+  --bg:           #030304;
+  --bg-2:         #060708;
+  --surface:      #090a0c;
+  --surface-2:    #0f1114;
+  --surface-3:    #16191e;
 
   --accent:       #2ee86c;
   --accent-hi:    #5eff91;
   --accent-soft:  #86f7a9;
-  --accent-deep:  #0d4d24;
-  --accent-wash:  rgba(46, 232, 108, 0.11);
-  --accent-ink:   #030805;
-  --glow-2:       #145c4c;
+  --accent-deep:  #0d4a22;
+  --accent-wash:  rgba(46, 232, 108, 0.09);
+  --accent-ink:   #030604;
+  --glow-2:       #030304;
 
-  --silver-hi:    #e4f5e9;
-  --silver:       #b8d4be;
-  --silver-mute:  #7aa084;
-  --silver-dim:   #4d6f57;
+  --silver-hi:    #eef1f4;
+  --silver:       #c2c8cf;
+  --silver-mute:  #7d8590;
+  --silver-dim:   #4d545e;
 
-  --edge:         rgba(46, 232, 108, 0.22);
-  --edge-strong:  rgba(46, 232, 108, 0.56);
+  --edge:         rgba(255, 255, 255, 0.11);
+  --edge-strong:  rgba(46, 232, 108, 0.43);
 
   --ok:           #2ee86c;
   --warn:         #e5b23a;
@@ -162,69 +162,71 @@ html[data-family="borg"] {
 
   --series-1:     #2ee86c;
   --series-2:     #d8a328;
-  --series-3:     #26c6b8;
+  --series-3:     #5f8c8a;
   --series-4:     #6684b5;
   --series-5:     #a6f4c5;
 
-  --well:         rgba(0, 8, 3, 0.55);
-  --vignette:     rgba(0, 6, 2, 0.62);
+  --well:         rgba(0, 0, 0, 0.60);
+  --vignette:     rgba(0, 0, 0, 0.70);
 
   --brg-node:     #2ee86c;
+  --brg-frame:    #5c6670;
   --brg-axis:     #d8a328;
-  --brg-cyan:     #26c6b8;
-  --brg-sub:      #6684b5;
-  --brg-on:       #030805;
+  --brg-cyan:     #5f8c8a;
+  --brg-sub:      #556270;
+  --brg-on:       #030604;
 
   --brg-ease:     cubic-bezier(.16, .84, .32, 1);
-  --brg-grid:     rgba(46, 232, 108, 0.055);
-  --brg-glow:     rgba(46, 232, 108, 0.28);
+  --brg-grid:     color-mix(in srgb, var(--brg-frame) 5.5%, transparent);
+  --brg-glow:     color-mix(in srgb, var(--brg-node) 28%, transparent);
 }
 
 html[data-family="borg"][data-mode="day"] {
-  --bg:           #e8efe9;
-  --bg-2:         #edf4ee;
-  --surface:      #f3f7f4;
-  --surface-2:    #f7faf8;
-  --surface-3:    #fbfdfb;
+  --bg:           #e6e9ec;
+  --bg-2:         #edf0f2;
+  --surface:      #f5f7f9;
+  --surface-2:    #fafbfc;
+  --surface-3:    #ffffff;
 
-  --accent:       #167a3e;
+  --accent:       #147a3c;
   --accent-hi:    #1c944c;
   --accent-soft:  #115c2f;
   --accent-deep:  #0c4523;
-  --accent-wash:  rgba(22, 122, 62, 0.10);
-  --accent-ink:   #f4fbf6;
-  --glow-2:       #186b6e;
+  --accent-wash:  rgba(20, 122, 60, 0.09);
+  --accent-ink:   #f6fbf8;
+  --glow-2:       #e6e9ec;
 
-  --silver-hi:    #112117;
-  --silver:       #263d2e;
-  --silver-mute:  #476351;
-  --silver-dim:   #6f8a78;
+  --silver-hi:    #14181d;
+  --silver:       #2d353e;
+  --silver-mute:  #586370;
+  --silver-dim:   #7c8794;
 
-  --edge:         rgba(22, 122, 62, 0.24);
-  --edge-strong:  rgba(22, 122, 62, 0.55);
+  --edge:         rgba(20, 24, 29, 0.12);
+  --edge-strong:  rgba(20, 122, 60, 0.55);
 
-  --ok:           #167a3e;
+  --ok:           #147a3c;
   --warn:         #9c6d14;
   --bad:          #a3262e;
   --heat-1:       #6e6b20;
   --heat-2:       #9c6d14;
   --heat-3:       #a3262e;
 
-  --series-1:     #167a3e;
+  --series-1:     #147a3c;
   --series-2:     #9c6d14;
-  --series-3:     #186b6e;
+  --series-3:     #2c6e73;
   --series-4:     #3f5c80;
-  --series-5:     #3a5243;
+  --series-5:     #4c5764;
 
-  --well:         rgba(17, 33, 23, 0.07);
-  --vignette:     rgba(17, 33, 23, 0.11);
+  --well:         rgba(20, 24, 29, 0.07);
+  --vignette:     rgba(20, 24, 29, 0.11);
 
-  --brg-node:     #167a3e;
+  --brg-node:     #147a3c;
+  --brg-frame:    #6a7480;
   --brg-axis:     #9c6d14;
-  --brg-cyan:     #186b6e;
-  --brg-sub:      #3f5c80;
-  --brg-on:       #f4fbf6;
+  --brg-cyan:     #2c6e73;
+  --brg-sub:      #4a5a6e;
+  --brg-on:       #f6fbf8;
 
-  --brg-grid:     rgba(22, 122, 62, 0.08);
-  --brg-glow:     rgba(22, 122, 62, 0.18);
+  --brg-grid:     color-mix(in srgb, var(--brg-frame) 8%, transparent);
+  --brg-glow:     color-mix(in srgb, var(--brg-node) 18%, transparent);
 }

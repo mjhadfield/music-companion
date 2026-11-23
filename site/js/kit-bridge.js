@@ -1,4 +1,4 @@
-import { initKit } from '../vendor/citadel-kit/kit.js?v=20261123-220442';
+import { initKit } from '../vendor/citadel-kit/kit.js?v=20261123-234220';
 
 const DEFAULT_ORIGINS = [
   'http://192.168.0.66:8080',

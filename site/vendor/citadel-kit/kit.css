@@ -596,8 +596,8 @@ html[data-family="borg"] .ck-app {
   background-image:
     linear-gradient(90deg, var(--brg-grid) 1px, transparent 1px),
     linear-gradient(0deg, var(--brg-grid) 1px, transparent 1px),
-    radial-gradient(880px 520px at 8% -10%, color-mix(in srgb, var(--brg-node) 12%, transparent), transparent 62%),
-    radial-gradient(760px 460px at 98% 104%, color-mix(in srgb, var(--brg-cyan) 10%, transparent), transparent 60%);
+    radial-gradient(880px 520px at 8% -10%, color-mix(in srgb, var(--glow-2) 16%, transparent), transparent 62%),
+    radial-gradient(760px 460px at 98% 104%, color-mix(in srgb, var(--glow-2) 12%, transparent), transparent 60%);
   background-size: 44px 44px, 44px 44px, auto, auto;
   background-attachment: fixed;
 }
@@ -615,7 +615,7 @@ html[data-family="borg"].has-bg .ck-app {
 
 html[data-family="borg"] .ck-header {
   background:
-    repeating-linear-gradient(0deg, color-mix(in srgb, var(--brg-node) 5%, transparent) 0 1px, transparent 1px 10px) left / 14px 100% no-repeat,
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--brg-frame) 5%, transparent) 0 1px, transparent 1px 10px) left / 14px 100% no-repeat,
     linear-gradient(180deg, color-mix(in srgb, var(--surface-2) 94%, transparent), color-mix(in srgb, var(--surface) 94%, transparent));
   border-bottom: 0;
   padding: 10px 18px 14px 22px;
@@ -627,7 +627,7 @@ html[data-family="borg"] .ck-header::after {
     var(--brg-axis) 0 88px, transparent 88px 94px,
     color-mix(in srgb, var(--brg-node) 88%, transparent) 94px 290px, transparent 290px 296px,
     color-mix(in srgb, var(--brg-cyan) 65%, transparent) 296px 420px,
-    color-mix(in srgb, var(--brg-node) 34%, transparent) 420px 88%, transparent 100%) left center / 100% 2px no-repeat;
+    color-mix(in srgb, var(--brg-frame) 34%, transparent) 420px 88%, transparent 100%) left center / 100% 2px no-repeat;
 }
 html[data-family="borg"] .ck-brand {
   color: var(--brg-node);
@@ -638,10 +638,10 @@ html[data-family="borg"][data-mode="day"] .ck-brand { text-shadow: none; }
 
 html[data-family="borg"] .ck-rail {
   background: color-mix(in srgb, var(--surface) 88%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--brg-node) 32%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--brg-frame) 32%, transparent);
 }
 html[data-family="borg"] .ck-rail__item {
-  border: 1px solid color-mix(in srgb, var(--brg-node) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brg-frame) 22%, transparent);
   border-radius: 0;
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
   color: var(--silver);
@@ -656,13 +656,13 @@ html[data-family="borg"] .ck-rail__item[aria-pressed="true"] {
 }
 
 html[data-family="borg"] .ck-panel {
-  border: 1px solid color-mix(in srgb, var(--brg-node) 38%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brg-frame) 38%, transparent);
   border-radius: 0;
   clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
   background: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 html[data-family="borg"] .ck-panel__head {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--brg-node) 14%, var(--surface-2)), var(--surface-2));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--brg-frame) 14%, var(--surface-2)), var(--surface-2));
   border-bottom: 1px solid color-mix(in srgb, var(--brg-axis) 42%, transparent);
 }
 html[data-family="borg"] .ck-panel__title { color: var(--brg-node); }
@@ -670,7 +670,7 @@ html[data-family="borg"] .ck-panel__title { color: var(--brg-node); }
 html[data-family="borg"] .ck-btn,
 html[data-family="borg"] .ck-tab {
   border-radius: 0;
-  border-color: color-mix(in srgb, var(--brg-node) 40%, transparent);
+  border-color: color-mix(in srgb, var(--brg-frame) 40%, transparent);
   clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
 }
 html[data-family="borg"] .ck-btn--primary {
@@ -694,7 +694,7 @@ html[data-family="borg"] .ck-tab[aria-pressed="true"] {
 html[data-family="borg"] .ck-input,
 html[data-family="borg"] .ck-select {
   border-radius: 0;
-  border-color: color-mix(in srgb, var(--brg-node) 38%, transparent);
+  border-color: color-mix(in srgb, var(--brg-frame) 38%, transparent);
 }
 html[data-family="borg"] .ck-input:focus,
 html[data-family="borg"] .ck-select:focus {
@@ -704,7 +704,7 @@ html[data-family="borg"] .ck-select:focus {
 
 html[data-family="borg"] .ck-table th {
   color: var(--brg-axis);
-  border-bottom-color: color-mix(in srgb, var(--brg-node) 40%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--brg-frame) 40%, transparent);
 }
 
 html[data-family="borg"] .ck-chip {
