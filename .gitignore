@@ -58,3 +58,8 @@ data/covers/.removed/
 
 # Ad-hoc SQL queries (explorer scratch work) -- personal, not part of the project.
 docs/queries/
+
+# agent instruction files: local only, never committed
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
