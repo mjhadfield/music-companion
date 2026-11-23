@@ -1,4 +1,4 @@
-import { initKit } from '../vendor/citadel-kit/kit.js';
+import { initKit } from '../vendor/citadel-kit/kit.js?v=20261123-220442';
 
 const DEFAULT_ORIGINS = [
   'http://192.168.0.66:8080',
@@ -27,17 +27,6 @@ const framedByCitadel = (() => {
     return true;
   }
 })();
-
-// Migrate legacy standalone site theme ("light" / "dark") before initKit reads storage;
-// standalone site defaults to Day when no choice has been saved yet.
-if (!isFramed) {
-  try {
-    if (!localStorage.getItem('mc-site-mode')) {
-      const legacy = localStorage.getItem('theme');
-      localStorage.setItem('mc-site-mode', legacy === 'dark' ? 'night' : 'day');
-    }
-  } catch { /* storage blocked */ }
-}
 
 const kit = initKit({ origins, storagePrefix: 'mc-site' });
 

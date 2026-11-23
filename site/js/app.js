@@ -601,28 +601,6 @@ function isEmbedded() {
   return window.self !== window.top;
 }
 
-const CITADEL_DEFAULT_ORIGINS = [
-  "http://192.168.0.66:8080",
-  "http://127.0.0.1:8080",
-  "http://localhost:8080",
-  "http://100.127.118.96:8080",
-];
-
-function embeddedByCitadel() {
-  if (window.mcKit) return window.mcKit.framedByCitadel;
-  if (!isEmbedded()) return false;
-  if (!document.referrer) return true;
-  try {
-    const ref = new URL(document.referrer);
-    if (CITADEL_DEFAULT_ORIGINS.includes(ref.origin)) return true;
-    if ((location.hostname === "127.0.0.1" || location.hostname === "localhost") &&
-        (ref.hostname === "127.0.0.1" || ref.hostname === "localhost")) return true;
-    return false;
-  } catch {
-    return true;
-  }
-}
-
 function initEmbeddedTheme() {
   document.getElementById("theme-toggle")?.remove();
   document.addEventListener("kit:change", () => {
@@ -631,8 +609,13 @@ function initEmbeddedTheme() {
   });
 }
 
+function wireThemeFromKit() {
+  if (window.mcKit.framedByCitadel) initEmbeddedTheme(); else initTheme(isEmbedded());
+}
+
 async function boot() {
-  if (embeddedByCitadel()) initEmbeddedTheme(); else initTheme(isEmbedded());
+  if (window.mcKit) wireThemeFromKit();
+  else document.addEventListener("mc-kit:ready", wireThemeFromKit, { once: true });
   try {
     // Independent downloads -- run them side by side rather than making
     // the (much bigger) database wait behind the small WASM runtime.

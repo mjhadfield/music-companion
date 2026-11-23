@@ -4,23 +4,25 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Music Companion</title>
-  <link rel="stylesheet" href="vendor/citadel-kit/kit-tokens.css" />
-  <script src="vendor/citadel-kit/kit-init.js" data-storage-prefix="mc-site"></script>
+  <link rel="stylesheet" href="vendor/citadel-kit/kit-tokens.css?v=20261123-220442" />
+  <script src="vendor/citadel-kit/kit-init.js?v=20261123-220442" data-storage-prefix="mc-site"></script>
   <script>
-    // Preserve legacy site default (Day when standalone with no stored preference).
+    // Preserve legacy site default (Day when standalone with no stored preference) and migrate once before paint.
     try {
       if (window.self === window.top && !localStorage.getItem("mc-site-mode")) {
         const legacy = localStorage.getItem("theme");
-        document.documentElement.dataset.mode = legacy === "dark" ? "night" : "day";
+        const mode = legacy === "dark" ? "night" : "day";
+        document.documentElement.dataset.mode = mode;
+        localStorage.setItem("mc-site-mode", mode);
       }
     } catch (e) {}
   </script>
-  <link rel="stylesheet" href="vendor/citadel-kit/kit.css" />
+  <link rel="stylesheet" href="vendor/citadel-kit/kit.css?v=20261123-220442" />
   <script>
     // An old copy of this page from the browser's cache (an earlier version of the site) fetches
     // everything fresh and reloads -- once. Stamped by etl/bump_site_version.py, with the ?v= on
     // every stylesheet and script below; between versions everything caches as normal.
-    const SITE_VERSION = "20261123-213925";
+    const SITE_VERSION = "20261123-220442";
     fetch("version.txt", { cache: "no-store" }).then((r) => (r.ok ? r.text() : "")).then((v) => {
       v = v.trim();
       if (!v || v === SITE_VERSION) return;
@@ -28,14 +30,14 @@
       return Promise.all([location.pathname || "./", "index.html"].map((u) => fetch(u, { cache: "reload" }).catch(() => null))).then(() => location.reload());
     }).catch(() => {});
   </script>
-  <link rel="stylesheet" href="css/style.css?v=20261123-213925" />
-  <link rel="stylesheet" href="css/home.css?v=20261123-213925" />
-  <link rel="stylesheet" href="css/album-page.css?v=20261123-213925" />
-  <link rel="stylesheet" href="css/albums-page.css?v=20261123-213925" />
-  <link rel="stylesheet" href="css/artist-page.css?v=20261123-213925" />
-  <link rel="stylesheet" href="css/song-page.css?v=20261123-213925" />
-  <link rel="stylesheet" href="css/live.css?v=20261123-213925" />
-  <link rel="stylesheet" href="css/browse-pages.css?v=20261123-213925" />
+  <link rel="stylesheet" href="css/style.css?v=20261123-220442" />
+  <link rel="stylesheet" href="css/home.css?v=20261123-220442" />
+  <link rel="stylesheet" href="css/album-page.css?v=20261123-220442" />
+  <link rel="stylesheet" href="css/albums-page.css?v=20261123-220442" />
+  <link rel="stylesheet" href="css/artist-page.css?v=20261123-220442" />
+  <link rel="stylesheet" href="css/song-page.css?v=20261123-220442" />
+  <link rel="stylesheet" href="css/live.css?v=20261123-220442" />
+  <link rel="stylesheet" href="css/browse-pages.css?v=20261123-220442" />
 </head>
 <body class="ck-app">
   <header class="topbar ck-header">
@@ -78,18 +80,18 @@
   </nav>
 
   <script src="https://cdn.jsdelivr.net/npm/sql.js@1.10.3/dist/sql-wasm.js"></script>
-  <script src="js/icons.js?v=20261123-213925"></script>
-  <script src="js/charts.js?v=20261123-213925"></script>
-  <script src="js/enrichment.js?v=20261123-213925"></script>
-  <script src="js/collection.js?v=20261123-213925"></script>
-  <script src="js/home.js?v=20261123-213925"></script>
-  <script src="js/album-page.js?v=20261123-213925"></script>
-  <script src="js/albums-page.js?v=20261123-213925"></script>
-  <script src="js/artist-page.js?v=20261123-213925"></script>
-  <script src="js/song-page.js?v=20261123-213925"></script>
-  <script src="js/live.js?v=20261123-213925"></script>
-  <script src="js/browse-pages.js?v=20261123-213925"></script>
-  <script type="module" src="js/kit-bridge.js?v=20261123-213925"></script>
-  <script src="js/app.js?v=20261123-213925"></script>
+  <script src="js/icons.js?v=20261123-220442"></script>
+  <script src="js/charts.js?v=20261123-220442"></script>
+  <script src="js/enrichment.js?v=20261123-220442"></script>
+  <script src="js/collection.js?v=20261123-220442"></script>
+  <script src="js/home.js?v=20261123-220442"></script>
+  <script src="js/album-page.js?v=20261123-220442"></script>
+  <script src="js/albums-page.js?v=20261123-220442"></script>
+  <script src="js/artist-page.js?v=20261123-220442"></script>
+  <script src="js/song-page.js?v=20261123-220442"></script>
+  <script src="js/live.js?v=20261123-220442"></script>
+  <script src="js/browse-pages.js?v=20261123-220442"></script>
+  <script type="module" src="js/kit-bridge.js?v=20261123-220442"></script>
+  <script src="js/app.js?v=20261123-220442"></script>
 </body>
 </html>

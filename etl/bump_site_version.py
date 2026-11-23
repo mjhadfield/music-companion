@@ -28,9 +28,14 @@ def bump() -> str:
     html, n = re.subn(r'const SITE_VERSION = "[^"]*";', f'const SITE_VERSION = "{version}";', html)
     if n != 1:
         raise SystemExit("index.html: SITE_VERSION not found")
-    # local css / js only (not the CDN's sql.js), with or without an earlier ?v=
-    html = re.sub(r'((?:href|src)="(?:css|js)/[^"?]+\.(?:css|js))(?:\?v=[^"]*)?"', rf'\1?v={version}"', html)
+    # local css / js / vendored kit only (not the CDN's sql.js), with or without an earlier ?v=
+    html = re.sub(r'((?:href|src)="(?:css|js|vendor)/[^"?]+\.(?:css|js))(?:\?v=[^"]*)?"', rf'\1?v={version}"', html)
     index.write_text(html, encoding="utf-8")
+    bridge = SITE / "js" / "kit-bridge.js"
+    if bridge.is_file():
+        js = bridge.read_text(encoding="utf-8")
+        js = re.sub(r"('\.\./vendor/[^'?]+\.js)(?:\?v=[^']*)?'", rf"\1?v={version}'", js)
+        bridge.write_text(js, encoding="utf-8")
     (SITE / "version.txt").write_text(version + "\n", encoding="utf-8")
     return version
 

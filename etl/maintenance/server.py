@@ -78,13 +78,6 @@ KIT_TYPES = {
     ".woff2": "font/woff2",
     ".ttf": "font/ttf",
 }
-CITADEL_ORIGINS = list(dict.fromkeys([
-    "http://192.168.0.66:8080",
-    "http://127.0.0.1:8080",
-    "http://localhost:8080",
-    "http://100.127.118.96:8080",
-    *([os.environ["CITADEL_ORIGIN"]] if os.environ.get("CITADEL_ORIGIN") else []),
-]))
 BACKUP_DIR = DB_PATH.parent / ".refresh_backups"
 
 # job_id -> {"lines": [str] (append-only), "done", "returncode", "kind": "refresh"|"build"|"sweep:*",

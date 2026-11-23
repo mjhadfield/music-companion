@@ -1,13 +1,8 @@
 import { initKit } from '/vendor/citadel-kit/kit.js';
 
-const DEFAULT_ORIGINS = [
-  'http://192.168.0.66:8080',
-  'http://127.0.0.1:8080',
-  'http://localhost:8080',
-  'http://100.127.118.96:8080',
-];
-
-const kit = initKit({ origins: DEFAULT_ORIGINS, storagePrefix: 'mc-explore' });
+// Allowed Citadel origins come from /api/schema (app.js calls mcKit.addOrigins);
+// kit.js queues any early postMessage until addOrigins() arrives.
+const kit = initKit({ origins: [], storagePrefix: 'mc-explore' });
 window.mcKit = kit;
 
 const btn = document.getElementById('theme-toggle');
