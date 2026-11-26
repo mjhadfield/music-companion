@@ -55,8 +55,11 @@ def snapshot(conn):
 
 
 def run_step(label: str, args: list[str]) -> None:
-    print(f"\n{'=' * 60}\n{label}\n{'=' * 60}")
-    subprocess.run([sys.executable, *args], cwd=ROOT, check=True)
+    print(f"\n{'=' * 60}\n{label}\n{'=' * 60}", flush=True)
+    # Propagate the child's exit code without printing a wrapper CalledProcessError traceback over the real error line.
+    r = subprocess.run([sys.executable, *args], cwd=ROOT)
+    if r.returncode:
+        raise SystemExit(r.returncode)
 
 
 def find_possible_duplicate(name: str, existing_names: set[str]) -> str | None:

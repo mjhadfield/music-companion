@@ -257,6 +257,27 @@ class LastfmPullTests(unittest.TestCase):
         self.assertEqual((n, m.call_count), (1, 1))  # REL[1] is already known; REL[2] only once
         conn.close()
 
+    def test_lastfm_http_error_message_hides_api_key(self):
+        fake_resp = mock.MagicMock(status_code=500)
+        fake_resp.json.return_value = {"message": "Operation failed", "error": 8}
+        fake_session = mock.MagicMock()
+        fake_session.get.return_value = fake_resp
+        with mock.patch.object(lastfm_pull.time, "sleep"), mock.patch("builtins.print"):
+            with self.assertRaises(RuntimeError) as ctx:
+                lastfm_pull.fetch_page(fake_session, "SUPER_SECRET_KEY", "mike", 1, None)
+        msg = str(ctx.exception)
+        self.assertIn("Last.fm returned HTTP 500", msg)
+        self.assertIn("Operation failed (error 8)", msg)
+        self.assertNotIn("SUPER_SECRET_KEY", msg)
+
+    def test_refresh_run_step_exits_cleanly_without_called_process_error(self):
+        import refresh
+        fake_res = mock.MagicMock(returncode=1)
+        with mock.patch.object(refresh.subprocess, "run", return_value=fake_res), mock.patch("builtins.print"):
+            with self.assertRaises(SystemExit) as ctx:
+                refresh.run_step("Last.fm", ["etl/lastfm_pull.py"])
+        self.assertEqual(ctx.exception.code, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

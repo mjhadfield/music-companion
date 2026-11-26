@@ -41,6 +41,19 @@ RESOLVE_LIMIT = 150            # default cap on new MusicBrainz release lookups 
 EARLIEST_PLAUSIBLE = datetime(2002, 1, 1, tzinfo=timezone.utc)  # Last.fm/Audioscrobbler didn't exist before this
 
 
+def _raise_http_error(resp: requests.Response) -> None:
+    """Raise a plain error without the request URL (which carries api_key in its query string)."""
+    detail = ""
+    try:
+        body = resp.json()
+        if isinstance(body, dict) and body.get("message"):
+            code = f" (error {body['error']})" if body.get("error") is not None else ""
+            detail = f" — {body['message']}{code}"
+    except ValueError:
+        pass
+    raise RuntimeError(f"Last.fm returned HTTP {resp.status_code}{detail}")
+
+
 def fetch_page(session: requests.Session, api_key: str, username: str, page: int, from_ts: int | None) -> dict:
     params = {
         "method": "user.getrecenttracks",
@@ -60,11 +73,11 @@ def fetch_page(session: requests.Session, api_key: str, username: str, page: int
             return resp.json()
         if resp.status_code in (429, 500, 502, 503):
             wait = 2 ** attempt
-            print(f"  ... got HTTP {resp.status_code}, retrying in {wait}s")
+            print(f"  ... got HTTP {resp.status_code}, retrying in {wait}s", flush=True)
             time.sleep(wait)
             continue
-        resp.raise_for_status()
-    resp.raise_for_status()
+        _raise_http_error(resp)
+    _raise_http_error(resp)
 
 
 def most_recent_played_at(conn) -> int | None:
